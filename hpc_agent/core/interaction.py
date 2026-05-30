@@ -53,11 +53,23 @@ from hpc_agent.tools.slurm import (
     usage_report,
 )
 from hpc_agent.tools.spack import (
+    BuildcacheIn,
+    CreateViewIn,
     FindIn,
+    GenModulesIn,
+    InstallIn,
     ListEnvsIn,
+    ManageCompilersIn,
+    ManageEnvIn,
     SpecIn,
+    create_view,
     find,
+    generate_modules,
+    install_packages,
     list_envs,
+    manage_buildcache,
+    manage_compilers,
+    manage_environment,
     spec,
 )
 
@@ -178,6 +190,98 @@ def spack_find_cmd(env: str, role: str = typer.Option("viewer")) -> None:
 def spack_spec_cmd(spec_text: str, role: str = typer.Option("viewer")) -> None:
     """Preview concretization for a Spack spec."""
     result = spec(SpecIn(spec=spec_text), actor="cli-user", actor_role=Role(role))
+    typer.echo(result.model_dump_json(indent=2))
+
+
+@app.command("spack-compilers")
+def spack_compilers_cmd(
+    op: str = typer.Option("find", help="Operation: find or add"),
+    scope: str = typer.Option("site", help="Scope: site or env"),
+    path: str = typer.Option(None, help="Compiler path for add operation"),
+    env: str = typer.Option(None, help="Environment name (for env scope)"),
+    apply: bool = typer.Option(False, help="Actually apply (default is dry-run)."),
+    role: str = typer.Option("operator"),
+) -> None:
+    """Find or add compilers to Spack (dry-run unless --apply)."""
+    policy = PolicyEngine.from_dir(f"{settings.config_repo}/policy")
+    inp = ManageCompilersIn(op=op, scope=scope, path=path, env=env, dry_run=not apply)
+    result = manage_compilers(inp, actor="cli-user", actor_role=Role(role), policy=policy)
+    typer.echo(result.model_dump_json(indent=2))
+
+
+@app.command("spack-env")
+def spack_env_cmd(
+    name: str = typer.Argument(..., help="Environment name"),
+    op: str = typer.Option("create", help="Operation: create, add_specs, remove_specs"),
+    specs: list[str] | None = None,
+    apply: bool = typer.Option(False, help="Actually apply (default is dry-run)."),
+    role: str = typer.Option("operator"),
+) -> None:
+    """Create or modify a Spack environment (dry-run unless --apply)."""
+    policy = PolicyEngine.from_dir(f"{settings.config_repo}/policy")
+    inp = ManageEnvIn(name=name, op=op, specs=specs or [], dry_run=not apply)
+    result = manage_environment(inp, actor="cli-user", actor_role=Role(role), policy=policy)
+    typer.echo(result.model_dump_json(indent=2))
+
+
+@app.command("spack-buildcache")
+def spack_buildcache_cmd(
+    op: str = typer.Argument(..., help="Operation: push, update_index, add_mirror"),
+    mirror: str = typer.Argument(..., help="Mirror path or URL"),
+    env: str = typer.Option(None, help="Spack environment (for push)"),
+    signing_key_ref: str = typer.Option(None, help="GPG key reference"),
+    apply: bool = typer.Option(False, help="Actually apply (default is dry-run)."),
+    role: str = typer.Option("operator"),
+) -> None:
+    """Manage Spack buildcache (push/update/add_mirror, dry-run unless --apply)."""
+    policy = PolicyEngine.from_dir(f"{settings.config_repo}/policy")
+    inp = BuildcacheIn(
+        op=op, mirror=mirror, env=env, signing_key_ref=signing_key_ref, dry_run=not apply
+    )
+    result = manage_buildcache(inp, actor="cli-user", actor_role=Role(role), policy=policy)
+    typer.echo(result.model_dump_json(indent=2))
+
+
+@app.command("spack-modules")
+def spack_modules_cmd(
+    env: str = typer.Argument(..., help="Spack environment name"),
+    module_type: str = typer.Option("lmod", help="Module type: lmod or tcl"),
+    apply: bool = typer.Option(False, help="Actually apply (default is dry-run)."),
+    role: str = typer.Option("operator"),
+) -> None:
+    """Generate Lmod/Tcl modulefiles for a Spack environment (dry-run unless --apply)."""
+    policy = PolicyEngine.from_dir(f"{settings.config_repo}/policy")
+    inp = GenModulesIn(env=env, module_type=module_type, dry_run=not apply)
+    result = generate_modules(inp, actor="cli-user", actor_role=Role(role), policy=policy)
+    typer.echo(result.model_dump_json(indent=2))
+
+
+@app.command("spack-view")
+def spack_view_cmd(
+    env: str = typer.Argument(..., help="Spack environment name"),
+    prefix: str = typer.Option(None, help="View prefix path (default: env default)"),
+    apply: bool = typer.Option(False, help="Actually apply (default is dry-run)."),
+    role: str = typer.Option("operator"),
+) -> None:
+    """Create/enable a filesystem view for a Spack environment (dry-run unless --apply)."""
+    policy = PolicyEngine.from_dir(f"{settings.config_repo}/policy")
+    inp = CreateViewIn(env=env, prefix=prefix, dry_run=not apply)
+    result = create_view(inp, actor="cli-user", actor_role=Role(role), policy=policy)
+    typer.echo(result.model_dump_json(indent=2))
+
+
+@app.command("spack-install")
+def spack_install_cmd(
+    env: str = typer.Argument(..., help="Spack environment name"),
+    use_buildcache: bool = typer.Option(True, help="Use buildcache if available"),
+    jobs: int = typer.Option(16, help="Number of parallel jobs"),
+    apply: bool = typer.Option(False, help="Actually apply (default is dry-run)."),
+    role: str = typer.Option("operator"),
+) -> None:
+    """Install Spack packages in an environment (dry-run unless --apply)."""
+    policy = PolicyEngine.from_dir(f"{settings.config_repo}/policy")
+    inp = InstallIn(env=env, use_buildcache=use_buildcache, jobs=jobs, dry_run=not apply)
+    result = install_packages(inp, actor="cli-user", actor_role=Role(role), policy=policy)
     typer.echo(result.model_dump_json(indent=2))
 
 

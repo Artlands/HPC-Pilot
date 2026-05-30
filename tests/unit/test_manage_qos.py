@@ -46,8 +46,7 @@ def _patch_runner(monkeypatch: pytest.MonkeyPatch, runner: FakeRunner) -> None:
 
 
 GPU_ROW = (
-    "Name|Priority|MaxWall|MaxJobsPU|MaxTRES|MaxTRESPU|GrpTRES\n"
-    "gpu|100|1-00:00:00||gres/gpu=8||\n"
+    "Name|Priority|MaxWall|MaxJobsPU|MaxTRES|MaxTRESPU|GrpTRES\ngpu|100|1-00:00:00||gres/gpu=8||\n"
 )
 
 

@@ -1,0 +1,13 @@
+<network>
+  <name>hpc-cluster</name>
+  <bridge name="virbr1" stp="on" delay="0"/>
+  <ip address="192.168.122.1" netmask="255.255.255.0">
+    <dhcp>
+      <range start="192.168.122.10" end="192.168.122.250"/>
+      <host name="mgmt" ip="192.168.122.10"/>
+      <host name="login01" ip="192.168.122.20"/>
+      <host name="cpu01" ip="192.168.122.30"/>
+      <host name="gpu01" ip="192.168.122.40"/>
+    </dhcp>
+  </ip>
+</network>

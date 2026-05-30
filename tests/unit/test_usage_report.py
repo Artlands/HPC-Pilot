@@ -10,8 +10,7 @@ from hpc_agent.tools.result import ToolStatus
 from hpc_agent.tools.slurm import UsageReportIn, usage_report
 
 USAGE_ROWS = (
-    "Cluster|Login|Proper Name|Account|Used|Energy\n"
-    "cluster|alice|Alice User|research|3600|0\n"
+    "Cluster|Login|Proper Name|Account|Used|Energy\ncluster|alice|Alice User|research|3600|0\n"
 )
 
 

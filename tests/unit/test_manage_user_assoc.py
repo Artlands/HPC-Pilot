@@ -15,12 +15,10 @@ from hpc_agent.tools.slurm import ManageUserAssocIn, manage_user_assoc
 POLICY_DIR = Path(__file__).resolve().parents[2] / "config_repo" / "policy"
 
 QOS_GPU_ROW = (
-    "Name|Priority|MaxWall|MaxJobsPU|MaxTRES|MaxTRESPU|GrpTRES\n"
-    "gpu|100|1-00:00:00||gres/gpu=8||\n"
+    "Name|Priority|MaxWall|MaxJobsPU|MaxTRES|MaxTRESPU|GrpTRES\ngpu|100|1-00:00:00||gres/gpu=8||\n"
 )
 QOS_NORMAL_ROW = (
-    "Name|Priority|MaxWall|MaxJobsPU|MaxTRES|MaxTRESPU|GrpTRES\n"
-    "normal|1|1-00:00:00||||\n"
+    "Name|Priority|MaxWall|MaxJobsPU|MaxTRES|MaxTRESPU|GrpTRES\nnormal|1|1-00:00:00||||\n"
 )
 ASSOC_ROW = "User|Account|QOS|DefaultQOS|FairShare\nalice|research|normal|normal|100\n"
 

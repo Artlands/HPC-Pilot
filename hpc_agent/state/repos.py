@@ -17,6 +17,8 @@ from hpc_agent.state.models import (
     Node,
     NodeRole,
     NodeState,
+    Partition,
+    PartitionMember,
     UserAssoc,
 )
 
@@ -132,3 +134,30 @@ class SlurmRepo:
                     setattr(assoc, k, v)
         self.s.flush()
         return assoc
+
+    # --- partitions ---
+    def get_partition(self, name: str) -> Partition | None:
+        return self.s.scalar(select(Partition).where(Partition.name == name))
+
+    def upsert_partition(self, name: str, **fields: object) -> Partition:
+        partition = self.get_partition(name)
+        if partition is None:
+            partition = Partition(name=name, **fields)
+            self.s.add(partition)
+        else:
+            for k, v in fields.items():
+                if v is not None:
+                    setattr(partition, k, v)
+        self.s.flush()
+        return partition
+
+    def add_partition_member(self, partition_name: str, node_hostname: str) -> None:
+        """Add a node to a partition."""
+        partition = self.get_partition(partition_name)
+        if partition is None:
+            raise ValueError(f"Partition {partition_name} not found")
+        node = self.s.scalar(select(Node).where(Node.hostname == node_hostname))
+        if node is None:
+            raise ValueError(f"Node {node_hostname} not found")
+        self.s.add(PartitionMember(partition_id=partition.id, node_id=node.id))
+        self.s.flush()

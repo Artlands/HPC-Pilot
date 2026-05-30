@@ -10,7 +10,7 @@ This is the canonical pattern every other mutating tool should follow.
 from __future__ import annotations
 
 import json
-from typing import Literal
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
@@ -22,7 +22,7 @@ from hpc_agent.safety import gate as safety_gate
 from hpc_agent.safety.diff import Change, Diff
 from hpc_agent.safety.policy import PolicyEngine
 from hpc_agent.state.db import session_scope
-from hpc_agent.state.models import NodeState
+from hpc_agent.state.models import NodeState, Partition
 from hpc_agent.state.repos import NodeRepo, SlurmRepo
 from hpc_agent.tools.base import Risk, get_tool, tool
 from hpc_agent.tools.errors import ErrorKind, ToolError
@@ -270,9 +270,7 @@ def _read_nodes(inp: NodeStatusIn, *, actor: str, audit_id: str) -> list[dict[st
     return [node for node in nodes if isinstance(node, dict)]
 
 
-def _read_reservation(
-    name: str, *, actor: str, audit_id: str
-) -> dict[str, object] | None:
+def _read_reservation(name: str, *, actor: str, audit_id: str) -> dict[str, object] | None:
     res = run_command(
         CommandSpec(argv=[SCONTROL, "show", "reservation", name, "--json"], timeout_s=30),
         actor=actor,
@@ -411,9 +409,7 @@ def _desired_changes(inp: ManageQOSIn, current: dict[str, str] | None) -> list[C
     return changes
 
 
-def _account_desired_changes(
-    inp: ExtendAccountIn, current: dict[str, str] | None
-) -> list[Change]:
+def _account_desired_changes(inp: ExtendAccountIn, current: dict[str, str] | None) -> list[Change]:
     changes: list[Change] = []
     target = f"account/{inp.name}"
 
@@ -564,9 +560,7 @@ def _reservation_desired_changes(
         return []
     changes = [Change(target=target, op="create", after=inp.name)]
     if inp.nodes is not None:
-        changes.append(
-            Change(target=target, field="nodes", op="modify", after=",".join(inp.nodes))
-        )
+        changes.append(Change(target=target, field="nodes", op="modify", after=",".join(inp.nodes)))
     if inp.start is not None:
         changes.append(Change(target=target, field="start", op="modify", after=inp.start))
     if inp.duration_min is not None:
@@ -574,9 +568,7 @@ def _reservation_desired_changes(
             Change(target=target, field="duration_min", op="modify", after=str(inp.duration_min))
         )
     if inp.users is not None:
-        changes.append(
-            Change(target=target, field="users", op="modify", after=",".join(inp.users))
-        )
+        changes.append(Change(target=target, field="users", op="modify", after=",".join(inp.users)))
     if inp.flags:
         changes.append(Change(target=target, field="flags", op="modify", after=",".join(inp.flags)))
     return changes
@@ -672,9 +664,7 @@ def _assoc_target_qos(inp: ManageUserAssocIn, current: dict[str, str] | None) ->
     return None
 
 
-def _assoc_desired_changes(
-    inp: ManageUserAssocIn, current: dict[str, str] | None
-) -> list[Change]:
+def _assoc_desired_changes(inp: ManageUserAssocIn, current: dict[str, str] | None) -> list[Change]:
     changes: list[Change] = []
     target = f"assoc/{inp.user}@{inp.account}"
 
@@ -862,9 +852,7 @@ def _inverse_argv(inp: ManageQOSIn, current: dict[str, str] | None) -> list[list
     return [[SACCTMGR, "-i", "modify", "qos", inp.name, "set", *restore]]
 
 
-def _account_inverse_argv(
-    inp: ExtendAccountIn, current: dict[str, str] | None
-) -> list[list[str]]:
+def _account_inverse_argv(inp: ExtendAccountIn, current: dict[str, str] | None) -> list[list[str]]:
     if inp.op == "create":
         return [[SACCTMGR, "-i", "delete", "account", inp.name]]
     if current is None:
@@ -1727,9 +1715,7 @@ def manage_reservation(
     audit_id = event.id
 
     try:
-        if inp.op == "create" and (
-            not inp.nodes or inp.start is None or inp.duration_min is None
-        ):
+        if inp.op == "create" and (not inp.nodes or inp.start is None or inp.duration_min is None):
             raise _precondition("create requires nodes, start, and duration_min")
 
         current = _read_reservation(inp.name, actor=actor, audit_id=audit_id)
@@ -2152,3 +2138,584 @@ def _decision_str(g: safety_gate.Gate) -> str:
     if g.approved:
         return f"approved-by:{g.approver or 'unknown'}"
     return "auto"
+
+
+# --- Partition tools (spec 05 §2.1-2.2) ---
+
+
+class ManagePartitionIn(BaseModel):
+    name: str
+    op: Literal["create", "modify"]
+    nodes: list[str] | None = None
+    default: bool | None = None
+    max_time_min: int | None = None
+    default_qos: str | None = None
+    allow_qos: list[str] | None = None
+    state: Literal["UP", "DOWN", "DRAIN"] | None = None
+    dry_run: bool = True
+
+
+class AddNodeToPartitionIn(BaseModel):
+    node: str
+    partition: str
+    features: list[str] = []
+    gres: str | None = None
+    dry_run: bool = True
+
+
+def _partition_blast_radius(inp: BaseModel) -> int:
+    if isinstance(inp, ManagePartitionIn):
+        return 1
+    if isinstance(inp, AddNodeToPartitionIn):
+        return 1
+    return 0
+
+
+def _read_slurm_conf(selector: str, actor: str, audit_id: str) -> str:
+    """Read slurm.conf from config repo."""
+    from hpc_agent.state.configrepo import get_config_repo
+
+    repo = get_config_repo()
+    try:
+        return repo.read("slurm/slurm.conf")
+    except FileNotFoundError:
+        return ""
+
+
+def _parse_partition_slurm_line(line: str) -> dict[str, Any]:
+    """Parse a PartitionName line from slurm.conf."""
+    result: dict[str, Any] = {}
+    parts = line.split()
+    for part in parts:
+        if "=" in part:
+            key, val = part.split("=", 1)
+            if key == "Nodes":
+                result["nodes"] = val.split(",")
+            elif key == "MaxTime":
+                result["max_time"] = val
+            elif key == "DefQOS":
+                result["default_qos"] = val
+            elif key == "AllowQOS":
+                result["allow_qos"] = val.split(",")
+            elif key == "State":
+                result["state"] = val
+    return result
+
+
+def _build_partition_line(name: str, cfg: dict[str, Any]) -> str:
+    """Build a PartitionName line from config."""
+    parts = [f"PartitionName={name}"]
+    if cfg.get("nodes"):
+        parts.append(f"Nodes={','.join(cfg['nodes'])}")
+    if cfg.get("max_time"):
+        parts.append(f"MaxTime={cfg['max_time']}")
+    if cfg.get("default_qos"):
+        parts.append(f"DefQOS={cfg['default_qos']}")
+    if cfg.get("allow_qos"):
+        parts.append(f"AllowQOS={','.join(cfg['allow_qos'])}")
+    if cfg.get("default"):
+        parts.append("Default=YES")
+    if cfg.get("state"):
+        parts.append(f"State={cfg['state']}")
+    return " ".join(parts)
+
+
+@tool(
+    name="slurm.manage_partition",
+    risk=Risk.MEDIUM,
+    domain="slurm",
+    blast_radius=_partition_blast_radius,
+)
+def manage_partition(
+    inp: ManagePartitionIn,
+    *,
+    actor: str,
+    actor_role: Role = Role.OPERATOR,
+    policy: PolicyEngine | None = None,
+) -> ToolResult:
+    """Create or modify a Slurm partition definition in slurm.conf.
+
+    This tool edits the slurm.conf file in the config repo and
+    triggers slurmctld reconfigure to apply changes.
+    """
+    meta, _fn, _br = get_tool("slurm.manage_partition")
+    event = audit.new_event(
+        actor=actor,
+        tool=meta.name,
+        risk=meta.risk.value,
+        input=inp.model_dump(exclude={"dry_run"}),
+    )
+    audit_id = event.id
+
+    try:
+        from hpc_agent.state.configrepo import get_config_repo
+
+        repo = get_config_repo()
+
+        # Read current slurm.conf
+        current_conf = _read_slurm_conf("partition", actor, audit_id)
+
+        # Parse existing partition or prepare new definition
+        lines = current_conf.splitlines()
+        partition_lines = [line for line in lines if line.startswith("PartitionName=")]
+        existing_cfg: dict[str, Any] = {}
+
+        for line in partition_lines:
+            if line.startswith(f"PartitionName={inp.name}"):
+                existing_cfg = _parse_partition_slurm_line(line)
+                break
+
+        # Compute desired state
+        desired_cfg = dict(existing_cfg)
+        if inp.nodes is not None:
+            desired_cfg["nodes"] = inp.nodes
+        if inp.default is not None:
+            desired_cfg["default"] = inp.default
+        if inp.max_time_min is not None:
+            # Convert minutes to D-HH:MM:SS format
+            days = inp.max_time_min // 1440
+            hours = (inp.max_time_min % 1440) // 60
+            minutes = inp.max_time_min % 60
+            if days:
+                desired_cfg["max_time"] = f"{days}-{hours:02}:{minutes:02}:00"
+            else:
+                desired_cfg["max_time"] = f"{hours:02}:{minutes:02}:00"
+        if inp.default_qos is not None:
+            desired_cfg["default_qos"] = inp.default_qos
+        if inp.allow_qos is not None:
+            desired_cfg["allow_qos"] = inp.allow_qos
+        if inp.state is not None:
+            desired_cfg["state"] = inp.state
+
+        # Build new partition line
+        new_line = _build_partition_line(inp.name, desired_cfg)
+
+        # Update configuration
+        new_lines = []
+        updated = False
+        for line in lines:
+            if line.startswith(f"PartitionName={inp.name}"):
+                new_lines.append(new_line)
+                updated = True
+            else:
+                new_lines.append(line)
+
+        if not updated:
+            new_lines.append(new_line)
+
+        # Write new config
+        new_conf = "\n".join(new_lines)
+
+        # Validate configuration
+        import os
+        import tempfile
+
+        with tempfile.NamedTemporaryFile(
+            mode="w", suffix=".slurm.conf", delete=False
+        ) as tmp:
+            tmp.write(new_conf)
+            tmp_path = tmp.name
+
+        try:
+            validate_cmd = [f"{settings.slurm_bin_dir}/slurmctld", "-t", "-f", tmp_path]
+            res = run_command(
+                CommandSpec(argv=validate_cmd, timeout_s=30),
+                actor=actor,
+                audit_id=audit_id,
+            )
+            if res.rc != 0:
+                raise _precondition(
+                    f"slurm.conf validation failed: {res.stderr}"
+                )
+        finally:
+            os.unlink(tmp_path)
+
+        # Compute diff
+        changes = []
+        if existing_cfg:
+            if desired_cfg.get("max_time") != existing_cfg.get("max_time"):
+                changes.append(
+                    Change(
+                        target=f"partition/{inp.name}",
+                        field="max_time_min",
+                        before=existing_cfg.get("max_time"),
+                        after=desired_cfg.get("max_time"),
+                        op="modify",
+                    )
+                )
+        else:
+            changes.append(
+                Change(
+                    target=f"partition/{inp.name}",
+                    field=None,
+                    before=None,
+                    after="created",
+                    op="create",
+                )
+            )
+
+        diff = Diff(
+            changes=changes,
+            commands_preview=[
+                redacted_argv(
+                    CommandSpec(
+                        argv=[f"{settings.slurm_bin_dir}/slurmctld", "-t", "-f", "<tmp>"]
+                    )
+                )
+            ],
+            config_diff=repo.diff() if hasattr(repo, "diff") else None,
+            blast_radius=_partition_blast_radius(inp),
+            reversible=True,
+        )
+
+        event.diff_summary = f"partition {inp.op} {inp.name}"
+
+        g = safety_gate.evaluate(
+            meta,
+            inp.model_dump(),
+            diff,
+            actor_role=actor_role,
+            policy=policy,
+            op=inp.op,
+        )
+        if g.denied:
+            event.decision = "denied"
+            event.diff_summary = diff.render()
+            event.result_status = "denied"
+            audit.commit_event(event)
+            return ToolResult.denied(g.reason or "denied by policy")
+
+        if inp.dry_run:
+            event.decision = "dry_run"
+            event.diff_summary = diff.render()
+            event.result_status = "dry_run"
+            audit.commit_event(event)
+            return ToolResult.dry_run(diff)
+
+        if g.requires_approval and not g.approved:
+            event.decision = "needs_approval"
+            event.diff_summary = diff.render()
+            event.result_status = "needs_approval"
+            audit.commit_event(event)
+            return ToolResult.needs_approval(diff)
+
+        # Commit config changes
+        repo.stage("slurm/slurm.conf", new_conf)
+        config_commit = repo.commit(f"Update partition {inp.name}")
+
+        # Update partition model in state store
+        with session_scope() as session:
+            slurm_repo = SlurmRepo(session)
+            partition = slurm_repo.get_partition(inp.name)
+            if inp.op == "create" and partition is None:
+                partition = Partition(name=inp.name)
+                session.add(partition)
+
+            if partition is not None:
+                if inp.default is not None:
+                    partition.is_default = inp.default
+                if inp.max_time_min is not None:
+                    partition.max_time_min = inp.max_time_min
+                if inp.default_qos is not None:
+                    partition.default_qos = inp.default_qos
+            session.commit()
+
+        # Reconfigure slurm controller
+        res = run_command(
+            CommandSpec(
+                argv=[f"{settings.slurm_bin_dir}/scontrol", "reconfigure"],
+                timeout_s=60,
+            ),
+            actor=actor,
+            audit_id=audit_id,
+        )
+        if res.rc != 0:
+            event.decision = "auto"
+            event.diff_summary = diff.render()
+            event.result_status = "error"
+            audit.commit_event(event)
+            return ToolResult.failed(
+                ToolError(
+                    kind=ErrorKind.COMMAND_FAILED,
+                    message=f"scontrol reconfigure failed (rc={res.rc})",
+                    detail=res.stderr,
+                    remediation="check slurmctld status",
+                )
+            )
+
+        event.decision = "auto"
+        event.diff_summary = diff.render()
+        event.result_status = "ok"
+        audit.commit_event(event)
+
+        return ToolResult.success(
+            data={
+                "partition": inp.name,
+                "op": inp.op,
+                "config_commit": config_commit,
+            },
+            diff=diff,
+            audit_id=audit_id,
+        )
+
+    except _ToolBoundaryError as exc:
+        event.result_status = "error"
+        event.decision = "error"
+        audit.commit_event(event)
+        return ToolResult.failed(exc.error)
+
+
+@tool(
+    name="slurm.add_node_to_partition",
+    risk=Risk.MEDIUM,
+    domain="slurm",
+    blast_radius=_partition_blast_radius,
+)
+def add_node_to_partition(
+    inp: AddNodeToPartitionIn,
+    *,
+    actor: str,
+    actor_role: Role = Role.OPERATOR,
+    policy: PolicyEngine | None = None,
+) -> ToolResult:
+    """Add a node to a partition and configure its NodeName line in slurm.conf.
+
+    This tool updates both the slurm.conf NodeName line for a node and
+    adds it to the partition's Nodes list.
+    """
+    meta, _fn, _br = get_tool("slurm.add_node_to_partition")
+    event = audit.new_event(
+        actor=actor,
+        tool=meta.name,
+        risk=meta.risk.value,
+        input=inp.model_dump(exclude={"dry_run"}),
+    )
+    audit_id = event.id
+
+    try:
+        from hpc_agent.state.configrepo import get_config_repo
+        from hpc_agent.state.repos import NodeRepo
+
+        repo = get_config_repo()
+
+        # Read current slurm.conf
+        current_conf = _read_slurm_conf("partition", actor, audit_id)
+
+        # Get node info from state store
+        from hpc_agent.state.db import session_scope
+        from hpc_agent.state.models import Partition
+
+        with session_scope() as session:
+            node_repo = NodeRepo(session)
+            node = node_repo.get(inp.node)
+            if node is None:
+                raise _precondition(
+                    f"node '{inp.node}' not found in state store"
+                )
+
+            # Get partition
+            partition = session.query(Partition).filter_by(name=inp.partition).first()
+            if partition is None:
+                raise _precondition(
+                    f"partition '{inp.partition}' does not exist"
+                )
+
+            slurm_repo = SlurmRepo(session)
+
+            # Build NodeName line with hw info
+            node_line = f"NodeName={node.hostname}"
+            if node.cpu_count:
+                node_line += f" CPUs={node.cpu_count}"
+            if node.mem_mb:
+                node_line += f" RealMemory={node.mem_mb}"
+            if node.gpu_count:
+                gres = inp.gres or f"gpu:{node.gpu_model or 'gpu'}:{node.gpu_count}"
+                node_line += f" Gres={gres}"
+            if node.features:
+                node_line += f" Features={node.features}"
+            if inp.features:
+                node_line += f" Features={','.join(inp.features)}"
+            node_line += " State=UNKNOWN"
+
+            # Read existing NodeName lines
+            lines = current_conf.splitlines()
+            # node_lines = [line for line in lines if line.startswith("NodeName=")]
+            partition_lines = [line for line in lines if line.startswith("PartitionName=")]
+
+            # Update or add NodeName line
+            new_lines = []
+            node_line_updated = False
+            for line in lines:
+                if line.startswith(f"NodeName={inp.node}"):
+                    new_lines.append(node_line)
+                    node_line_updated = True
+                else:
+                    new_lines.append(line)
+
+            if not node_line_updated:
+                new_lines.append(node_line)
+
+            # Update partition's Nodes list
+            updated_partition_lines = []
+            for line in partition_lines:
+                if line.startswith(f"PartitionName={inp.partition}"):
+                    # Parse existing nodes and add our node
+                    existing = _parse_partition_slurm_line(line)
+                    partition_nodes = set(existing.get("nodes", []))
+                    if inp.node not in partition_nodes:
+                        partition_nodes.add(inp.node)
+                        existing["nodes"] = sorted(partition_nodes)
+                    new_line = _build_partition_line(inp.partition, existing)
+                    updated_partition_lines.append(new_line)
+                else:
+                    updated_partition_lines.append(line)
+
+            new_conf = "\n".join(updated_partition_lines)
+
+            # Validate
+            import os
+            import tempfile
+
+            with tempfile.NamedTemporaryFile(
+                mode="w", suffix=".slurm.conf", delete=False
+            ) as tmp:
+                tmp.write(new_conf)
+                tmp_path = tmp.name
+
+            try:
+                res = run_command(
+                    CommandSpec(
+                        argv=[
+                            f"{settings.slurm_bin_dir}/slurmctld",
+                            "-t",
+                            "-f",
+                            tmp_path,
+                        ],
+                        timeout_s=30,
+                    ),
+                    actor=actor,
+                    audit_id=audit_id,
+                )
+                if res.rc != 0:
+                    raise _precondition(
+                        f"slurm.conf validation failed: {res.stderr}"
+                    )
+            finally:
+                os.unlink(tmp_path)
+
+            # Compute diff
+            changes = [
+                Change(
+                    target=f"node/{inp.node}",
+                    field=None,
+                    before=None,
+                    after=f"added to partition {inp.partition}",
+                    op="add_to_partition",
+                )
+            ]
+
+            diff = Diff(
+                changes=changes,
+                commands_preview=[
+                    redacted_argv(
+                        CommandSpec(
+                            argv=[
+                                f"{settings.slurm_bin_dir}/slurmctld",
+                                "-t",
+                                "-f",
+                                "<tmp>",
+                            ]
+                        )
+                    )
+                ],
+                config_diff=repo.diff() if hasattr(repo, "diff") else None,
+                blast_radius=_partition_blast_radius(inp),
+                reversible=True,
+            )
+
+            event.diff_summary = (
+                f"node {inp.node} -> partition {inp.partition}"
+            )
+
+            g = safety_gate.evaluate(
+                meta,
+                inp.model_dump(),
+                diff,
+                actor_role=actor_role,
+                policy=policy,
+                op="add",
+            )
+            if g.denied:
+                event.decision = "denied"
+                event.diff_summary = diff.render()
+                event.result_status = "denied"
+                audit.commit_event(event)
+                return ToolResult.denied(g.reason or "denied by policy")
+
+            if inp.dry_run:
+                event.decision = "dry_run"
+                event.diff_summary = diff.render()
+                event.result_status = "dry_run"
+                audit.commit_event(event)
+                return ToolResult.dry_run(diff)
+
+            if g.requires_approval and not g.approved:
+                event.decision = "needs_approval"
+                event.diff_summary = diff.render()
+                event.result_status = "needs_approval"
+                audit.commit_event(event)
+                return ToolResult.needs_approval(diff)
+
+            # Commit config
+            repo.stage("slurm/slurm.conf", new_conf)
+            config_commit = repo.commit(
+                f"Add {inp.node} to partition {inp.partition}"
+            )
+
+            # Update partition members in state store
+            slurm_repo.add_partition_member(inp.partition, inp.node)
+            session.commit()
+
+            # Reconfigure
+            res = run_command(
+                CommandSpec(
+                    argv=[f"{settings.slurm_bin_dir}/scontrol", "reconfigure"],
+                    timeout_s=60,
+                ),
+                actor=actor,
+                audit_id=audit_id,
+            )
+            if res.rc != 0:
+                event.decision = "auto"
+                event.diff_summary = diff.render()
+                event.result_status = "error"
+                audit.commit_event(event)
+                return ToolResult.failed(
+                    ToolError(
+                        kind=ErrorKind.COMMAND_FAILED,
+                        message=f"scontrol reconfigure failed (rc={res.rc})",
+                        detail=res.stderr,
+                        remediation="check slurmctld status",
+                    )
+                )
+
+            event.decision = "auto"
+            event.diff_summary = diff.render()
+            event.result_status = "ok"
+            audit.commit_event(event)
+
+            return ToolResult.success(
+                data={
+                    "node": inp.node,
+                    "partition": inp.partition,
+                    "config_commit": config_commit,
+                },
+                diff=diff,
+                audit_id=audit_id,
+            )
+
+    except _ToolBoundaryError as exc:
+        event.result_status = "error"
+        event.decision = "error"
+        audit.commit_event(event)
+        return ToolResult.failed(exc.error)

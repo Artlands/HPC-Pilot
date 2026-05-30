@@ -16,8 +16,7 @@ from hpc_agent.safety.policy import PolicyEngine
 POLICY_DIR = Path(__file__).resolve().parents[2] / "config_repo" / "policy"
 
 GPU_ROW = (
-    "Name|Priority|MaxWall|MaxJobsPU|MaxTRES|MaxTRESPU|GrpTRES\n"
-    "gpu|100|1-00:00:00||gres/gpu=8||\n"
+    "Name|Priority|MaxWall|MaxJobsPU|MaxTRES|MaxTRESPU|GrpTRES\ngpu|100|1-00:00:00||gres/gpu=8||\n"
 )
 
 
@@ -65,9 +64,7 @@ def test_inpolicy_plan_runs_to_completion(
     assert out.step("s1").status == StepStatus.DONE
 
 
-def test_create_pauses_then_resumes(
-    monkeypatch: pytest.MonkeyPatch, policy: PolicyEngine
-) -> None:
+def test_create_pauses_then_resumes(monkeypatch: pytest.MonkeyPatch, policy: PolicyEngine) -> None:
     runner = FakeRunner(row=None)  # qos doesn't exist yet -> create
     _patch(monkeypatch, runner)
     step = Step(
@@ -88,9 +85,7 @@ def test_create_pauses_then_resumes(
     assert any("add" in c for c in runner.calls)  # executed after approval
 
 
-def test_outofpolicy_step_fails_plan(
-    monkeypatch: pytest.MonkeyPatch, policy: PolicyEngine
-) -> None:
+def test_outofpolicy_step_fails_plan(monkeypatch: pytest.MonkeyPatch, policy: PolicyEngine) -> None:
     _patch(monkeypatch, FakeRunner(GPU_ROW))
     step = Step(
         id="s1",
@@ -125,9 +120,7 @@ def test_dependent_step_skipped_after_failure(
     assert out.step("dep").status == StepStatus.SKIPPED
 
 
-def test_resume_rejects_changed_diff(
-    monkeypatch: pytest.MonkeyPatch, policy: PolicyEngine
-) -> None:
+def test_resume_rejects_changed_diff(monkeypatch: pytest.MonkeyPatch, policy: PolicyEngine) -> None:
     runner = FakeRunner(row=None)
     _patch(monkeypatch, runner)
     step = Step(

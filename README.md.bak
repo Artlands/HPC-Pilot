@@ -40,12 +40,7 @@ every other tool should be patterned after.
 | **Spack compiler tools** | 06 §1.3 | `hpc_agent/tools/spack.py` |
 | **Spack environment tools** | 06 §1.1 | `hpc_agent/tools/spack.py` |
 | **Spack modules/views** | 06 §1.5-1.6 | `hpc_agent/tools/spack.py` |
-| **Warewulf provisioning** | 03 §1 | `hpc_agent/tools/warewulf.py` |
-| **Control plane (git)** | 00 §2, 01 §5 | `hpc_agent/state/configrepo.py` |
-| **LLM planner** | 02 §2 | `hpc_agent/core/llm.py` |
-| **Workflows (core)** | 07 §1-9 | `hpc_agent/workflows/` |
 | CLI (`tools`/`qos`/`plan`/`spack-*`) | 02 §7 | `hpc_agent/core/interaction.py` |
-| Virtual cluster | 08 | `deploy/` |
 
 Sample policy lives in `config_repo/policy/`.
 
@@ -93,23 +88,10 @@ hpc-agent spack-compilers --op add --scope site --path /opt/gcc/bin --apply
 
 # generate Spack modulefiles
 hpc-agent spack-modules gpu-stack --module-type lmod
-# manage Spack environments (create/add/removespecs, dry-run unless --apply)
-hpc-agent spack-env my-env --op create
-hpc-agent spack-env my-env --op add_specs --specs "gcc@13" "openmpi"
-hpc-agent spack-env my-env --op remove_specs --specs "gcc@13" --apply
-
 hpc-agent spack-modules gpu-stack --module-type lmod --apply
 
 # create Spack filesystem view
 hpc-agent spack-view gpu-stack
-
-# manage Spack buildcache
-hpc-agent spack-buildcache push /path/to/mirror --op push
-
-# install packages
-hpc-agent spack-install gpu-stack
-hpc-agent spack-buildcache update-index /path/to/mirror --op update-index
-hpc-agent spack-buildcache add_mirror /path/to/mirror --op add_mirror --apply
 hpc-agent spack-view gpu-stack --prefix /opt/modules --apply
 
 # build a plan from a natural-language intent, then optionally execute it
@@ -167,27 +149,13 @@ no-op, not-found precondition, and inverse-command recording.
 ```bash
 ruff check hpc_agent tests   # lint
 mypy hpc_agent/              # strict type check (31 files)
-pytest                       # 142 unit tests (updated 31 tests)
+pytest                       # 132 unit tests (updated 21 tests)
 ```
 
-### Progress
+## Not yet implemented (next steps, per specs)
 
-| Component | Status | Spec |
-|-----------|--------|------|
-| **Warewulf tools** | ✅ Implemented | §03 (all) |
-| **Workflows** | ✅ Implemented | §07 (core) |
-| **Spack tools** | ✅ Implemented | §06 (all) |
-| **Ansible tools** | ✅ Implemented | §04 (all) |
-| **Slurm tools** | ✅ Implemented | §05 (all) |
-| **Core foundations** | ✅ Implemented | §00-02 |
-
-**Total: 100% of tool implementations (specs 03-06) complete.**
-
-## Still to implement (enhancements, not blockers)
-
-- LLM planner (`core/llm.py`) for natural language intent processing
-- Config-repo git wrapper + rollback (spec 00 §2, 01 §5)
-- Approval backends beyond CLI (spec 01 §3: Slack, API)
-- Virtual cluster + integration/eval suites (spec 08: deploy/, tests/integration/, tests/evals/)
-
-Running: `ruff check hpc_agent tests` ✅ | `mypy hpc_agent/` ✅ | `pytest` ✅ (142 tests)
+- Remaining Slurm tools, plus Warewulf / Ansible / Spack tools (specs 03–06).
+- The LLM planner (`core/llm.py`) implementing `build_plan` for open-ended intents; the
+  rule-based planner is the deterministic stand-in.
+- Config-repo git wrapper + rollback (spec 00 §2, 01 §5); approval backends beyond CLI.
+- Virtual cluster + integration/eval suites (spec 08).

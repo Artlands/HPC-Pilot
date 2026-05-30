@@ -41,7 +41,11 @@ ROLE_CAPS: dict[Role, set[str]] = {
         "ansible.manage_inventory",
         "ansible.manage_secret",
         "spack.query_*",
+        "spack.manage_compilers",
+        "spack.manage_environment",
         "spack.generate_modules",
+        "spack.create_view",
+        "spack.manage_buildcache",
     },
     Role.ADMIN: {"*"},
 }

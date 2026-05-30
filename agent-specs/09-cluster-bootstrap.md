@@ -14,20 +14,41 @@ hpcagent ALL=(root) NOPASSWD: /usr/bin/wwctl *
 ## 1. Prerequisites (operator responsibility)
 
 Before invoking bootstrap tools, an operator must have:
-1. Installed `warewulf-ohpc` (or equivalent) on the controller node.
-2. Confirmed the management NIC (`mgmt_interface`) carries the provisioning VLAN.
+1. Installed `warewulf` (or `warewulf-ohpc`) on the controller node.
+2. Confirmed the management NIC (`mgmt_interface`) carries the provisioning network and
+   that the controller holds the provisioning IP (`controller_ip`).
 3. Ensured `firewalld`/`iptables` allows DHCP (67/UDP), TFTP (69/UDP), and NFS
-   (2049/TCP) on the management interface.
+   (2049/TCP) on the management interface. Client-network restriction for NFS is
+   enforced by the `firewalld` role (spec 04), not by the NFS bootstrap tool.
 
-These are one-time, human-executed steps. The agent validates they are complete
-via `warewulf.server_status` but does not perform OS-level installation.
+These are one-time, human-executed steps. The agent validates Warewulf is present via
+`warewulf.server_status` but does not perform OS-level installation.
 
 ---
 
-## 2. Tools
+## 2. Config-as-code model
 
-### 2.1 `warewulf.server_status`
-Risk: READ. Validates that the Warewulf server is installed and running.
+Warewulf 4.x is driven by **`/etc/warewulf/warewulf.conf`** (YAML). The `wwctl configure
+<service>` subcommands take **no positional options** — they read warewulf.conf and
+(re)write the live dhcpd / TFTP / NFS configuration. Accordingly, each bootstrap tool:
+
+1. Reads the managed copy of `warewulf.conf` at `$CONFIG_REPO/warewulf/warewulf.conf`.
+2. Merges its section (`dhcp`, `tftp`, or `nfs`) into a copy.
+3. If the merged config is **unchanged**, returns `OK` with an empty diff and runs
+   nothing (idempotent no-op, spec 00 §3.4 step 3).
+4. Otherwise builds a `Diff` whose `config_diff` is the unified diff of warewulf.conf,
+   gates it (spec 01 §3), then on apply: stages + commits warewulf.conf to the config
+   repo and runs `wwctl configure <service>`.
+
+Revert (spec 01 §5 mechanism 1): restore the prior warewulf.conf commit and re-run
+`wwctl configure <service>`. All three tools are therefore `reversible=True`.
+
+---
+
+## 3. Tools
+
+### 3.1 `warewulf.server_status`
+Risk: READ. Validates that the Warewulf server is installed and reports service state.
 ```python
 class ServerStatusIn(BaseModel):
     pass
@@ -39,50 +60,54 @@ class ServerStatusOut(BaseModel):
     tftp_configured: bool
     nfs_configured: bool
 ```
-Command: `wwctl server status`. Parse structured output to fill `ServerStatusOut`.
-Returns `ErrorKind.PRECONDITION` if `wwctl` is not found; always succeeds otherwise
-(even if services are not running — the calling workflow checks `.running`).
+Returns `ErrorKind.PRECONDITION` if the `wwctl` binary is not found. Otherwise runs
+`wwctl server status` and best-effort parses the text into the service-state booleans
+(the calling workflow reads `.running`/`.*_configured`).
 
-### 2.2 `warewulf.configure_dhcp`
-Risk: HIGH (affects network boot for all nodes). Configures Warewulf's built-in
-DHCP server for the management network.
+### 3.2 `warewulf.configure_dhcp`
+Risk: HIGH (controls network boot for all nodes). **Always requires approval** — both via
+the HIGH risk tier (spec 01 §3) and an explicit policy rule (`config_repo/policy/warewulf.yaml`).
 ```python
 class ConfigureDhcpIn(BaseModel):
-    interface: str                    # management NIC, e.g. "eth0"
-    range_start: str                  # first PXE IP, e.g. "10.1.0.100"
-    range_end: str                    # last PXE IP, e.g. "10.1.0.254"
-    router: str | None = None         # gateway for PXE network
+    interface: str                    # provisioning NIC (recorded in audit/diff)
+    range_start: str                  # first PXE lease, e.g. "192.168.122.100"
+    range_end: str                    # last PXE lease, e.g. "192.168.122.200"
+    controller_ip: str | None = None  # warewulf.conf ipaddr (provisioning IP)
+    netmask: str = "255.255.255.0"
     dry_run: bool = True
 ```
-Command: `wwctl configure dhcp --interface <if> --range-start <ip> --range-end <ip>
-[--router <gw>]`. After applying, writes a config-repo record at
-`warewulf/dhcp.yaml` (documents the chosen range for audit).
+warewulf.conf merge: sets `ipaddr`/`netmask` (when `controller_ip` given) and
+`dhcp.{enabled, range start, range end}`. Command: `wwctl configure dhcp`.
 
-### 2.3 `warewulf.configure_tftp`
-Risk: MEDIUM. Configures and enables the TFTP server used for PXE boot.
+> The default **gateway** for booted nodes is *not* a DHCP-service setting; it is a node
+> network default carried on the Warewulf profile (`warewulf.define_profile` `network`,
+> spec 03 §1.3). The bootstrap workflow passes any gateway there, not here.
+
+### 3.3 `warewulf.configure_tftp`
+Risk: MEDIUM. Enables PXE/iPXE delivery.
 ```python
 class ConfigureTftpIn(BaseModel):
-    interface: str | None = None      # bind address (default: all)
+    enabled: bool = True
     dry_run: bool = True
 ```
-Command: `wwctl configure tftp [--interface <if>]`.
+warewulf.conf merge: sets `tftp.enabled`. Command: `wwctl configure tftp`.
 
-### 2.4 `warewulf.configure_nfs`
-Risk: MEDIUM. Configures NFS exports so PXE-booted nodes can mount `/home`,
-`/scratch`, and Spack software trees over the management network.
+### 3.4 `warewulf.configure_nfs`
+Risk: MEDIUM. Configures NFS exports so PXE-booted nodes can mount `/home`, `/scratch`,
+and Spack software trees.
 ```python
 class ConfigureNfsIn(BaseModel):
     exports: list[str] = ["/home", "/scratch", "/opt/spack"]
-    network: str | None = None        # allowed network CIDR, e.g. "10.1.0.0/24"
+    export_options: str = "rw,sync,no_root_squash"
     dry_run: bool = True
 ```
-Command: `wwctl configure nfs [--export <path>] [--cidr <net>]` (one invocation
-per export path). Writes `/etc/exports` snippet to config repo at
-`warewulf/nfs_exports.conf`.
+warewulf.conf merge: sets `nfs.enabled` and `nfs.exports` (a list of
+`{path, "export options"}`). Command: `wwctl configure nfs`. Client-network restriction
+is handled by the `firewalld` role (spec 04), not encoded here.
 
 ---
 
-## 3. Bootstrap Workflow (`workflows/bootstrap_cluster.py`)
+## 4. Bootstrap Workflow (`workflows/bootstrap_cluster.py`)
 
 Orchestrates a full day-0 bring-up. See spec 07 for the workflow convention.
 
@@ -91,46 +116,61 @@ def build(
     mgmt_interface: str,
     dhcp_range_start: str,
     dhcp_range_end: str,
-    dhcp_router: str | None,
-    base_os: str,          # "docker://rockylinux:9"
+    base_os: str,                       # "docker://rockylinux:9"
     cpu_image_name: str,
-    gpu_image_name: str | None,
-    nfs_exports: list[str],
-    nfs_network: str | None,
     *,
+    controller_ip: str | None = None,
+    netmask: str = "255.255.255.0",
+    gateway: str | None = None,         # routed to the node profile, not DHCP
+    gpu_image_name: str | None = None,  # skips GPU steps when None
+    gpu_driver_version: str | None = None,
+    gpu_cuda_version: str | None = None,
+    nfs_exports: list[str] | None = None,
     actor: str,
 ) -> Plan
 ```
 
-Ordered steps:
+Ordered steps (GPU steps 8 and 10 are emitted only when `gpu_image_name` is set):
 
-| # | Tool | Depends on |
-|---|------|------------|
-| 1 | `warewulf.server_status` (READ — validate prereqs) | — |
-| 2 | `warewulf.configure_dhcp` | 1 |
-| 3 | `warewulf.configure_tftp` | 1 |
-| 4 | `warewulf.configure_nfs` | 1 |
-| 5 | `ansible.run_playbook(warewulf_server)` | 2, 3, 4 |
-| 6 | `warewulf.import_container` (base OS) | 5 |
-| 7 | `warewulf.build_node_image` (CPU image) | 6 |
-| 8 | `warewulf.build_node_image` (GPU image, if requested) | 6 |
-| 9 | `warewulf.define_profile` (cpu-default) | 7 |
-| 10 | `warewulf.define_profile` (gpu-default, if GPU image built) | 8 |
-| 11 | `warewulf.manage_overlay` (standard overlays) | 9 (or 10) |
-| 12 | `ansible.manage_inventory` (generate initial inventory) | 11 |
+| # | Step id | Tool | Depends on |
+|---|---------|------|------------|
+| 1 | `check-server` | `warewulf.server_status` (READ — gates the rest) | — |
+| 2 | `configure-dhcp` | `warewulf.configure_dhcp` | 1 |
+| 3 | `configure-tftp` | `warewulf.configure_tftp` | 1 |
+| 4 | `configure-nfs` | `warewulf.configure_nfs` | 1 |
+| 5 | `start-server` | `ansible.run_playbook(warewulf_server)` | 2, 3, 4 |
+| 6 | `import-base-os` | `warewulf.import_container` | 5 |
+| 7 | `build-cpu-image` | `warewulf.build_node_image` (CPU) | 6 |
+| 8 | `build-gpu-image` | `warewulf.build_node_image` (GPU) *(optional)* | 6 |
+| 9 | `define-cpu-profile` | `warewulf.define_profile` (cpu-default) | 7 |
+| 10 | `define-gpu-profile` | `warewulf.define_profile` (gpu-default) *(optional)* | 8 |
+| 11 | `build-overlays` | `warewulf.rebuild_overlay` (all overlays) | 9 (or 10) |
+| 12 | `generate-inventory` | `ansible.manage_inventory` | 11 |
 
-Critical steps: 2–11. If any critical step fails, halt and offer revert of
-completed mutating steps.
+So the CPU-only path is **10 steps**; the full GPU path is **12 steps**.
+
+Because steps 2–4 depend on `check-server`, a failed `server_status` (e.g. `wwctl`
+absent) cascades to skip the rest (executor dependency rule, spec 02 §4) — the READ
+prereq effectively gates the mutating steps without itself being marked critical. Steps
+2–11 are critical; a failure there halts forward progress and offers revert of completed
+mutating steps.
+
+The `warewulf_server` Ansible role (step 5) is part of the curated role library; see
+spec 04 §1.
 
 ---
 
-## 4. Validation checklist
+## 5. Validation checklist
 
-- `server_status` returns `ErrorKind.PRECONDITION` if `wwctl` binary is absent.
-- `configure_dhcp` dry-run never invokes the command; shows correct argv preview.
-- `configure_dhcp` is always ADMIN-only (HIGH risk requires explicit approval).
-- `configure_nfs` stages `/etc/exports` content in the config repo and commits.
-- `bootstrap_cluster` returns a valid Plan with 12 steps for the full-GPU path.
-- `bootstrap_cluster` skips GPU steps 8 and 10 when `gpu_image_name` is `None`.
-- Rerunning bootstrap (all step inputs unchanged) produces no-op diffs for all
-  idempotent tools and skips DHCP/TFTP/NFS if already configured.
+- `server_status` returns `ErrorKind.PRECONDITION` if the `wwctl` binary is absent.
+- `configure_dhcp` dry-run never runs `wwctl`; the diff shows the warewulf.conf change
+  and a `wwctl configure dhcp` command preview.
+- `configure_dhcp` always pauses for approval (HIGH risk + explicit policy rule), even
+  for an ADMIN.
+- `configure_nfs` stages `warewulf.conf` in the config repo and commits on apply.
+- Re-running any configure tool with unchanged inputs returns `OK` with an empty diff
+  and invokes no `wwctl configure` command (idempotent no-op).
+- `bootstrap_cluster` returns a valid dependency-ordered Plan: 10 steps CPU-only,
+  12 steps for the full-GPU path; GPU steps are omitted when `gpu_image_name` is `None`.
+- A `gateway` passed to `bootstrap_cluster` lands on the node profile's `network`
+  defaults, not on `configure_dhcp`.

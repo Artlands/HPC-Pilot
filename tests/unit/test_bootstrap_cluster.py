@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import pytest
-
 from hpc_agent.workflows.bootstrap_cluster import build
 
 
@@ -89,10 +87,22 @@ def test_gpu_last_profile_feeds_overlays() -> None:
     assert "define-gpu-profile" in step_map["build-overlays"].depends_on
 
 
-def test_configure_dhcp_step_includes_router() -> None:
-    plan = build(**_base_args(dhcp_router="10.1.0.1"))
+def test_gateway_routed_to_profile_not_dhcp() -> None:
+    plan = build(**_base_args(gateway="192.168.122.1"))
     step_map = {s.id: s for s in plan.steps}
-    assert step_map["configure-dhcp"].input["router"] == "10.1.0.1"
+    # Gateway belongs on the node profile network, not the DHCP service.
+    assert "router" not in step_map["configure-dhcp"].input
+    assert step_map["define-cpu-profile"].input["network"]["gateway"] == "192.168.122.1"
+
+
+def test_configure_step_inputs_have_no_fabricated_flags() -> None:
+    plan = build(**_base_args(controller_ip="192.168.122.10"))
+    step_map = {s.id: s for s in plan.steps}
+    dhcp_in = step_map["configure-dhcp"].input
+    assert dhcp_in["range_start"] == "10.1.0.100"
+    assert dhcp_in["controller_ip"] == "192.168.122.10"
+    assert step_map["configure-tftp"].input == {"enabled": True}
+    assert step_map["configure-nfs"].input == {"exports": ["/home", "/scratch", "/opt/spack"]}
 
 
 def test_critical_flags_set() -> None:

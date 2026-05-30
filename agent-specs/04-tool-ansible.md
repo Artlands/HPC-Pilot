@@ -15,6 +15,7 @@ is `ansible-lint`-clean. Minimum catalog:
 
 | Role | Purpose | Key vars |
 |------|---------|----------|
+| `warewulf_server` | enable/start `warewulfd`, dhcpd, TFTP, NFS on the controller (day-0 bootstrap, spec 09) | — |
 | `common` | hostname, timezone, base pkgs | `timezone` |
 | `chrony` | time sync (critical for munge/slurm) | `ntp_servers` |
 | `munge` | install + distribute munge key | `munge_key_ref` (secret store ref) |

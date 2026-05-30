@@ -7,7 +7,6 @@ from __future__ import annotations
 
 import hashlib
 import json
-import os
 from pathlib import Path
 from typing import Literal
 
@@ -147,7 +146,8 @@ def _gpu_exec_commands(inp: BuildImageIn) -> list[list[str]]:
     cmds = _cpu_exec_commands(inp)
     cmds.insert(
         1,
-        [WWCTL, "container", "exec", inp.name, "--", "dnf", "-y", "install", "kernel-devel", "kernel-headers"],
+        [WWCTL, "container", "exec", inp.name, "--",
+         "dnf", "-y", "install", "kernel-devel", "kernel-headers"],
     )
     if inp.nvidia_driver_version:
         cmds.append(
@@ -303,7 +303,13 @@ def build_node_image(
 
     diff = Diff(
         changes=[
-            {"target": f"image/{inp.name}", "field": "spec_hash", "before": None, "after": spec_hash, "op": "build"}
+            {
+                "target": f"image/{inp.name}",
+                "field": "spec_hash",
+                "before": None,
+                "after": spec_hash,
+                "op": "build",
+            }
         ],
         commands_preview=[redacted_argv(CommandSpec(argv=cmd)) for cmd in all_cmds],
         blast_radius=_blast_radius(inp),

@@ -15,32 +15,38 @@ def build(
     base_os: str,
     cpu_image_name: str,
     *,
-    dhcp_router: str | None = None,
+    controller_ip: str | None = None,
+    netmask: str = "255.255.255.0",
+    gateway: str | None = None,
     gpu_image_name: str | None = None,
     gpu_driver_version: str | None = None,
     gpu_cuda_version: str | None = None,
     nfs_exports: list[str] | None = None,
-    nfs_network: str | None = None,
     actor: str,
 ) -> Plan:
     """Create a plan to bootstrap the Warewulf provisioning controller.
 
     Args:
-        mgmt_interface: Management NIC for PXE (e.g. "eth0")
-        dhcp_range_start: First DHCP IP for PXE (e.g. "10.1.0.100")
-        dhcp_range_end: Last DHCP IP for PXE (e.g. "10.1.0.254")
+        mgmt_interface: Provisioning NIC for PXE (e.g. "eth0")
+        dhcp_range_start: First DHCP lease for PXE (e.g. "192.168.122.100")
+        dhcp_range_end: Last DHCP lease for PXE (e.g. "192.168.122.200")
         base_os: OCI/docker ref for the base OS container (e.g. "docker://rockylinux:9")
         cpu_image_name: Name for the built CPU compute image
-        dhcp_router: Optional gateway IP for the PXE network
+        controller_ip: Provisioning IP of the controller (warewulf.conf ipaddr)
+        netmask: Provisioning network mask
+        gateway: Optional default gateway for booted nodes — set on the node profile
+            (define_profile network defaults), not on the DHCP service
         gpu_image_name: Name for the GPU image; skips GPU steps when None
         gpu_driver_version: NVIDIA driver version for GPU image
         gpu_cuda_version: CUDA toolkit version for GPU image
         nfs_exports: Paths to export via NFS (default: /home, /scratch, /opt/spack)
-        nfs_network: CIDR for NFS access (e.g. "10.1.0.0/24")
         actor: Operator identity
     """
     nfs_exports = nfs_exports or ["/home", "/scratch", "/opt/spack"]
     build_gpu = gpu_image_name is not None
+    profile_network = {"netmask": netmask}
+    if gateway:
+        profile_network["gateway"] = gateway
 
     plan = Plan(
         id="bootstrap-cluster",
@@ -69,7 +75,8 @@ def build(
                 "interface": mgmt_interface,
                 "range_start": dhcp_range_start,
                 "range_end": dhcp_range_end,
-                "router": dhcp_router,
+                "controller_ip": controller_ip,
+                "netmask": netmask,
             },
             depends_on=["check-server"],
             critical=True,
@@ -80,7 +87,7 @@ def build(
         Step(
             id="configure-tftp",
             tool="warewulf.configure_tftp",
-            input={"interface": mgmt_interface},
+            input={"enabled": True},
             depends_on=["check-server"],
             critical=True,
         )
@@ -90,10 +97,7 @@ def build(
         Step(
             id="configure-nfs",
             tool="warewulf.configure_nfs",
-            input={
-                "exports": nfs_exports,
-                "network": nfs_network,
-            },
+            input={"exports": nfs_exports},
             depends_on=["check-server"],
             critical=True,
         )
@@ -172,6 +176,7 @@ def build(
                 "image": cpu_image_name,
                 "system_overlays": ["wwinit", "hosts", "ssh.host_keys"],
                 "runtime_overlays": ["hosts", "ssh.authorized_keys", "munge", "slurm"],
+                "network": profile_network,
             },
             depends_on=["build-cpu-image"],
             critical=True,
@@ -189,6 +194,7 @@ def build(
                     "image": gpu_image_name,
                     "system_overlays": ["wwinit", "hosts", "ssh.host_keys"],
                     "runtime_overlays": ["hosts", "ssh.authorized_keys", "munge", "slurm"],
+                    "network": profile_network,
                 },
                 depends_on=["build-gpu-image"],
                 critical=True,

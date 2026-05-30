@@ -24,12 +24,19 @@ every other tool should be patterned after.
 | **State store ORM** | 00 §1.1 | `hpc_agent/state/models.py` |
 | **Repositories** | 00 §1.2 | `hpc_agent/state/repos.py` |
 | **DB / session mgmt** | 00 §1 | `hpc_agent/state/db.py` |
+| **Alembic migrations** | 00 §1 | `migrations/` |
 | **Plan / Step models** | 02 §3 | `hpc_agent/core/plan.py` |
 | **Topological ordering** | 02 §4 | `hpc_agent/core/ordering.py` |
 | **Planner (rule-based)** | 02 §2-3 | `hpc_agent/core/planner.py` |
 | **Executor (+ resume)** | 02 §4-5 | `hpc_agent/core/executor.py` |
 | **Plan store** | 02 §5 | `hpc_agent/core/planstore.py` |
 | **Reference tool: manage_qos** | 05 §1.2 | `hpc_agent/tools/slurm.py` |
+| **Slurm account/user tools** | 05 §1.1, §1.3 | `hpc_agent/tools/slurm.py` |
+| **Slurm node/reconfigure/query tools** | 05 §2.3-2.4, §3 | `hpc_agent/tools/slurm.py` |
+| **Ansible playbook composition** | 04 §2.1 | `hpc_agent/tools/ansible.py` |
+| **Ansible inventory generation** | 04 §2.4 | `hpc_agent/tools/ansible.py` |
+| **Ansible playbook linting** | 04 §2.2 | `hpc_agent/tools/ansible.py` |
+| **Spack query tools** | 06 §1.7 | `hpc_agent/tools/spack.py` |
 | CLI (`tools`/`qos`/`plan`) | 02 §7 | `hpc_agent/core/interaction.py` |
 
 Sample policy lives in `config_repo/policy/`.
@@ -46,17 +53,48 @@ hpc-agent tools
 HPC_CONFIG_REPO=$PWD/config_repo hpc-agent qos gpu --op modify --max-wall-min 2880
 # add --apply to actually execute (gated by policy)
 
+# other Slurm operations follow the same dry-run/apply contract
+hpc-agent account research --op modify --grp-tres cpu=512
+hpc-agent assoc alice research --qos-add gpu
+hpc-agent set-limits qos --name gpu --max-wall-min 2880
+hpc-agent node-state gpu01 drain --reason maintenance
+hpc-agent node-status --node gpu01
+hpc-agent queue --user alice --partition gpu
+hpc-agent job-accounting --user alice --start 2026-05-01 --end 2026-05-02
+hpc-agent usage-report --user alice --account research --start 2026-05-01 --end 2026-05-02
+hpc-agent show-assoc --user alice --account research
+hpc-agent diag
+hpc-agent reservation maint-gpu create --nodes gpu01 --start 2026-06-01T01:00:00 --duration-min 60
+hpc-agent reconfigure
+
+# validate a curated Ansible playbook before apply
+hpc-agent manage-inventory
+hpc-agent compose-playbook site --target-group compute_cpu --roles common
+hpc-agent lint-playbook /etc/hpc-agent/ansible/playbooks/site.yml
+hpc-agent run-playbook /etc/hpc-agent/ansible/playbooks/site.yml
+hpc-agent check-secret munge/key
+
+# inspect Spack environments and specs without building anything
+hpc-agent spack-envs
+hpc-agent spack-find gpu-stack
+hpc-agent spack-spec "openmpi@5 +cuda"
+
 # build a plan from a natural-language intent, then optionally execute it
 hpc-agent plan "give alice 48 hours of wall time on the gpu qos"
 hpc-agent plan "extend the normal qos wall time to 2 days" --apply
+
+# create/update the production state schema
+HPC_DB_URL=postgresql+psycopg://hpcagent@localhost/hpc_agent alembic upgrade head
+# or pass an explicit URL without touching the environment
+alembic -x db_url=sqlite+pysqlite:////tmp/hpc-agent-state.sqlite upgrade head
 ```
 
 ## Quality gates (all green)
 
 ```bash
-ruff check hpc_agent/        # lint
-mypy hpc_agent/              # strict type check (29 files)
-pytest                       # 36 unit tests
+ruff check hpc_agent tests   # lint
+mypy hpc_agent/              # strict type check (31 files)
+pytest                       # 111 unit tests
 ```
 
 > Note: SQLAlchemy 2.0 ships its own typing and a mypy plugin (configured in
@@ -87,13 +125,21 @@ no-op, not-found precondition, and inverse-command recording.
 
 ## Now implemented since the initial scaffold
 
-- State store ORM + repositories (spec 00 §1); `manage_qos` upserts its desired-state row.
+- State store ORM + repositories + Alembic initial migration (spec 00 §1); mutating Slurm
+  tools upsert desired-state rows when the schema has a corresponding row.
 - Plan/Step models, topological ordering, rule-based planner, and the executor with
   pause-for-approval and diff-revalidated resume (spec 02 §3-5).
+- Slurm account creation/modification, user association management, node drain/resume/down,
+  maintenance reservations, controller reconfigure, node status, queue, job accounting,
+  usage reporting, diagnostics, and association query tools (spec 05).
+- Ansible curated-role playbook composition plus lint/syntax validation tools
+  state-store inventory generation, and lint-gated playbook dry-run/apply
+  plus secret-reference checks that never expose secret material (spec 04 §2.1-2.5).
+- Spack read-only environment/spec query tools for safe software inventory and
+  concretization previews (spec 06 §1.7).
 
 ## Not yet implemented (next steps, per specs)
 
-- Alembic migrations for the state schema (production; `init_db` covers tests/bootstrap).
 - Remaining Slurm tools, plus Warewulf / Ansible / Spack tools (specs 03–06).
 - The LLM planner (`core/llm.py`) implementing `build_plan` for open-ended intents; the
   rule-based planner is the deterministic stand-in.

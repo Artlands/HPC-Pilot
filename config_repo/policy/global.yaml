@@ -1,0 +1,8 @@
+# Global policy rules. See spec 01 §4.
+
+- id: node-blast-cap
+  match: { domain: "warewulf" }
+  assert:
+    blast_radius: { "<=": 8 }
+  on_violation: require_approval
+  message: "Touching more than 8 nodes at once needs approval."

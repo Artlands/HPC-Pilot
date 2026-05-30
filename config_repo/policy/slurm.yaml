@@ -1,0 +1,27 @@
+# Slurm policy rules. See spec 01 §4.
+# Evaluated top-down; first decisive rule wins.
+
+- id: qos-wall-hard-cap
+  match: { tool: "slurm.manage_qos" }
+  assert:
+    max_wall_min: { "<=": 4320 }   # 3 days; above this is denied
+  on_violation: deny
+  message: "QOS wall time above 3 days requires manual sacctmgr by an admin."
+
+- id: qos-gpu-hard-cap
+  match: { tool: "slurm.manage_qos" }
+  assert:
+    max_tres.gpu: { "<=": 64 }
+  on_violation: deny
+  message: "QOS GPU TRES above 64 requires admin sign-off."
+
+- id: qos-extend-autoallow
+  match: { tool: "slurm.manage_qos", op: "modify" }
+  assert:
+    max_wall_min: { "<=": 2880 }   # within 2 days
+    max_tres.gpu: { "<=": 16 }
+  effect: auto                      # in-bounds modify runs without human approval
+
+- id: qos-create-approval
+  match: { tool: "slurm.manage_qos", op: "create" }
+  effect: require_approval

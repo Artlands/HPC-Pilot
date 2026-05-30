@@ -1,0 +1,59 @@
+[project]
+name = "hpc-agent"
+version = "0.1.0"
+description = "AI agent that configures and manages an HPC cluster (Warewulf, Ansible, Slurm, Spack)."
+requires-python = ">=3.11"
+dependencies = [
+    "pydantic>=2.7",
+    "pydantic-settings>=2.2",
+    "sqlalchemy>=2.0",
+    "alembic>=1.13",
+    "psycopg[binary]>=3.1",
+    "pyyaml>=6.0",
+    "typer>=0.12",          # CLI
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+    "pytest-cov>=5.0",
+    "ruff>=0.5",
+    "black>=24.0",
+    "mypy>=1.10",
+    "types-pyyaml",
+]
+
+[project.scripts]
+hpc-agent = "hpc_agent.core.interaction:app"
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+include = ["hpc_agent*"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+lint.select = ["E", "F", "I", "UP", "B", "SIM"]
+# str+Enum is the project-wide convention (matches the specs); SQLAlchemy Mapped[...]
+# forward-ref strings are intentional and must stay quoted.
+lint.ignore = ["UP042"]
+
+[tool.ruff.lint.per-file-ignores]
+"hpc_agent/state/models.py" = ["UP037"]
+
+[tool.black]
+line-length = 100
+target-version = ["py311"]
+
+[tool.mypy]
+python_version = "3.11"
+strict = true
+plugins = ["pydantic.mypy", "sqlalchemy.ext.mypy.plugin"]
+ignore_missing_imports = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"

@@ -79,10 +79,10 @@ class ShellSession:
 
     def loop(self, *, read: Reader = input) -> None:
         """Run the interactive prompt until EOF or /exit."""
-        self.write("hpc-agent shell. Type /help for commands, /exit to quit.")
+        self.write("hpc-pilot shell. Type /help for commands, /exit to quit.")
         while self.running:
             try:
-                line = read("hpc-agent> ")
+                line = read("hpc-pilot> ")
             except EOFError:
                 self.write("")
                 break

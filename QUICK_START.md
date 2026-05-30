@@ -1,4 +1,4 @@
-# AutoHPC Quick Start
+# HPC Pilot Quick Start
 
 This guide gets a local development checkout running with SQLite-backed state and audit
 databases. It is meant for trying the CLI safely, writing tests, and exploring the tool
@@ -13,8 +13,8 @@ pip install -e ".[dev]"
 ## Configure Local State
 
 ```bash
-export HPC_DB_URL=sqlite+pysqlite:////tmp/hpc-agent-state.sqlite
-export HPC_AUDIT_DB_URL=sqlite+pysqlite:////tmp/hpc-agent-audit.sqlite
+export HPC_DB_URL=sqlite+pysqlite:////tmp/hpc-pilot-state.sqlite
+export HPC_AUDIT_DB_URL=sqlite+pysqlite:////tmp/hpc-pilot-audit.sqlite
 export HPC_CONFIG_REPO="$PWD/config_repo"
 ```
 
@@ -22,21 +22,21 @@ Create the database schema:
 
 ```bash
 alembic upgrade head
-hpc-agent audit-init
+hpc-pilot audit-init
 ```
 
 ## Inspect the CLI
 
 ```bash
-hpc-agent --help
-hpc-agent tools
+hpc-pilot --help
+hpc-pilot tools
 ```
 
-AutoHPC also has interactive interfaces:
+HPC Pilot also has interactive interfaces:
 
 ```bash
-hpc-agent shell
-hpc-agent tui
+hpc-pilot shell
+hpc-pilot tui
 ```
 
 Inside either interface, try:
@@ -54,13 +54,13 @@ Most mutating commands default to dry-run. The command below previews a QOS upda
 does not apply it:
 
 ```bash
-hpc-agent qos gpu --op modify --max-wall-min 2880
+hpc-pilot qos gpu --op modify --max-wall-min 2880
 ```
 
 Use `--apply` only when you want the agent to execute the live command:
 
 ```bash
-hpc-agent qos gpu --op modify --max-wall-min 2880 --apply
+hpc-pilot qos gpu --op modify --max-wall-min 2880 --apply
 ```
 
 Local machines usually do not have Slurm, Warewulf, Spack, or Ansible configured, so live
@@ -73,9 +73,9 @@ Enable durable audit logging for commands you want to track:
 
 ```bash
 export HPC_AUDIT_SINK=db
-hpc-agent audit-log
-hpc-agent audit-log --result-status ok
-hpc-agent audit-show <audit_id>
+hpc-pilot audit-log
+hpc-pilot audit-log --result-status ok
+hpc-pilot audit-show <audit_id>
 ```
 
 Each audit event records the actor, tool, input, decision, result status, diff summary,
@@ -86,24 +86,24 @@ available.
 
 ```bash
 # Slurm read-only queries
-hpc-agent node-status --node gpu01
-hpc-agent queue --user alice
-hpc-agent usage-report --account research --start 2026-05-01
+hpc-pilot node-status --node gpu01
+hpc-pilot queue --user alice
+hpc-pilot usage-report --account research --start 2026-05-01
 
 # Slurm mutations, dry-run by default
-hpc-agent assoc alice research --qos-add gpu
-hpc-agent node-state gpu01 drain --reason maintenance
-hpc-agent reservation maint-gpu create --nodes gpu01 --start 2026-06-01T01:00:00 --duration-min 60
+hpc-pilot assoc alice research --qos-add gpu
+hpc-pilot node-state gpu01 drain --reason maintenance
+hpc-pilot reservation maint-gpu create --nodes gpu01 --start 2026-06-01T01:00:00 --duration-min 60
 
 # Ansible helpers
-hpc-agent manage-inventory
-hpc-agent compose-playbook site compute_gpu --roles common
-hpc-agent lint-playbook /etc/hpc-agent/ansible/playbooks/site.yml
+hpc-pilot manage-inventory
+hpc-pilot compose-playbook site compute_gpu --roles common
+hpc-pilot lint-playbook /etc/hpc-pilot/ansible/playbooks/site.yml
 
 # Spack helpers
-hpc-agent spack-envs
-hpc-agent spack-spec "openmpi@5 +cuda"
-hpc-agent spack-env my-env --op add_specs --specs "gcc@13" --specs "openmpi"
+hpc-pilot spack-envs
+hpc-pilot spack-spec "openmpi@5 +cuda"
+hpc-pilot spack-env my-env --op add_specs --specs "gcc@13" --specs "openmpi"
 ```
 
 ## Developer Checks

@@ -1,4 +1,4 @@
-# AutoHPC Documentation
+# HPC Pilot Documentation
 
 Use this index to find the right document for the job you are doing.
 
@@ -66,4 +66,4 @@ release notes or progress trackers.
 | Ansible | `compose-playbook`, `manage-inventory`, `lint-playbook`, `run-playbook`, `check-secret` |
 | Spack | `spack-envs`, `spack-find`, `spack-spec`, `spack-compilers`, `spack-env`, `spack-buildcache`, `spack-modules`, `spack-view`, `spack-install` |
 
-Run `hpc-agent --help` for the current command list.
+Run `hpc-pilot --help` for the current command list.

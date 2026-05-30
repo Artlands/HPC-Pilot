@@ -29,14 +29,14 @@ _STATE_COLOR: dict[str, str] = {
     "cancelled": "dim",
 }
 
-# ANSI Shadow block-character logo — each line is exactly 59 chars wide.
+# ANSI Shadow block-character logo — each line is exactly 65 chars wide.
 ASCII_LOGO = [
-    " █████╗ ██╗   ██╗████████╗ ██████╗ ██╗  ██╗██████╗  ██████╗",
-    "██╔══██╗██║   ██║╚══██╔══╝██╔═══██╗██║  ██║██╔══██╗██╔════╝",
-    "███████║██║   ██║   ██║   ██║   ██║███████║██████╔╝██║     ",
-    "██╔══██║██║   ██║   ██║   ██║   ██║██╔══██║██╔═══╝ ██║     ",
-    "██║  ██║╚██████╔╝   ██║   ╚██████╔╝██║  ██║██║     ╚██████╗",
-    "╚═╝  ╚═╝ ╚═════╝    ╚═╝    ╚═════╝ ╚═╝  ╚═╝╚═╝      ╚═════╝",
+    "██╗  ██╗██████╗  ██████╗    ██████╗ ██╗██╗      ██████╗ ████████╗",
+    "██║  ██║██╔══██╗██╔════╝    ██╔══██╗██║██║     ██╔═══██╗╚══██╔══╝",
+    "███████║██████╔╝██║         ██████╔╝██║██║     ██║   ██║   ██║   ",
+    "██╔══██║██╔═══╝ ██║         ██╔═══╝ ██║██║     ██║   ██║   ██║   ",
+    "██║  ██║██║     ╚██████╗    ██║     ██║███████╗╚██████╔╝   ██║   ",
+    "╚═╝  ╚═╝╚═╝      ╚═════╝    ╚═╝     ╚═╝╚══════╝ ╚═════╝    ╚═╝   ",
 ]
 
 _BOX_WIDTH = 54
@@ -117,11 +117,11 @@ Screen {
 
 
 class TuiApp(App[None]):
-    """Claude Code / OpenCode-inspired TUI for AutoHPC."""
+    """Claude Code / OpenCode-inspired TUI for HPC Pilot."""
 
     DARK = True
     CSS = CSS
-    TITLE = "AutoHPC"
+    TITLE = "HPC Pilot"
 
     BINDINGS = [
         Binding("ctrl+d", "quit", "Exit"),
@@ -201,7 +201,7 @@ class TuiApp(App[None]):
             color = _STATE_COLOR.get(plan.state.value, "dim")
             plan_info = f"[dim]#{short_id}[/]  [{color}]● {plan.state.value}[/]"
         return (
-            f"[bold cyan] AutoHPC[/]"
+            f"[bold cyan] HPC Pilot[/]"
             f"  [dim]{self.session.actor} · {self.session.actor_role.value}[/]"
             f"  [dim]│[/]  {plan_info}"
         )
@@ -219,7 +219,7 @@ class TuiApp(App[None]):
             log.write(f"[green]{line}[/]")
         log.write("")
         log.write("[dim]typed tools · audited plans · reversible operations[/]")
-        log.write("[dim]" + "─" * 59 + "[/]")
+        log.write("[dim]" + "─" * 65 + "[/]")
         log.write("")
         log.write(
             "[dim]Start with a plain-language request:[/]  "

@@ -1,6 +1,6 @@
-# AutoHPC
+# HPC Pilot
 
-AutoHPC is an operator-focused agent for managing HPC clusters that use Slurm,
+HPC Pilot is an operator-focused agent for managing HPC clusters that use Slurm,
 Warewulf, Ansible, and Spack. It provides typed tools, dry-run diffs, policy gates,
 audit logging, and interactive command-line interfaces for common cluster operations.
 
@@ -32,12 +32,12 @@ pip install -e ".[dev]"
 For local development, SQLite is the easiest way to try the state and audit stores:
 
 ```bash
-export HPC_DB_URL=sqlite+pysqlite:////tmp/hpc-agent-state.sqlite
-export HPC_AUDIT_DB_URL=sqlite+pysqlite:////tmp/hpc-agent-audit.sqlite
+export HPC_DB_URL=sqlite+pysqlite:////tmp/hpc-pilot-state.sqlite
+export HPC_AUDIT_DB_URL=sqlite+pysqlite:////tmp/hpc-pilot-audit.sqlite
 export HPC_CONFIG_REPO="$PWD/config_repo"
 
 alembic upgrade head
-hpc-agent audit-init
+hpc-pilot audit-init
 ```
 
 Production deployments should use PostgreSQL-compatible URLs for `HPC_DB_URL` and
@@ -48,19 +48,19 @@ Production deployments should use PostgreSQL-compatible URLs for `HPC_DB_URL` an
 List available commands:
 
 ```bash
-hpc-agent --help
+hpc-pilot --help
 ```
 
 Start the interactive REPL:
 
 ```bash
-hpc-agent shell
+hpc-pilot shell
 ```
 
 Start the split-pane terminal UI:
 
 ```bash
-hpc-agent tui
+hpc-pilot tui
 ```
 
 Useful shell/TUI commands:
@@ -81,39 +81,39 @@ Dry-run is the default for mutating tools.
 
 ```bash
 # Preview a QOS change
-hpc-agent qos gpu --op modify --max-wall-min 2880
+hpc-pilot qos gpu --op modify --max-wall-min 2880
 
 # Apply after reviewing the diff and policy result
-hpc-agent qos gpu --op modify --max-wall-min 2880 --apply
+hpc-pilot qos gpu --op modify --max-wall-min 2880 --apply
 
 # Inspect Slurm state
-hpc-agent node-status --node gpu01
-hpc-agent queue --user alice --partition gpu
-hpc-agent usage-report --account research --start 2026-05-01
+hpc-pilot node-status --node gpu01
+hpc-pilot queue --user alice --partition gpu
+hpc-pilot usage-report --account research --start 2026-05-01
 
 # Manage user/account associations
-hpc-agent assoc alice research --qos-add gpu
-hpc-agent assoc alice research --qos-add gpu --apply
+hpc-pilot assoc alice research --qos-add gpu
+hpc-pilot assoc alice research --qos-add gpu --apply
 
 # Drain and resume a node
-hpc-agent node-state gpu01 drain --reason maintenance
-hpc-agent node-state gpu01 drain --reason maintenance --apply
-hpc-agent node-state gpu01 resume --apply
+hpc-pilot node-state gpu01 drain --reason maintenance
+hpc-pilot node-state gpu01 drain --reason maintenance --apply
+hpc-pilot node-state gpu01 resume --apply
 ```
 
 Plan from a natural-language intent:
 
 ```bash
-hpc-agent plan "give alice 48 hours of wall time on the gpu qos"
-hpc-agent plan "give alice 48 hours of wall time on the gpu qos" --apply
+hpc-pilot plan "give alice 48 hours of wall time on the gpu qos"
+hpc-pilot plan "give alice 48 hours of wall time on the gpu qos" --apply
 ```
 
 Track applied operations:
 
 ```bash
 export HPC_AUDIT_SINK=db
-hpc-agent audit-log --result-status ok
-hpc-agent audit-show <audit_id>
+hpc-pilot audit-log --result-status ok
+hpc-pilot audit-show <audit_id>
 ```
 
 ## Configuration
@@ -124,11 +124,11 @@ hpc-agent audit-show <audit_id>
 | `HPC_AUDIT_DB_URL` | Audit database URL | `postgresql+psycopg://hpcagent@localhost/hpc_audit` |
 | `HPC_AUDIT_SINK` | Audit sink: `memory` or `db` | `memory` |
 | `HPC_AUDIT_AUTO_INIT` | Auto-create audit tables for the DB sink | `false` |
-| `HPC_CONFIG_REPO` | Git-backed config repository | `/etc/hpc-agent/config` |
+| `HPC_CONFIG_REPO` | Git-backed config repository | `/etc/hpc-pilot/config` |
 | `HPC_SLURM_BIN_DIR` | Slurm binary directory | `/usr/bin` |
 | `HPC_WW_BIN_DIR` | Warewulf binary directory | `/usr/bin` |
 | `HPC_SPACK_ROOT` | Spack root | `/opt/spack` |
-| `HPC_ANSIBLE_DIR` | Ansible control directory | `/etc/hpc-agent/ansible` |
+| `HPC_ANSIBLE_DIR` | Ansible control directory | `/etc/hpc-pilot/ansible` |
 | `HPC_APPROVAL_BACKEND` | Approval backend: `cli`, `api`, or `mock` | `cli` |
 | `HPC_MAX_BLAST_RADIUS_AUTO` | Auto-run blast-radius cap | `4` |
 
@@ -136,7 +136,7 @@ Sample policy files live in [config_repo/policy](config_repo/policy).
 
 ## Safety Model
 
-AutoHPC tools follow the same operational contract:
+HPC Pilot tools follow the same operational contract:
 
 1. Validate input with Pydantic.
 2. Read current state from the live system and/or desired-state repository.

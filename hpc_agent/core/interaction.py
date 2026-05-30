@@ -74,7 +74,7 @@ from hpc_agent.tools.spack import (
     spec,
 )
 
-app = typer.Typer(help="HPC management agent")
+app = typer.Typer(help="HPC Pilot — AI agent for HPC cluster management")
 QOS_LIST_OPTION = typer.Option(None)
 QOS_ADD_OPTION = typer.Option(None)
 RESERVATION_NODES_OPTION = typer.Option(None)
@@ -156,7 +156,7 @@ def tui_cmd(
     actor: str = typer.Option("cli-user", help="Operator identity for audit records."),
     role: str = typer.Option("operator", help="RBAC role: viewer, operator, admin."),
 ) -> None:
-    """Start the split-pane curses TUI."""
+    """Start the conversational TUI."""
     from hpc_agent.core.shell import ShellSession
     from hpc_agent.core.tui import TuiApp
 

@@ -1,6 +1,6 @@
 # VM Definition Reference
 
-This directory contains libvirt XML definitions for the AutoHPC virtual test cluster.
+This directory contains libvirt XML definitions for the HPC Pilot virtual test cluster.
 
 ## VM Roles
 

@@ -1,6 +1,6 @@
 # Virtual Cluster Deployment Notes
 
-The `deploy/` directory contains libvirt/QEMU assets for a disposable AutoHPC test
+The `deploy/` directory contains libvirt/QEMU assets for a disposable HPC Pilot test
 cluster. Use it for integration testing and for validating operational workflows away
 from production systems.
 

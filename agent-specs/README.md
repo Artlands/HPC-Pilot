@@ -1,6 +1,6 @@
-# AutoHPC Design Reference
+# HPC Pilot Design Reference
 
-The files in this directory describe the intended contracts for AutoHPC components. They
+The files in this directory describe the intended contracts for HPC Pilot components. They
 are useful when extending the agent, reviewing behavior, or deciding whether a tool
 change preserves the safety model.
 

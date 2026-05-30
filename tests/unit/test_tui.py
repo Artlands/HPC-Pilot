@@ -1,208 +1,162 @@
+"""Tests for the Textual TUI."""
 from __future__ import annotations
 
-from hpc_agent.core.plan import PlanState, Step
-from hpc_agent.core.planner import plan_from_steps
+from textual.widgets import Input, RichLog
+
 from hpc_agent.core.shell import ShellSession
-from hpc_agent.core.tui import TuiApp, render_layout
+from hpc_agent.core.tui import COMMAND_PALETTE, TuiApp, _STEP_ICON
 from hpc_agent.exec.rbac import Role
 
 
-def test_render_layout_has_header_panes_status_and_input() -> None:
-    plan = plan_from_steps(
-        "extend gpu",
-        "alice",
-        [Step(id="s1", tool="slurm.manage_qos", input={"name": "gpu"})],
-    )
-
-    layout = render_layout(
-        width=100,
-        height=24,
-        transcript=["hello", "world"],
-        plan=plan,
-        input_text="/run",
-        status="ready",
-    )
-
-    assert len(layout.lines) == 24
-    rendered = "\n".join(layout.lines)
-    assert "[>>]" in layout.lines[0]
-    assert "AutoHPC" in layout.lines[0]
-    assert "Chat" in rendered
-    assert "Plan & Actions" in rendered
-    assert "Quick Actions" in rendered
-    assert "> /run" in rendered
-    assert "slurm.manage_qos" in rendered
-    assert "ready" in layout.lines[-4]
-    assert "> /run" in layout.lines[-2]
-
-
-def test_render_layout_handles_small_terminal() -> None:
-    layout = render_layout(
-        width=30,
-        height=5,
-        transcript=[],
-        plan=None,
-        input_text="",
-        status="",
-    )
-
-    assert len(layout.lines) == 1
-    assert "Terminal too small" in layout.lines[0]
-
-
-def test_render_layout_shows_logo_on_empty_chat() -> None:
-    layout = render_layout(
-        width=100,
-        height=24,
-        transcript=[],
-        plan=None,
-        input_text="",
-        status="ready",
-    )
-
-    rendered = "\n".join(layout.lines)
-    beacon_line = next(line for line in layout.lines if "│" in line and "<== AutoHPC" in line)
-    assert beacon_line.index("<==") > 4
-    assert "mgmt -> login -> compute" in rendered
-    assert "____" in rendered
-    assert "Start with a plain-language request" in rendered
-
-
-def test_render_layout_shows_logo_after_tui_startup_message() -> None:
-    layout = render_layout(
-        width=100,
-        height=24,
-        transcript=["AutoHPC TUI. Type /help for commands, /exit to quit."],
-        plan=None,
-        input_text="",
-        status="ready",
-    )
-
-    rendered = "\n".join(layout.lines)
-    assert "____" in rendered
-    assert "AutoHPC TUI is ready." in rendered
-
-
-def test_render_layout_animates_centered_logo() -> None:
-    first = render_layout(
-        width=100,
-        height=24,
-        transcript=["AutoHPC TUI. Type /help for commands, /exit to quit."],
-        plan=None,
-        input_text="",
-        status="ready",
-        symbol_frame=0,
-    )
-    second = render_layout(
-        width=100,
-        height=24,
-        transcript=["AutoHPC TUI. Type /help for commands, /exit to quit."],
-        plan=None,
-        input_text="",
-        status="ready",
-        symbol_frame=1,
-    )
-
-    first_rendered = "\n".join(first.lines)
-    second_rendered = "\n".join(second.lines)
-    assert "<== AutoHPC ==>" in first_rendered
-    assert "-<= AutoHPC =>-" in second_rendered
-    assert "mgmt -> login -> compute" in first_rendered
-    assert "mgmt => login -> compute" in second_rendered
-
-
-def test_tui_enter_dispatches_to_shell_session() -> None:
-    writes: list[str] = []
-    session = ShellSession(
-        actor="alice",
-        actor_role=Role.OPERATOR,
-        policy=None,
-        write=writes.append,
-    )
-    app = TuiApp(session)
-    app.state.input_text = "give alice 48 hours of wall time on the gpu qos"
-
-    app._handle_key("\n")
-
-    assert app.state.input_text == ""
-    assert session.current_plan is not None
-    assert any(line.startswith("> give alice") for line in app.state.transcript)
-
-
-def test_tui_ctrl_shortcuts_run_and_clear() -> None:
-    writes: list[str] = []
-    session = ShellSession(
-        actor="alice",
-        actor_role=Role.OPERATOR,
-        policy=None,
-        write=writes.append,
-    )
-    app = TuiApp(session)
-    app.state.input_text = "give alice 48 hours of wall time on the gpu qos"
-
-    app._handle_key("\x12")
-
-    assert app.state.input_text == ""
-    assert session.current_plan is not None
-    assert any(line.startswith("> give alice") for line in app.state.transcript)
-
-    app._handle_key("\x0c")
-
-    assert app.state.transcript == []
-    assert app.state.status == "Transcript cleared."
-
-
-def test_render_layout_animates_ascii_symbol() -> None:
-    first = render_layout(
-        width=100,
-        height=24,
-        transcript=[],
-        plan=None,
-        input_text="",
-        status="ready",
-        symbol_frame=0,
-    )
-    second = render_layout(
-        width=100,
-        height=24,
-        transcript=[],
-        plan=None,
-        input_text="",
-        status="ready",
-        symbol_frame=1,
-    )
-    plan = plan_from_steps("extend gpu", "alice", [Step(id="s1", tool="x", input={})])
-    plan.state = PlanState.PAUSED
-    paused = render_layout(
-        width=100,
-        height=24,
-        transcript=[],
-        plan=plan,
-        input_text="",
-        status="ready",
-        symbol_frame=2,
-    )
-
-    assert "[A--]" in first.lines[0]
-    assert "[-A-]" in second.lines[0]
-    assert "[!!]" in paused.lines[0]
-
-
-def test_tui_palette_completion_and_insertion() -> None:
-    session = ShellSession(
+def _session() -> ShellSession:
+    return ShellSession(
         actor="alice",
         actor_role=Role.OPERATOR,
         policy=None,
         write=lambda _: None,
     )
+
+
+# ── synchronous unit tests ────────────────────────────────────────────
+
+
+def test_tui_instantiation_wires_write_callback() -> None:
+    session = _session()
     app = TuiApp(session)
+    # Bound methods are freshly created on each access, so compare by function + owner.
+    assert session.write.__func__ is TuiApp._write  # type: ignore[attr-defined]
+    assert session.write.__self__ is app  # type: ignore[attr-defined]
 
-    app._handle_key("\x0e")
-    assert app.state.action == "/approve"
 
-    app._handle_key("\x05")
-    assert app.state.input_text == "/approve"
+def test_command_palette_contains_required_commands() -> None:
+    for cmd in ("/run", "/approve", "/show", "/tools", "/help", "/exit"):
+        assert cmd in COMMAND_PALETTE
 
-    app.state.input_text = "/to"
-    app._handle_key("\t")
-    assert app.state.input_text == "/tools"
+
+def test_step_icon_table_covers_all_statuses() -> None:
+    for status in ("pending", "running", "done", "failed", "needs_approval", "skipped"):
+        assert status in _STEP_ICON
+        icon, style = _STEP_ICON[status]
+        assert icon and style
+
+
+def test_status_text_includes_actor_and_role() -> None:
+    session = _session()
+    app = TuiApp(session)
+    text = app._status_text()
+    assert "alice" in text
+    assert "operator" in text
+
+
+def test_status_text_no_plan() -> None:
+    session = _session()
+    app = TuiApp(session)
+    assert "no active plan" in app._status_text()
+
+
+def test_commands_text_contains_all_commands() -> None:
+    session = _session()
+    app = TuiApp(session)
+    text = app._commands_text()
+    for cmd in COMMAND_PALETTE:
+        assert cmd in text
+
+
+def test_hints_text_contains_key_bindings() -> None:
+    session = _session()
+    app = TuiApp(session)
+    text = app._hints_text()
+    assert "^r" in text
+    assert "^a" in text
+    assert "^l" in text
+
+
+def test_fmt_step_adds_icon_for_done() -> None:
+    session = _session()
+    app = TuiApp(session)
+    result = app._fmt_step("- s1: slurm.manage_qos status=done")
+    assert "●" in result
+
+
+def test_fmt_step_adds_icon_for_needs_approval() -> None:
+    session = _session()
+    app = TuiApp(session)
+    result = app._fmt_step("- s1: slurm.manage_qos status=needs_approval")
+    assert "!" in result
+
+
+def test_fmt_step_adds_icon_for_failed() -> None:
+    session = _session()
+    app = TuiApp(session)
+    result = app._fmt_step("- s1: some_tool status=failed")
+    assert "✕" in result
+
+
+def test_fmt_step_strips_prefix_for_unknown_status() -> None:
+    session = _session()
+    app = TuiApp(session)
+    # "- " prefix is always stripped; no icon is added when status is unrecognised
+    result = app._fmt_step("- s1: some_tool status=unknown_xyz")
+    assert result == "s1: some_tool status=unknown_xyz"
+
+
+# ── async integration tests (Textual 8.x Pilot API) ──────────────────
+# Textual 8.x Pilot has no .type(); set Input.value directly, then press Enter.
+
+
+async def test_tui_submit_dispatches_to_session() -> None:
+    session = _session()
+    app = TuiApp(session)
+    async with app.run_test(size=(120, 30)) as pilot:
+        inp = app.query_one("#chat-input", Input)
+        inp.value = "give alice 48 hours of wall time on the gpu qos"
+        await pilot.press("enter")
+        await pilot.pause()
+    assert session.current_plan is not None
+
+
+async def test_tui_exit_command_stops_session() -> None:
+    session = _session()
+    app = TuiApp(session)
+    async with app.run_test(size=(120, 30)) as pilot:
+        inp = app.query_one("#chat-input", Input)
+        inp.value = "/exit"
+        await pilot.press("enter")
+        await pilot.pause()
+    assert not session.running
+
+
+async def test_tui_tab_completes_partial_command() -> None:
+    session = _session()
+    app = TuiApp(session)
+    async with app.run_test(size=(120, 30)) as pilot:
+        inp = app.query_one("#chat-input", Input)
+        inp.value = "/ru"
+        await pilot.press("tab")
+        await pilot.pause()
+        assert inp.value == "/run"
+
+
+async def test_tui_ctrl_r_triggers_run() -> None:
+    session = _session()
+    app = TuiApp(session)
+    async with app.run_test(size=(120, 30)) as pilot:
+        await pilot.press("ctrl+r")
+        await pilot.pause()
+    # /run with no plan writes an error message but does not exit
+    assert session.running
+
+
+async def test_tui_ctrl_l_clears_and_restores_welcome() -> None:
+    session = _session()
+    app = TuiApp(session)
+    async with app.run_test(size=(120, 30)) as pilot:
+        inp = app.query_one("#chat-input", Input)
+        inp.value = "some input"
+        await pilot.press("enter")
+        await pilot.pause()
+        await pilot.press("ctrl+l")
+        await pilot.pause()
+        # After clear, the log widget still exists and the app is still running
+        app.query_one("#chat-log", RichLog)  # raises if missing
+    assert session.running

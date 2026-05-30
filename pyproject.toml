@@ -24,6 +24,12 @@ dev = [
     "mypy>=1.10",
     "types-pyyaml",
 ]
+anthropic = [
+    "anthropic>=0.30",
+]
+openai = [
+    "openai>=1.0",
+]
 
 [project.scripts]
 hpc-pilot = "hpc_agent.core.interaction:app"

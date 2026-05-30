@@ -200,12 +200,113 @@ class MockLLM(LLMProvider):
         raise NotImplementedError("MockLLM requires explicit plan setup for plan() calls")
 
 
+class OpenAILLM(LLMProvider):
+    """OpenAI Chat Completions API provider (GPT-4o, GPT-4 Turbo, etc.)."""
+
+    def __init__(self, model: str = "gpt-4o"):
+        try:
+            from openai import OpenAI
+        except ImportError as err:
+            raise ImportError("Install openai package: pip install openai") from err
+        self.client = OpenAI()
+        self.model = model
+
+    def call(
+        self,
+        messages: list[LLMMessage],
+        tools: list[ToolSchema] | None = None,
+        system_prompt: str | None = None,
+    ) -> LLMResponse:
+        """Call the OpenAI Chat Completions API with tool support."""
+        tools_param = [{"type": "tool", **tool} for tool in tools] if tools else None
+
+        response = self.client.chat.completions.create(
+            model=self.model,
+            messages=messages,
+            system_prompt=system_prompt or "",
+            tools=tools_param or [],
+            tool_choice="auto",
+            max_tokens=4096,
+        )
+
+        content_parts = []
+        tool_calls: list[dict[str, Any]] = []
+
+        for choice in response.choices:
+            if choice.message.content:
+                content_parts.append(choice.message.content)
+            if choice.message.tool_calls:
+                for tc in choice.message.tool_calls:
+                    tool_calls.append(
+                        {
+                            "id": tc.id,
+                            "name": tc.function.name,
+                            "arguments": tc.function.arguments,
+                        }
+                    )
+
+        result: LLMResponse = {"content": "\n".join(content_parts)} if content_parts else {}
+        if tool_calls:
+            result["tool_calls"] = tool_calls
+        return result
+
+    def plan(
+        self,
+        intent: str,
+        tools: list[ToolSchema],
+    ) -> Plan:
+        """Generate a plan for the intent using the LLM."""
+
+        user_message = f"""Task: {intent}
+
+Available tools: {[t['name'] for t in tools]}
+
+Please analyze the intent and produce a detailed, executable plan
+with the appropriate tools and arguments.
+
+Return your plan as JSON with a "steps" array containing objects with
+"id", "tool", "input" (tool arguments), and "depends_on" (list of step IDs)."""
+
+        messages = [
+            LLMMessage(role="system", content=self._build_system_prompt(tools)),
+            LLMMessage(role="user", content=user_message),
+        ]
+
+        response = self.call(messages, tools)
+
+        if response.get("tool_calls"):
+            steps = []
+            for i, tc in enumerate(response["tool_calls"]):
+                steps.append(
+                    Step(
+                        id=f"step-{i}",
+                        tool=tc["name"],
+                        input=tc["arguments"],
+                        depends_on=[],
+                    )
+                )
+
+            return Plan(
+                id=f"llm-plan-{intent[:32]}",
+                intent=intent,
+                actor="llm",
+                steps=steps,
+                state="draft",
+            )
+
+        raise NotImplementedError(
+            "Content-only responses not fully implemented. Use tool-calling mode."
+        )
+
+
 def get_llm_provider() -> LLMProvider:
     """Get the LLM provider based on environment configuration."""
     provider = os.environ.get("LLM_PROVIDER", "anthropic").lower()
 
     if provider == "anthropic":
         return AnthropicLLM()
+    elif provider == "openai":
+        return OpenAILLM()
     elif provider == "mock":
         return MockLLM()
     else:

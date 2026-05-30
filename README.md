@@ -29,6 +29,16 @@ auditable, and reversible where the underlying system allows it.
 pip install -e ".[dev]"
 ```
 
+Or with LLM support (choose one):
+
+```bash
+# Anthropic Claude
+pip install -e ".[dev,anthropic]"
+
+# OpenAI ChatGPT
+pip install -e ".[dev,openai]"
+```
+
 For local development, SQLite is the easiest way to try the state and audit stores:
 
 ```bash
@@ -42,6 +52,36 @@ hpc-pilot audit-init
 
 Production deployments should use PostgreSQL-compatible URLs for `HPC_DB_URL` and
 `HPC_AUDIT_DB_URL`.
+
+## LLM Configuration
+
+HPC Pilot supports natural-language plan generation using LLMs. Configure your provider:
+
+### Anthropic Claude (default)
+
+```bash
+export LLM_PROVIDER=anthropic
+export ANTHROPIC_API_KEY=your-api-key
+```
+
+### OpenAI ChatGPT
+
+```bash
+export LLM_PROVIDER=openai
+export OPENAI_API_KEY=your-api-key
+```
+
+### Custom local LLM (e.g., Ollama)
+
+Implement the `LLMProvider` interface (see `hpc_agent/core/llm.py`) and register it in
+`get_llm_provider()`. Then set `LLM_PROVIDER` to your custom provider name.
+
+### LLM-DISABLED mode
+
+Set `LLM_PROVIDER=mock` to disable LLM calls (useful for testing or CLI-only operation).
+
+Plan from natural language intent requires LLM. Without LLM, use rule-based planning via
+`hpc-pilot plan --apply` with supported intent patterns, or use direct tool commands.
 
 ## Interfaces
 
@@ -101,7 +141,7 @@ hpc-pilot node-state gpu01 drain --reason maintenance --apply
 hpc-pilot node-state gpu01 resume --apply
 ```
 
-Plan from a natural-language intent:
+Plan from a natural-language intent (requires LLM):
 
 ```bash
 hpc-pilot plan "give alice 48 hours of wall time on the gpu qos"
@@ -131,6 +171,17 @@ hpc-pilot audit-show <audit_id>
 | `HPC_ANSIBLE_DIR` | Ansible control directory | `/etc/hpc-pilot/ansible` |
 | `HPC_APPROVAL_BACKEND` | Approval backend: `cli`, `api`, or `mock` | `cli` |
 | `HPC_MAX_BLAST_RADIUS_AUTO` | Auto-run blast-radius cap | `4` |
+| `LLM_PROVIDER` | LLM backend: `anthropic`, `openai`, `mock` | `anthropic` |
+| `ANTHROPIC_API_KEY` | Anthropic API key | - |
+| `OPENAI_API_KEY` | OpenAI API key | - |
+
+### LLM Configuration
+
+| Variable | Purpose | Default |
+|----------|---------|---------|
+| `LLM_PROVIDER` | LLM backend: `anthropic`, `openai`, `mock` | `anthropic` |
+| `ANTHROPIC_API_KEY` | Anthropic API key (if using Claude) | - |
+| `OPENAI_API_KEY` | OpenAI API key (if using ChatGPT) | - |
 
 Sample policy files live in [config_repo/policy](config_repo/policy).
 

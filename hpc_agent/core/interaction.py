@@ -90,6 +90,18 @@ def tools() -> None:
     typer.echo(json.dumps(tool_schemas(), indent=2))
 
 
+@app.command("shell")
+def shell_cmd(
+    actor: str = typer.Option("cli-user", help="Operator identity for audit records."),
+    role: str = typer.Option("operator", help="RBAC role: viewer, operator, admin."),
+) -> None:
+    """Start an interactive agent shell."""
+    from hpc_agent.core.shell import ShellSession
+
+    policy = PolicyEngine.from_dir(f"{settings.config_repo}/policy")
+    ShellSession(actor=actor, actor_role=Role(role), policy=policy).loop()
+
+
 @app.command("lint-playbook")
 def lint_playbook_cmd(
     playbook: str,

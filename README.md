@@ -4,8 +4,9 @@ AI agent that configures and manages an HPC cluster (Warewulf, Ansible, Slurm, S
 
 This repository is the **scaffold + reference implementation** for the specs in
 `./agent-specs/`. It implements the foundations (spec 00), the safety layer
-(spec 01), and one fully-worked reference tool — `slurm.manage_qos` (spec 05 §1.2) — that
-every other tool should be patterned after.
+(spec 01), and a growing set of Slurm, Ansible, Spack, Warewulf, and workflow surfaces.
+`slurm.manage_qos` (spec 05 §1.2) remains the most complete reference implementation for
+the full mutating-tool contract.
 
 ## What's implemented
 
@@ -42,7 +43,7 @@ every other tool should be patterned after.
 | **Spack modules/views** | 06 §1.5-1.6 | `hpc_agent/tools/spack.py` |
 | **Warewulf provisioning** | 03 §1 | `hpc_agent/tools/warewulf.py` |
 | **Control plane (git)** | 00 §2, 01 §5 | `hpc_agent/state/configrepo.py` |
-| **LLM planner** | 02 §2 | `hpc_agent/core/llm.py` |
+| **LLM client scaffold** | 02 §2 | `hpc_agent/core/llm.py` |
 | **Workflows (core)** | 07 §1-9 | `hpc_agent/workflows/` |
 | CLI (`tools`/`qos`/`plan`/`spack-*`) | 02 §7 | `hpc_agent/core/interaction.py` |
 | Virtual cluster | 08 | `deploy/` |
@@ -56,6 +57,15 @@ pip install -e ".[dev]"
 
 # list registered tools + JSON schemas (for LLM tool-calling)
 hpc-agent tools
+
+# start an interactive Claude Code / OpenCode-style operator shell
+hpc-agent shell
+# inside the shell:
+#   give alice 48 hours of wall time on the gpu qos
+#   /run
+#   /approve
+#   /tools
+#   /help
 
 # dry-run a QOS wall-time extension (needs a sacctmgr on PATH; see tests for stubbing)
 HPC_CONFIG_REPO=$PWD/config_repo hpc-agent qos gpu --op modify --max-wall-min 2880
@@ -93,9 +103,9 @@ hpc-agent spack-compilers --op add --scope site --path /opt/gcc/bin --apply
 
 # generate Spack modulefiles
 hpc-agent spack-modules gpu-stack --module-type lmod
-# manage Spack environments (create/add/removespecs, dry-run unless --apply)
+# manage Spack environments (create/add/remove specs, dry-run unless --apply)
 hpc-agent spack-env my-env --op create
-hpc-agent spack-env my-env --op add_specs --specs "gcc@13" "openmpi"
+hpc-agent spack-env my-env --op add_specs --specs "gcc@13" --specs "openmpi"
 hpc-agent spack-env my-env --op remove_specs --specs "gcc@13" --apply
 
 hpc-agent spack-modules gpu-stack --module-type lmod --apply
@@ -104,12 +114,12 @@ hpc-agent spack-modules gpu-stack --module-type lmod --apply
 hpc-agent spack-view gpu-stack
 
 # manage Spack buildcache
-hpc-agent spack-buildcache push /path/to/mirror --op push
+hpc-agent spack-buildcache push /path/to/mirror
 
 # install packages
 hpc-agent spack-install gpu-stack
-hpc-agent spack-buildcache update-index /path/to/mirror --op update-index
-hpc-agent spack-buildcache add_mirror /path/to/mirror --op add_mirror --apply
+hpc-agent spack-buildcache update_index /path/to/mirror
+hpc-agent spack-buildcache add_mirror /path/to/mirror --apply
 hpc-agent spack-view gpu-stack --prefix /opt/modules --apply
 
 # build a plan from a natural-language intent, then optionally execute it
@@ -148,6 +158,8 @@ no-op, not-found precondition, and inverse-command recording.
 
 - State store ORM + repositories + Alembic initial migration (spec 00 §1); mutating Slurm
   tools upsert desired-state rows when the schema has a corresponding row.
+- Config-repo git wrapper with audited git operations and rollback primitives
+  (spec 00 §2, 01 §5).
 - Plan/Step models, topological ordering, rule-based planner, and the executor with
   pause-for-approval and diff-revalidated resume (spec 02 §3-5).
 - Slurm account creation/modification, user association management, node drain/resume/down,
@@ -161,33 +173,41 @@ no-op, not-found precondition, and inverse-command recording.
 - Spack compiler management (`find`/`add`, low-risk, `site`/`env` scope, spec 06 §1.3).
 - Spack environment management (`create`/`add_specs`/`remove_specs`, spec 06 §1.1).
 - Spack modulefile generation (Lmod/Tcl) and filesystem views (spec 06 §1.5-1.6).
+- Approval backends include CLI, mock, and API-pending behavior (spec 01 §3).
+- Policy evaluation includes YAML assertions, blast-radius checks, and the sample
+  blackout-window rule (spec 01 §4).
 
 ## Quality gates (all green)
 
 ```bash
-ruff check hpc_agent tests   # lint
-mypy hpc_agent/              # strict type check (31 files)
-pytest                       # 142 unit tests (updated 31 tests)
+ruff check .             # lint
+black --check .          # formatting
+mypy hpc_agent tests     # strict type check (79 source files)
+pytest tests/unit        # 153 unit tests
 ```
 
 ### Progress
 
 | Component | Status | Spec |
 |-----------|--------|------|
-| **Warewulf tools** | ✅ Implemented | §03 (all) |
-| **Workflows** | ✅ Implemented | §07 (core) |
-| **Spack tools** | ✅ Implemented | §06 (all) |
-| **Ansible tools** | ✅ Implemented | §04 (all) |
-| **Slurm tools** | ✅ Implemented | §05 (all) |
 | **Core foundations** | ✅ Implemented | §00-02 |
+| **Slurm tools** | ✅ Broad implementation, strongest coverage | §05 |
+| **Ansible tools** | ✅ Implemented and unit-tested | §04 |
+| **Spack tools** | ✅ CLI/tool surface implemented; deeper concretize/install fidelity remains future work | §06 |
+| **Warewulf tools** | ✅ CLI/tool surface implemented; image-build internals remain reference-level | §03 |
+| **Workflows** | ✅ Plan builders implemented | §07 |
 
-**Total: 100% of tool implementations (specs 03-06) complete.**
+The repo is ready for mocked unit development and local CLI dry-runs. It is not yet a
+complete production implementation of every acceptance criterion in specs 03-08.
 
 ## Still to implement (enhancements, not blockers)
 
-- LLM planner (`core/llm.py`) for natural language intent processing
-- Config-repo git wrapper + rollback (spec 00 §2, 01 §5)
-- Approval backends beyond CLI (spec 01 §3: Slack, API)
+- Full LLM planner integration for open-ended natural language intent processing
+- Slack approval backend
 - Virtual cluster + integration/eval suites (spec 08: deploy/, tests/integration/, tests/evals/)
+- More complete Spack environment semantics: config-repo `spack.yaml`/`spack.lock` edits,
+  concretize-on-dry-run, and lockfile diffs
+- More complete Warewulf image-build internals and state persistence
 
-Running: `ruff check hpc_agent tests` ✅ | `mypy hpc_agent/` ✅ | `pytest` ✅ (142 tests)
+Running: `ruff check .` ✅ | `black --check .` ✅ | `mypy hpc_agent tests` ✅ |
+`pytest tests/unit` ✅ (153 tests)

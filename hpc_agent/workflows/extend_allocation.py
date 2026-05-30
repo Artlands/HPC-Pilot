@@ -7,6 +7,8 @@ from __future__ import annotations
 
 from typing import Any, Literal
 
+from typing import Any
+
 from hpc_agent.core.plan import Plan, Step
 
 
@@ -39,9 +41,6 @@ def build(
         state="draft",
     )
 
-    tool_name: str
-    tool_input: dict[str, Any]
-
     # Step 1: Read current state
     if target == "qos":
         plan.steps.append(
@@ -52,8 +51,6 @@ def build(
                 depends_on=[],
             )
         )
-        tool_name = "slurm.manage_qos"
-        tool_input = {"name": name, "op": "modify"}
     elif target == "account":
         plan.steps.append(
             Step(
@@ -63,8 +60,6 @@ def build(
                 depends_on=[],
             )
         )
-        tool_name = "slurm.extend_account"
-        tool_input = {"name": name, "op": "modify"}
     else:  # user
         plan.steps.append(
             Step(
@@ -74,12 +69,22 @@ def build(
                 depends_on=[],
             )
         )
-        tool_name = "slurm.manage_user_assoc"
-        tool_input = {"user": user, "account": account, "op": "modify"}
 
-    # Add the field-specific input
-    tool_input[field] = value
-    tool_input["dry_run"] = True
+    tool_name = "slurm.set_limits"
+
+    # Build set_limits input
+    tool_input: dict[str, Any] = {
+        "target": target,
+        field: value,
+        "dry_run": True,
+    }
+    if target == "qos":
+        tool_input["name"] = name
+    elif target == "account":
+        tool_input["name"] = name
+    else:  # user
+        tool_input["user"] = user
+        tool_input["account"] = account
 
     depends_on_map: dict[str, list[str]] = {
         "qos": ["read-qos"],
@@ -91,7 +96,7 @@ def build(
             id=f"modify-{target}",
             tool=tool_name,
             input=tool_input,
-            depends_on=depends_on_map[target],
+            depends_on=depends_on_map.get(target, []),
         )
     )
 

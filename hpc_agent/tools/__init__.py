@@ -17,9 +17,11 @@ from hpc_agent.tools.ansible import (
     run_playbook,
 )
 from hpc_agent.tools.slurm import (
+    add_node_to_partition,
     diag,
     extend_account,
     job_accounting,
+    manage_partition,
     manage_qos,
     manage_reservation,
     manage_user_assoc,

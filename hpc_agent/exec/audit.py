@@ -44,12 +44,23 @@ class InMemorySink:
 
     def __init__(self) -> None:
         self.events: dict[str, AuditEvent] = {}
+        self.pending_commands: dict[str, list[CommandRecord]] = {}
 
     def write(self, event: AuditEvent) -> None:
+        pending = self.pending_commands.pop(event.id, [])
+        if pending:
+            event.commands.extend(pending)
         self.events[event.id] = event
 
     def get(self, audit_id: str) -> AuditEvent | None:
         return self.events.get(audit_id)
+
+    def record_command(self, audit_id: str, command: CommandRecord) -> None:
+        event = self.events.get(audit_id)
+        if event is not None:
+            event.commands.append(command)
+            return
+        self.pending_commands.setdefault(audit_id, []).append(command)
 
 
 _sink: AuditSink = InMemorySink()
@@ -74,12 +85,9 @@ def commit_event(event: AuditEvent) -> str:
 def record_command(
     *, audit_id: str, actor: str, argv: list[str], rc: int, duration_s: float
 ) -> None:
-    """Attach a command record to an existing event (best-effort; event may not exist yet
-    in some sinks, so we tolerate absence)."""
+    """Attach a command record to an event, buffering it if the event is not committed yet."""
     if isinstance(_sink, InMemorySink):
-        event = _sink.get(audit_id)
-        if event is not None:
-            event.commands.append(CommandRecord(argv=argv, rc=rc, duration_s=duration_s))
+        _sink.record_command(audit_id, CommandRecord(argv=argv, rc=rc, duration_s=duration_s))
 
 
 def get_event(audit_id: str) -> AuditEvent | None:

@@ -9,9 +9,11 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass, field
+from datetime import datetime, time
 from enum import StrEnum
 from pathlib import Path
 from typing import Any
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 import yaml
 
@@ -33,6 +35,7 @@ class PolicyDecision:
 class PolicyRule:
     id: str
     match: dict[str, Any] = field(default_factory=dict)
+    when: dict[str, Any] = field(default_factory=dict)
     assert_: dict[str, Any] = field(default_factory=dict)
     effect: Effect | None = None
     on_violation: Effect | None = None
@@ -116,6 +119,60 @@ def _match_rule(rule: PolicyRule, *, tool: str, domain: str, risk: str, op: str 
     return not ("op" in m and m["op"] != op)
 
 
+_DAY_TO_INDEX = {
+    "mon": 0,
+    "tue": 1,
+    "wed": 2,
+    "thu": 3,
+    "fri": 4,
+    "sat": 5,
+    "sun": 6,
+}
+
+
+def _parse_hhmm(value: str) -> time | None:
+    try:
+        hour, minute = value.split(":", 1)
+        return time(hour=int(hour), minute=int(minute))
+    except (ValueError, TypeError):
+        return None
+
+
+def _time_in_window(expr: str, now: datetime) -> bool:
+    """Evaluate 'Mon 02:00-04:00 America/Chicago' against now."""
+    parts = expr.split()
+    if len(parts) != 3:
+        return False
+    day_raw, span_raw, tz_name = parts
+    day_index = _DAY_TO_INDEX.get(day_raw[:3].lower())
+    if day_index is None or "-" not in span_raw:
+        return False
+    start_raw, end_raw = span_raw.split("-", 1)
+    start = _parse_hhmm(start_raw)
+    end = _parse_hhmm(end_raw)
+    if start is None or end is None:
+        return False
+    try:
+        local_now = now.astimezone(ZoneInfo(tz_name))
+    except ZoneInfoNotFoundError:
+        return False
+    if local_now.weekday() != day_index:
+        return False
+    current = local_now.time()
+    if start <= end:
+        return start <= current <= end
+    return current >= start or current <= end
+
+
+def _match_when(rule: PolicyRule, now: datetime) -> bool:
+    if not rule.when:
+        return True
+    time_expr = rule.when.get("time_in")
+    if time_expr is not None:
+        return _time_in_window(str(time_expr), now)
+    return True
+
+
 class PolicyEngine:
     def __init__(self, rules: list[PolicyRule]) -> None:
         self.rules = rules
@@ -131,6 +188,7 @@ class PolicyEngine:
                     PolicyRule(
                         id=raw["id"],
                         match=raw.get("match", {}),
+                        when=raw.get("when", {}),
                         assert_=raw.get("assert", {}),
                         effect=Effect(raw["effect"]) if raw.get("effect") else None,
                         on_violation=(
@@ -149,10 +207,14 @@ class PolicyEngine:
         risk: str,
         op: str | None,
         input_ctx: dict[str, Any],
+        now: datetime | None = None,
     ) -> PolicyDecision:
         """Return the first decisive PolicyDecision, or an empty one (fall through)."""
+        now = now or datetime.now().astimezone()
         for rule in self.rules:
             if not _match_rule(rule, tool=tool, domain=domain, risk=risk, op=op):
+                continue
+            if not _match_when(rule, now):
                 continue
             holds = _check_assert(input_ctx, rule.assert_) if rule.assert_ else True
             if rule.assert_:
@@ -162,4 +224,6 @@ class PolicyEngine:
                     return PolicyDecision(rule.on_violation, rule.message, rule.id)
             elif rule.effect is not None:
                 return PolicyDecision(rule.effect, rule.message, rule.id)
+            elif rule.on_violation is not None:
+                return PolicyDecision(rule.on_violation, rule.message, rule.id)
         return PolicyDecision()

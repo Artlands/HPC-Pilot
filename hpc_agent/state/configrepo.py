@@ -10,12 +10,10 @@ log for revert capability.
 from __future__ import annotations
 
 import os
-import subprocess
 from pathlib import Path
-from typing import TYPE_CHECKING
 
-if TYPE_CHECKING:
-    pass
+from hpc_agent.exec import audit
+from hpc_agent.exec.runner import CommandResult, CommandSpec, run_command
 
 
 class ConfigRepo:
@@ -37,26 +35,26 @@ class ConfigRepo:
         """Ensure the config repo exists and is initialized."""
         if not self.path.exists():
             self.path.mkdir(parents=True, exist_ok=True)
-            self._run(["init", str(self.path)])
+        if not (self.path / ".git").exists():
+            self._run(["init"])
 
-    def _run(
-        self, args: list[str], **kwargs: object
-    ) -> subprocess.CompletedProcess[str]:
+    def _run(self, args: list[str]) -> CommandResult:
         """Run a git command in the repo directory."""
-        env: dict[str, str] = {
-            **os.environ,
-            "GIT_DIR": str(self.path / ".git"),
-        }
-        # MyPy is overly strict about subprocess.run overloads
-        return subprocess.run(  # type: ignore
-            ["git", *args],
-            cwd=self.path,
-            env=env,
-            capture_output=True,
-            text=True,
-            check=False,
-            **kwargs,
+        event = audit.new_event(
+            actor="hpc-agent",
+            tool="configrepo.git",
+            risk="low",
+            input={"args": args},
         )
+        result = run_command(
+            CommandSpec(argv=["git", *args], cwd=str(self.path), timeout_s=120),
+            actor="hpc-agent",
+            audit_id=event.id,
+        )
+        event.decision = "auto"
+        event.result_status = "ok" if result.rc == 0 else "error"
+        audit.commit_event(event)
+        return result
 
     def read(self, relpath: str) -> str:
         """Read a file from the repo."""
@@ -83,8 +81,20 @@ class ConfigRepo:
 
     def commit(self, message: str, author: str = "hpc-agent") -> str:
         """Commit staged changes and return the commit SHA."""
-        result = self._run(["commit", "-m", message, f"--author={author}"])
-        if result.returncode != 0:
+        git_author = author if "<" in author and ">" in author else f"{author} <{author}@localhost>"
+        result = self._run(
+            [
+                "-c",
+                "user.name=hpc-agent",
+                "-c",
+                "user.email=hpc-agent@localhost",
+                "commit",
+                "-m",
+                message,
+                f"--author={git_author}",
+            ]
+        )
+        if result.rc != 0:
             raise RuntimeError(f"Git commit failed: {result.stderr}")
         # Get the commit SHA
         result = self._run(["rev-parse", "HEAD"])

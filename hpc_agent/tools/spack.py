@@ -6,7 +6,7 @@ from typing import Literal
 
 from pydantic import BaseModel
 
-from hpc_agent.config.settings import settings
+from hpc_agent.config.settings import settings as settings
 from hpc_agent.exec import audit
 from hpc_agent.exec.rbac import Role
 from hpc_agent.exec.runner import CommandSpec, redacted_argv, run_command

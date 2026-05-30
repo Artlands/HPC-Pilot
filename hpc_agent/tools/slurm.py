@@ -600,9 +600,7 @@ def _node_desired_changes(inp: NodeStateIn, current: dict[str, object] | None) -
     op = (
         "drain"
         if inp.target == "drain"
-        else "resume"
-        if inp.target in {"resume", "undrain"}
-        else "modify"
+        else "resume" if inp.target in {"resume", "undrain"} else "modify"
     )
     changes = [
         Change(
@@ -2310,9 +2308,7 @@ def manage_partition(
         import os
         import tempfile
 
-        with tempfile.NamedTemporaryFile(
-            mode="w", suffix=".slurm.conf", delete=False
-        ) as tmp:
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".slurm.conf", delete=False) as tmp:
             tmp.write(new_conf)
             tmp_path = tmp.name
 
@@ -2324,9 +2320,7 @@ def manage_partition(
                 audit_id=audit_id,
             )
             if res.rc != 0:
-                raise _precondition(
-                    f"slurm.conf validation failed: {res.stderr}"
-                )
+                raise _precondition(f"slurm.conf validation failed: {res.stderr}")
         finally:
             os.unlink(tmp_path)
 
@@ -2358,9 +2352,7 @@ def manage_partition(
             changes=changes,
             commands_preview=[
                 redacted_argv(
-                    CommandSpec(
-                        argv=[f"{settings.slurm_bin_dir}/slurmctld", "-t", "-f", "<tmp>"]
-                    )
+                    CommandSpec(argv=[f"{settings.slurm_bin_dir}/slurmctld", "-t", "-f", "<tmp>"])
                 )
             ],
             config_diff=repo.diff() if hasattr(repo, "diff") else None,
@@ -2509,16 +2501,12 @@ def add_node_to_partition(
             node_repo = NodeRepo(session)
             node = node_repo.get(inp.node)
             if node is None:
-                raise _precondition(
-                    f"node '{inp.node}' not found in state store"
-                )
+                raise _precondition(f"node '{inp.node}' not found in state store")
 
             # Get partition
             partition = session.query(Partition).filter_by(name=inp.partition).first()
             if partition is None:
-                raise _precondition(
-                    f"partition '{inp.partition}' does not exist"
-                )
+                raise _precondition(f"partition '{inp.partition}' does not exist")
 
             slurm_repo = SlurmRepo(session)
 
@@ -2576,9 +2564,7 @@ def add_node_to_partition(
             import os
             import tempfile
 
-            with tempfile.NamedTemporaryFile(
-                mode="w", suffix=".slurm.conf", delete=False
-            ) as tmp:
+            with tempfile.NamedTemporaryFile(mode="w", suffix=".slurm.conf", delete=False) as tmp:
                 tmp.write(new_conf)
                 tmp_path = tmp.name
 
@@ -2597,9 +2583,7 @@ def add_node_to_partition(
                     audit_id=audit_id,
                 )
                 if res.rc != 0:
-                    raise _precondition(
-                        f"slurm.conf validation failed: {res.stderr}"
-                    )
+                    raise _precondition(f"slurm.conf validation failed: {res.stderr}")
             finally:
                 os.unlink(tmp_path)
 
@@ -2633,9 +2617,7 @@ def add_node_to_partition(
                 reversible=True,
             )
 
-            event.diff_summary = (
-                f"node {inp.node} -> partition {inp.partition}"
-            )
+            event.diff_summary = f"node {inp.node} -> partition {inp.partition}"
 
             g = safety_gate.evaluate(
                 meta,
@@ -2668,9 +2650,7 @@ def add_node_to_partition(
 
             # Commit config
             repo.stage("slurm/slurm.conf", new_conf)
-            config_commit = repo.commit(
-                f"Add {inp.node} to partition {inp.partition}"
-            )
+            config_commit = repo.commit(f"Add {inp.node} to partition {inp.partition}")
 
             # Update partition members in state store
             slurm_repo.add_partition_member(inp.partition, inp.node)

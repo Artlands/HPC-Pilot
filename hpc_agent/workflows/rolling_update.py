@@ -8,6 +8,7 @@ from __future__ import annotations
 from hpc_agent.core.ordering import topological_order
 from hpc_agent.core.plan import Plan, Step
 from hpc_agent.state.db import session_scope
+from hpc_agent.state.models import NodeRole
 from hpc_agent.state.repos import NodeRepo
 
 
@@ -43,7 +44,7 @@ def build(
 
     try:
         with session_scope() as session:
-            nodes = NodeRepo(session).by_role(group)
+            nodes = NodeRepo(session).by_role(NodeRole(group))
             node_names = [n.hostname for n in nodes]
     except Exception:
         node_names = []
@@ -80,9 +81,7 @@ def _add_warewulf_steps(
     )
 
     # Batch processing: divide nodes into batches
-    batches = [
-        node_names[i : i + 2] for i in range(0, len(node_names), 2)
-    ]
+    batches = [node_names[i : i + 2] for i in range(0, len(node_names), 2)]
 
     for batch_idx, batch in enumerate(batches):
         batch_id = f"batch-{batch_idx + 1}"
@@ -115,7 +114,7 @@ def _add_warewulf_steps(
 
 def _add_ansible_steps(plan: Plan, node_names: list[str]) -> None:
     """Add Ansible configuration steps for each node."""
-    for node_idx, node in enumerate(node_names):
+    for node in node_names:
         node_id = node.replace("-", "_").replace(".", "_")
 
         # Apply common configuration

@@ -138,3 +138,23 @@ def test_resume_rejects_changed_diff(monkeypatch: pytest.MonkeyPatch, policy: Po
     assert out.step("s1").status == StepStatus.FAILED
     assert out.step("s1").result is not None
     assert "invalidated" in (out.step("s1").result.error.message)  # type: ignore[union-attr]
+
+
+def test_run_plan_does_not_retry_existing_failed_step(
+    monkeypatch: pytest.MonkeyPatch, policy: PolicyEngine
+) -> None:
+    runner = FakeRunner(GPU_ROW)
+    _patch(monkeypatch, runner)
+    step = Step(
+        id="s1",
+        tool="slurm.manage_qos",
+        input={"name": "gpu", "op": "modify", "max_wall_min": 100000},
+    )
+    plan = plan_from_steps("over cap", "alice", [step])
+    first = run_plan(plan, policy=policy)
+    call_count = len(runner.calls)
+
+    second = run_plan(first, policy=policy)
+
+    assert second.step("s1").status == StepStatus.FAILED
+    assert len(runner.calls) == call_count

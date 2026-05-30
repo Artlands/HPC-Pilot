@@ -54,7 +54,7 @@ def run_plan(
     failed_ids: set[str] = {s.id for s in plan.steps if s.status == StepStatus.FAILED}
 
     for step in topological_order(plan.steps):
-        if step.status in (StepStatus.DONE, StepStatus.SKIPPED):
+        if step.status in (StepStatus.DONE, StepStatus.FAILED, StepStatus.SKIPPED):
             continue
 
         # skip if any dependency failed

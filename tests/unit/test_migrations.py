@@ -2,12 +2,15 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
 from alembic import command
 from alembic.config import Config
 from sqlalchemy import create_engine, inspect
 
 
-def test_alembic_upgrade_head_creates_state_schema(tmp_path: Path, monkeypatch) -> None:
+def test_alembic_upgrade_head_creates_state_schema(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     db_path = tmp_path / "state.sqlite"
     monkeypatch.setenv("HPC_DB_URL", f"sqlite+pysqlite:///{db_path}")
 

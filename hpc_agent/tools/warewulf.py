@@ -567,9 +567,7 @@ def assign_image_to_nodes(
 
     for node in inp.nodes:
         res = run_command(
-            CommandSpec(
-                argv=[WWCTL, "node", "set", node, "--profile", inp.profile], timeout_s=60
-            ),
+            CommandSpec(argv=[WWCTL, "node", "set", node, "--profile", inp.profile], timeout_s=60),
             actor=actor,
             audit_id=audit_id,
         )

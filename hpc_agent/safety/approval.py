@@ -86,6 +86,16 @@ class MockApproval(ApprovalBackend):
         return gate
 
 
+class APIApproval(ApprovalBackend):
+    """API approval backend - leave the gate pending for async resolution."""
+
+    def request_approval(self, gate: Gate, diff: Diff, actor: str) -> Gate:
+        gate.requires_approval = True
+        gate.approved = False
+        gate.reason = gate.reason or "pending API approval"
+        return gate
+
+
 def request_approval(gate: Gate, diff: Diff, actor: str) -> Gate:
     """Request approval based on configured backend.
 
@@ -105,9 +115,7 @@ def request_approval(gate: Gate, diff: Diff, actor: str) -> Gate:
     elif backend_name == "mock":
         backend = MockApproval(auto_approve=True)
     elif backend_name == "api":
-        # API backend - create pending approval record
-        # For now, fall back to CLI behavior
-        backend = CLIApproval()
+        backend = APIApproval()
     else:
         # Unknown backend, fall back to CLI
         backend = CLIApproval()

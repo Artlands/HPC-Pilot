@@ -67,9 +67,7 @@ class AnthropicLLM(LLMProvider):
         try:
             from anthropic import Anthropic
         except ImportError as err:
-            raise ImportError(
-                "Install anthropic package: pip install anthropic"
-            ) from err
+            raise ImportError("Install anthropic package: pip install anthropic") from err
         self.client = Anthropic()
         self.model = model
 
@@ -80,11 +78,7 @@ class AnthropicLLM(LLMProvider):
         system_prompt: str | None = None,
     ) -> LLMResponse:
         """Call the Anthropic Messages API."""
-        tools_param = (
-            [{"type": "tool", **tool} for tool in tools]
-            if tools
-            else None
-        )
+        tools_param = [{"type": "tool", **tool} for tool in tools] if tools else None
 
         response = self.client.messages.create(
             model=self.model,
@@ -164,13 +158,10 @@ Return your plan as JSON with a "steps" array containing objects with
 
         # Fallback for content-only responses
         raise NotImplementedError(
-            "Content-only responses not fully implemented. "
-            "Use tool-calling mode."
+            "Content-only responses not fully implemented. " "Use tool-calling mode."
         )
 
-    def _build_system_prompt(
-        self, tools: list[ToolSchema]
-    ) -> str:
+    def _build_system_prompt(self, tools: list[ToolSchema]) -> str:
         """Build the system prompt for the LLM."""
         return f"""You are an HPC cluster management AI agent.
 
@@ -206,9 +197,7 @@ class MockLLM(LLMProvider):
         tools: list[ToolSchema],
     ) -> Plan:
         """Return error - mock needs explicit plan."""
-        raise NotImplementedError(
-            "MockLLM requires explicit plan setup for plan() calls"
-        )
+        raise NotImplementedError("MockLLM requires explicit plan setup for plan() calls")
 
 
 def get_llm_provider() -> LLMProvider:

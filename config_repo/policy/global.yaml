@@ -1,5 +1,11 @@
 # Global policy rules. See spec 01 §4.
 
+- id: blackout-window
+  match: { risk: ["medium", "high"] }
+  when: { time_in: "Mon 02:00-04:00 America/Chicago" }
+  on_violation: deny
+  message: "Blocked during nightly backup window."
+
 - id: node-blast-cap
   match: { domain: "warewulf" }
   assert:

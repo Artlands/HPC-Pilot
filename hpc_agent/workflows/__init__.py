@@ -4,6 +4,7 @@ Each workflow function returns a Plan (spec 02 §3) that the executor will run.
 """
 
 from hpc_agent.workflows.add_node import build as add_node
+from hpc_agent.workflows.bootstrap_cluster import build as bootstrap_cluster
 from hpc_agent.workflows.extend_allocation import build as extend_allocation
 from hpc_agent.workflows.health_triage import build as health_triage
 from hpc_agent.workflows.node_maintenance import build as node_maintenance
@@ -15,6 +16,7 @@ from hpc_agent.workflows.rolling_update import build as rolling_update
 
 __all__ = [
     "add_node",
+    "bootstrap_cluster",
     "extend_allocation",
     "health_triage",
     "node_maintenance",

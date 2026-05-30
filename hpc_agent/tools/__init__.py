@@ -52,6 +52,13 @@ from hpc_agent.tools.warewulf import (
     manage_overlay,
     provision_node,
     rebuild_overlay,
+    ww_node_status,
+)
+from hpc_agent.tools.warewulf_bootstrap import (
+    configure_dhcp,
+    configure_nfs,
+    configure_tftp,
+    server_status,
 )
 
 __all__ = [
@@ -81,6 +88,12 @@ __all__ = [
     "manage_overlay",
     "provision_node",
     "rebuild_overlay",
+    "ww_node_status",
+    # Warewulf bootstrap tools
+    "configure_dhcp",
+    "configure_nfs",
+    "configure_tftp",
+    "server_status",
     # Ansible tools
     "compose_playbook",
     "lint_playbook",

@@ -20,6 +20,7 @@ These documents are not release notes. For day-to-day usage, start with the top-
 | [06-tool-spack.md](06-tool-spack.md) | Spack environment, compiler, install, buildcache, module, and view tools |
 | [07-workflows.md](07-workflows.md) | Multi-tool workflow plan builders |
 | [08-testing.md](08-testing.md) | Unit, integration, virtual-cluster, eval, and CI strategy |
+| [09-cluster-bootstrap.md](09-cluster-bootstrap.md) | Day-0 bare-metal controller bootstrap: DHCP, TFTP, NFS setup and cluster bring-up workflow |
 
 ## Core Conventions
 

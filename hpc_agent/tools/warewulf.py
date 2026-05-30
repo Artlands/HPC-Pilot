@@ -5,6 +5,10 @@ All commands run via `run_command` under scoped sudo.
 
 from __future__ import annotations
 
+import hashlib
+import json
+import os
+from pathlib import Path
 from typing import Literal
 
 from pydantic import BaseModel
@@ -19,6 +23,9 @@ from hpc_agent.safety.policy import PolicyEngine
 from hpc_agent.tools.base import Risk, get_tool, tool
 from hpc_agent.tools.errors import ErrorKind, ToolError
 from hpc_agent.tools.result import ToolResult
+
+# Warewulf overlay files live here on the controller
+_WW_OVERLAY_DIR = "/var/lib/warewulf/overlays"
 
 WWCTL = f"{settings.ww_bin_dir}/wwctl"
 
@@ -79,6 +86,10 @@ class RebuildOverlayIn(BaseModel):
     dry_run: bool = True
 
 
+class WwNodeStatusIn(BaseModel):
+    node: str
+
+
 class ListImagesIn(BaseModel):
     pass
 
@@ -106,6 +117,68 @@ def _finish_read(audit_id: str, *, ok: bool) -> None:
     event.decision = "auto"
     event.result_status = "ok" if ok else "error"
     audit.commit_event(event)
+
+
+def _compute_spec_hash(inp: BuildImageIn) -> str:
+    spec = {
+        "base_image": inp.base_image,
+        "kind": inp.kind,
+        "packages": sorted(inp.packages),
+        "kernel_args": inp.kernel_args,
+        "nvidia_driver_version": inp.nvidia_driver_version,
+        "cuda_version": inp.cuda_version,
+        "enable_fabricmanager": inp.enable_fabricmanager,
+        "install_dcgm": inp.install_dcgm,
+    }
+    return hashlib.sha256(json.dumps(spec, sort_keys=True).encode()).hexdigest()[:16]
+
+
+def _cpu_exec_commands(inp: BuildImageIn) -> list[list[str]]:
+    base_pkgs = ["kernel", "chrony", "munge", "slurm-slurmd", "nfs-utils", "node_exporter"]
+    install_pkgs = base_pkgs + inp.packages
+    return [
+        [WWCTL, "container", "exec", inp.name, "--", "dnf", "-y", "update"],
+        [WWCTL, "container", "exec", inp.name, "--", "dnf", "-y", "install"] + install_pkgs,
+        [WWCTL, "container", "exec", inp.name, "--", "systemctl", "enable", "slurmd", "chronyd"],
+    ]
+
+
+def _gpu_exec_commands(inp: BuildImageIn) -> list[list[str]]:
+    cmds = _cpu_exec_commands(inp)
+    cmds.insert(
+        1,
+        [WWCTL, "container", "exec", inp.name, "--", "dnf", "-y", "install", "kernel-devel", "kernel-headers"],
+    )
+    if inp.nvidia_driver_version:
+        cmds.append(
+            [WWCTL, "container", "exec", inp.name, "--",
+             "dnf", "-y", "install", f"nvidia-driver-{inp.nvidia_driver_version}"]
+        )
+    if inp.cuda_version:
+        cmds.append(
+            [WWCTL, "container", "exec", inp.name, "--",
+             "dnf", "-y", "install", f"cuda-toolkit-{inp.cuda_version}"]
+        )
+    if inp.enable_fabricmanager and inp.nvidia_driver_version:
+        cmds.append(
+            [WWCTL, "container", "exec", inp.name, "--",
+             "dnf", "-y", "install", f"nvidia-fabricmanager-{inp.nvidia_driver_version}"]
+        )
+    if inp.install_dcgm:
+        cmds.append(
+            [WWCTL, "container", "exec", inp.name, "--",
+             "dnf", "-y", "install", "datacenter-gpu-manager"]
+        )
+        cmds.append(
+            [WWCTL, "container", "exec", inp.name, "--", "systemctl", "enable", "nvidia-dcgm"]
+        )
+    return cmds
+
+
+def _build_exec_commands(inp: BuildImageIn) -> list[list[str]]:
+    inner = _gpu_exec_commands(inp) if inp.kind == "compute_gpu" else _cpu_exec_commands(inp)
+    inner.append([WWCTL, "container", "build", inp.name])
+    return inner
 
 
 @tool(
@@ -225,30 +298,19 @@ def build_node_image(
     )
     audit_id = event.id
 
-    # In dry-run, just compute the spec_hash
-    spec_hash = f"dummy-{inp.name}"
-    if inp.dry_run:
-        diff = Diff(
-            changes=[],
-            commands_preview=[],
-            blast_radius=_blast_radius(inp),
-            reversible=True,
-        )
-        event.decision = "dry_run"
-        event.diff_summary = f"build image {inp.name} (spec_hash={spec_hash})"
-        event.result_status = "dry_run"
-        audit.commit_event(event)
-        return ToolResult.dry_run(diff)
+    spec_hash = _compute_spec_hash(inp)
+    all_cmds = _build_exec_commands(inp)
 
-    forward_argv = [WWCTL, "container", "build", inp.name]
     diff = Diff(
-        changes=[],
-        commands_preview=[redacted_argv(CommandSpec(argv=forward_argv))],
+        changes=[
+            {"target": f"image/{inp.name}", "field": "spec_hash", "before": None, "after": spec_hash, "op": "build"}
+        ],
+        commands_preview=[redacted_argv(CommandSpec(argv=cmd)) for cmd in all_cmds],
         blast_radius=_blast_radius(inp),
         reversible=True,
     )
 
-    event.diff_summary = f"container build {inp.name}"
+    event.diff_summary = f"build image {inp.name} kind={inp.kind} spec_hash={spec_hash}"
 
     g = safety_gate.evaluate(
         meta, inp.model_dump(), diff, actor_role=actor_role, policy=policy, op="build"
@@ -260,6 +322,13 @@ def build_node_image(
         audit.commit_event(event)
         return ToolResult.denied(g.reason or "denied by policy")
 
+    if inp.dry_run:
+        event.decision = "dry_run"
+        event.diff_summary = diff.render()
+        event.result_status = "dry_run"
+        audit.commit_event(event)
+        return ToolResult.dry_run(diff)
+
     if g.requires_approval and not g.approved:
         event.decision = "needs_approval"
         event.diff_summary = diff.render()
@@ -267,24 +336,23 @@ def build_node_image(
         audit.commit_event(event)
         return ToolResult.needs_approval(diff)
 
-    res = run_command(
-        CommandSpec(argv=forward_argv, timeout_s=900),
-        actor=actor,
-        audit_id=audit_id,
-    )
-    if res.rc != 0:
-        event.decision = "auto"
-        event.diff_summary = diff.render()
-        event.result_status = "error"
-        audit.commit_event(event)
-        return ToolResult.failed(
-            ToolError(
-                kind=ErrorKind.COMMAND_FAILED,
-                message=f"wwctl container build failed (rc={res.rc})",
-                detail=res.stderr,
-                remediation="check container build logs",
+    for cmd in all_cmds:
+        timeout = 900 if cmd[2] == "build" else 300
+        res = run_command(CommandSpec(argv=cmd, timeout_s=timeout), actor=actor, audit_id=audit_id)
+        if res.rc != 0:
+            event.decision = "auto"
+            event.diff_summary = diff.render()
+            event.result_status = "error"
+            audit.commit_event(event)
+            step_label = " ".join(cmd[3:6])
+            return ToolResult.failed(
+                ToolError(
+                    kind=ErrorKind.COMMAND_FAILED,
+                    message=f"container build step failed [{step_label}] (rc={res.rc})",
+                    detail=res.stderr,
+                    remediation="check container build logs; verify package repos are reachable",
+                )
             )
-        )
 
     event.decision = "auto"
     event.diff_summary = diff.render()
@@ -295,7 +363,6 @@ def build_node_image(
             "name": inp.name,
             "kind": inp.kind,
             "spec_hash": spec_hash,
-            "kernel_version": "unknown",
             "driver_version": inp.nvidia_driver_version,
             "cuda_version": inp.cuda_version,
         },
@@ -459,8 +526,25 @@ def manage_overlay(
         audit.commit_event(event)
         return ToolResult.needs_approval(diff)
 
-    # In real implementation, we'd copy files and run wwctl overlay build
-    # For now, just simulate success
+    # Stage files in config repo (git-tracked copy)
+    from hpc_agent.state.configrepo import get_config_repo
+
+    repo = get_config_repo()
+    for relpath, content in inp.files.items():
+        repo.stage(f"warewulf/overlays/{inp.overlay}/{relpath}", content)
+
+    config_commit = repo.commit(
+        message=f"overlay {inp.overlay}: update {len(inp.files)} files",
+        author=actor,
+    )
+
+    # Copy staged files into Warewulf's live overlay directory
+    overlay_base = Path(_WW_OVERLAY_DIR) / inp.overlay
+    for relpath, content in inp.files.items():
+        dest = overlay_base / relpath
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        dest.write_text(content)
+
     res = run_command(
         CommandSpec(argv=[WWCTL, "overlay", "build", inp.overlay], timeout_s=60),
         actor=actor,
@@ -485,9 +569,10 @@ def manage_overlay(
     event.result_status = "ok"
     audit.commit_event(event)
     return ToolResult.success(
-        data={"overlay": inp.overlay, "files": len(inp.files)},
+        data={"overlay": inp.overlay, "files": len(inp.files), "config_commit": config_commit},
         diff=diff,
         audit_id=audit_id,
+        config_commit=config_commit,
     )
 
 
@@ -790,6 +875,82 @@ def rebuild_overlay(
         diff=diff,
         audit_id=audit_id,
     )
+
+
+@tool(
+    name="warewulf.node_status",
+    risk=Risk.READ,
+    domain="warewulf",
+    blast_radius=lambda _: 0,
+)
+def ww_node_status(
+    inp: WwNodeStatusIn,
+    *,
+    actor: str,
+    actor_role: Role = Role.VIEWER,
+    policy: PolicyEngine | None = None,
+) -> ToolResult:
+    """Query a node's provisioning registration in Warewulf.
+
+    Risk: READ
+    """
+    meta, _fn, _br = get_tool("warewulf.node_status")
+    event = audit.new_event(
+        actor=actor,
+        tool=meta.name,
+        risk=meta.risk.value,
+        input={"node": inp.node},
+    )
+    audit_id = event.id
+
+    res = run_command(
+        CommandSpec(argv=[WWCTL, "node", "show", inp.node], timeout_s=30),
+        actor=actor,
+        audit_id=audit_id,
+    )
+
+    if res.rc != 0:
+        _finish_read(audit_id, ok=False)
+        return ToolResult.failed(
+            ToolError(
+                kind=ErrorKind.NOT_FOUND,
+                message=f"node {inp.node!r} not found in Warewulf (rc={res.rc})",
+                detail=res.stderr,
+                remediation="run warewulf.provision_node first to register the node",
+            )
+        )
+
+    # Parse columnar output into key→value pairs
+    fields: dict[str, str] = {}
+    for line in res.stdout.splitlines():
+        if not line.strip() or line.startswith("NODE"):
+            continue
+        parts = line.split()
+        if len(parts) >= 2:
+            fields.setdefault("node", parts[0])
+            if len(parts) >= 3:
+                fields.setdefault("profile", parts[1])
+                fields.setdefault("image", parts[2])
+            if len(parts) >= 5:
+                fields.setdefault("netdev", parts[3])
+                fields.setdefault("mac", parts[4])
+            if len(parts) >= 6:
+                fields.setdefault("ip", parts[5])
+
+    if not fields:
+        # No output lines parsed — node not found
+        _finish_read(audit_id, ok=False)
+        return ToolResult.failed(
+            ToolError(
+                kind=ErrorKind.NOT_FOUND,
+                message=f"node {inp.node!r} not registered in Warewulf",
+                detail=res.stdout,
+                remediation="run warewulf.provision_node first to register the node",
+            )
+        )
+
+    _finish_read(audit_id, ok=True)
+    return ToolResult.success(data={"node": inp.node, **fields}, audit_id=audit_id)
 
 
 @tool(

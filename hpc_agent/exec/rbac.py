@@ -35,6 +35,7 @@ ROLE_CAPS: dict[Role, set[str]] = {
         "warewulf.rebuild_overlay",
         "warewulf.query_*",
         "warewulf.node_status",
+        "warewulf.server_status",
         "ansible.compose_playbook",
         "ansible.run_playbook",
         "ansible.lint_playbook",

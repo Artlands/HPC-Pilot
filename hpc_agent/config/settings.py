@@ -10,6 +10,8 @@ class Settings(BaseSettings):
 
     db_url: str = "postgresql+psycopg://hpcagent@localhost/hpc_agent"
     audit_db_url: str = "postgresql+psycopg://hpcagent@localhost/hpc_audit"
+    audit_sink: str = "memory"  # memory | db
+    audit_auto_init: bool = False
 
     config_repo: str = "/etc/hpc-agent/config"
     slurm_bin_dir: str = "/usr/bin"

@@ -58,6 +58,13 @@ pip install -e ".[dev]"
 # list registered tools + JSON schemas (for LLM tool-calling)
 hpc-agent tools
 
+# enable durable operation tracking in SQLite for local testing
+HPC_AUDIT_DB_URL=sqlite+pysqlite:////tmp/hpc-agent-audit.sqlite hpc-agent audit-init
+HPC_AUDIT_SINK=db HPC_AUDIT_DB_URL=sqlite+pysqlite:////tmp/hpc-agent-audit.sqlite \
+  hpc-agent qos gpu --op modify --max-wall-min 2880 --apply
+HPC_AUDIT_SINK=db HPC_AUDIT_DB_URL=sqlite+pysqlite:////tmp/hpc-agent-audit.sqlite \
+  hpc-agent audit-log --result-status ok
+
 # start an interactive Claude Code / OpenCode-style operator shell
 hpc-agent shell
 # or launch the split-pane terminal UI
@@ -160,6 +167,8 @@ no-op, not-found precondition, and inverse-command recording.
 
 - State store ORM + repositories + Alembic initial migration (spec 00 §1); mutating Slurm
   tools upsert desired-state rows when the schema has a corresponding row.
+- Durable SQL audit operation log with `audit_events` and `audit_commands`, plus
+  `hpc-agent audit-init`, `audit-log`, and `audit-show` for tracking applied operations.
 - Config-repo git wrapper with audited git operations and rollback primitives
   (spec 00 §2, 01 §5).
 - Plan/Step models, topological ordering, rule-based planner, and the executor with
@@ -184,8 +193,8 @@ no-op, not-found precondition, and inverse-command recording.
 ```bash
 ruff check .             # lint
 black --check .          # formatting
-mypy hpc_agent tests     # strict type check (79 source files)
-pytest tests/unit        # 156 unit tests
+mypy hpc_agent tests     # strict type check (84 source files)
+pytest tests/unit        # 158 unit tests
 ```
 
 ### Progress
@@ -212,4 +221,4 @@ complete production implementation of every acceptance criterion in specs 03-08.
 - More complete Warewulf image-build internals and state persistence
 
 Running: `ruff check .` ✅ | `black --check .` ✅ | `mypy hpc_agent tests` ✅ |
-`pytest tests/unit` ✅ (156 tests)
+`pytest tests/unit` ✅ (158 tests)

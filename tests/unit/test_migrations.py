@@ -22,6 +22,8 @@ def test_alembic_upgrade_head_creates_state_schema(
     inspector = inspect(engine)
     assert set(inspector.get_table_names()) >= {
         "accounts",
+        "audit_commands",
+        "audit_events",
         "alembic_version",
         "images",
         "nodes",
@@ -48,3 +50,14 @@ def test_alembic_upgrade_head_creates_state_schema(
         for constraint in inspector.get_unique_constraints("user_assocs")
     }
     assert ("user", "account") in assoc_unique_constraints
+
+    audit_columns = {col["name"] for col in inspector.get_columns("audit_events")}
+    assert {
+        "id",
+        "ts",
+        "actor",
+        "tool",
+        "decision",
+        "result_status",
+        "revert_argv",
+    }.issubset(audit_columns)

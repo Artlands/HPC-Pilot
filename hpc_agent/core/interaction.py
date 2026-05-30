@@ -9,6 +9,7 @@ import json
 import typer
 
 from hpc_agent.config.settings import settings
+from hpc_agent.exec import audit
 from hpc_agent.exec.rbac import Role
 from hpc_agent.safety.policy import PolicyEngine
 from hpc_agent.tools.ansible import (
@@ -84,10 +85,58 @@ LIMIT_QOS_ADD_OPTION = typer.Option(None)
 PLAYBOOK_ROLES_OPTION = typer.Option(None)
 
 
+@app.callback()
+def main() -> None:
+    """Configure process-wide services for CLI commands."""
+    audit.configure_from_settings()
+
+
 @app.command()
 def tools() -> None:
     """List registered tools and their JSON schemas."""
     typer.echo(json.dumps(tool_schemas(), indent=2))
+
+
+@app.command("audit-init")
+def audit_init_cmd() -> None:
+    """Create the durable audit operation-log tables."""
+    audit.init_audit_db(settings.audit_db_url)
+    typer.echo(f"initialized audit DB: {settings.audit_db_url}")
+
+
+@app.command("audit-log")
+def audit_log_cmd(
+    limit: int = typer.Option(20, help="Maximum events to show."),
+    tool: str = typer.Option(None, help="Filter by tool name."),
+    actor: str = typer.Option(None, help="Filter by actor."),
+    result_status: str = typer.Option(None, help="Filter by result status, e.g. ok."),
+    json_output: bool = typer.Option(False, "--json", help="Render full JSON events."),
+) -> None:
+    """List tracked audit operations."""
+    events = audit.list_events(
+        limit=limit,
+        tool=tool,
+        actor=actor,
+        result_status=result_status,
+    )
+    if json_output:
+        typer.echo(json.dumps([event.model_dump(mode="json") for event in events], indent=2))
+        return
+    for event in events:
+        command_count = len(event.commands)
+        typer.echo(
+            f"{event.ts.isoformat()} {event.id} {event.result_status or '-'} "
+            f"{event.actor} {event.tool} decision={event.decision} commands={command_count}"
+        )
+
+
+@app.command("audit-show")
+def audit_show_cmd(audit_id: str) -> None:
+    """Show one tracked audit operation."""
+    event = audit.get_event(audit_id)
+    if event is None:
+        raise typer.BadParameter(f"unknown audit id: {audit_id}")
+    typer.echo(event.model_dump_json(indent=2))
 
 
 @app.command("shell")

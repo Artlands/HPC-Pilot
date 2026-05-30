@@ -1,224 +1,180 @@
-# hpc-agent
+# AutoHPC
 
-AI agent that configures and manages an HPC cluster (Warewulf, Ansible, Slurm, Spack).
+AutoHPC is an operator-focused agent for managing HPC clusters that use Slurm,
+Warewulf, Ansible, and Spack. It provides typed tools, dry-run diffs, policy gates,
+audit logging, and interactive command-line interfaces for common cluster operations.
 
-This repository is the **scaffold + reference implementation** for the specs in
-`./agent-specs/`. It implements the foundations (spec 00), the safety layer
-(spec 01), and a growing set of Slurm, Ansible, Spack, Warewulf, and workflow surfaces.
-`slurm.manage_qos` (spec 05 §1.2) remains the most complete reference implementation for
-the full mutating-tool contract.
+The project is designed around a simple rule: every operation should be previewable,
+auditable, and reversible where the underlying system allows it.
 
-## What's implemented
+## Key Features
 
-| Component | Spec | File |
-|-----------|------|------|
-| Settings | 00 §7 | `hpc_agent/config/settings.py` |
-| Error taxonomy | 00 §3.3 | `hpc_agent/tools/errors.py` |
-| ToolResult | 00 §3.2 | `hpc_agent/tools/result.py` |
-| `@tool` registry + risk tiers | 00 §3.1 | `hpc_agent/tools/base.py` |
-| Command executor (allowlist, redaction) | 00 §4 | `hpc_agent/exec/runner.py` |
-| Audit log | 00 §5 | `hpc_agent/exec/audit.py` |
-| RBAC | 00 §6 | `hpc_agent/exec/rbac.py` |
-| Diff model | 01 §2 | `hpc_agent/safety/diff.py` |
-| Policy engine (YAML) | 01 §4 | `hpc_agent/safety/policy.py` |
-| Safety gate | 01 §3 | `hpc_agent/safety/gate.py` |
-| **State store ORM** | 00 §1.1 | `hpc_agent/state/models.py` |
-| **Repositories** | 00 §1.2 | `hpc_agent/state/repos.py` |
-| **DB / session mgmt** | 00 §1 | `hpc_agent/state/db.py` |
-| **Alembic migrations** | 00 §1 | `migrations/` |
-| **Plan / Step models** | 02 §3 | `hpc_agent/core/plan.py` |
-| **Topological ordering** | 02 §4 | `hpc_agent/core/ordering.py` |
-| **Planner (rule-based)** | 02 §2-3 | `hpc_agent/core/planner.py` |
-| **Executor (+ resume)** | 02 §4-5 | `hpc_agent/core/executor.py` |
-| **Plan store** | 02 §5 | `hpc_agent/core/planstore.py` |
-| **Reference tool: manage_qos** | 05 §1.2 | `hpc_agent/tools/slurm.py` |
-| **Slurm account/user tools** | 05 §1.1, §1.3 | `hpc_agent/tools/slurm.py` |
-| **Slurm node/reconfigure/query tools** | 05 §2.3-2.4, §3 | `hpc_agent/tools/slurm.py` |
-| **Ansible playbook composition** | 04 §2.1 | `hpc_agent/tools/ansible.py` |
-| **Ansible inventory generation** | 04 §2.4 | `hpc_agent/tools/ansible.py` |
-| **Ansible playbook linting** | 04 §2.2 | `hpc_agent/tools/ansible.py` |
-| **Spack query tools** | 06 §1.7 | `hpc_agent/tools/spack.py` |
-| **Spack compiler tools** | 06 §1.3 | `hpc_agent/tools/spack.py` |
-| **Spack environment tools** | 06 §1.1 | `hpc_agent/tools/spack.py` |
-| **Spack modules/views** | 06 §1.5-1.6 | `hpc_agent/tools/spack.py` |
-| **Warewulf provisioning** | 03 §1 | `hpc_agent/tools/warewulf.py` |
-| **Control plane (git)** | 00 §2, 01 §5 | `hpc_agent/state/configrepo.py` |
-| **LLM client scaffold** | 02 §2 | `hpc_agent/core/llm.py` |
-| **Workflows (core)** | 07 §1-9 | `hpc_agent/workflows/` |
-| CLI (`tools`/`qos`/`plan`/`spack-*`) | 02 §7 | `hpc_agent/core/interaction.py` |
-| Virtual cluster | 08 | `deploy/` |
+- Slurm operations for QOS, accounts, user associations, node state, reservations,
+  queue/accounting queries, diagnostics, and controller reconfiguration.
+- Ansible helpers for curated playbook composition, inventory generation, linting,
+  dry-run/apply workflows, and secret-reference checks.
+- Spack helpers for environment queries, compiler discovery, environment edits,
+  buildcache management, module generation, views, and installs.
+- Warewulf tool surface for container import, image builds, profiles, overlays,
+  node provisioning, image assignment, and overlay rebuilds.
+- Safety layer with structured diffs, RBAC, YAML policies, blast-radius checks,
+  dry-run defaults, approval pauses, and resumable plans.
+- Durable operation tracking with SQL-backed `audit_events` and `audit_commands`
+  tables.
+- CLI, REPL shell, and split-pane terminal UI.
 
-Sample policy lives in `config_repo/policy/`.
-
-## Quickstart
+## Install
 
 ```bash
 pip install -e ".[dev]"
-
-# list registered tools + JSON schemas (for LLM tool-calling)
-hpc-agent tools
-
-# enable durable operation tracking in SQLite for local testing
-HPC_AUDIT_DB_URL=sqlite+pysqlite:////tmp/hpc-agent-audit.sqlite hpc-agent audit-init
-HPC_AUDIT_SINK=db HPC_AUDIT_DB_URL=sqlite+pysqlite:////tmp/hpc-agent-audit.sqlite \
-  hpc-agent qos gpu --op modify --max-wall-min 2880 --apply
-HPC_AUDIT_SINK=db HPC_AUDIT_DB_URL=sqlite+pysqlite:////tmp/hpc-agent-audit.sqlite \
-  hpc-agent audit-log --result-status ok
-
-# start an interactive Claude Code / OpenCode-style operator shell
-hpc-agent shell
-# or launch the split-pane terminal UI
-hpc-agent tui
-# inside the shell:
-#   give alice 48 hours of wall time on the gpu qos
-#   /run
-#   /approve
-#   /tools
-#   /help
-
-# dry-run a QOS wall-time extension (needs a sacctmgr on PATH; see tests for stubbing)
-HPC_CONFIG_REPO=$PWD/config_repo hpc-agent qos gpu --op modify --max-wall-min 2880
-# add --apply to actually execute (gated by policy)
-
-# other Slurm operations follow the same dry-run/apply contract
-hpc-agent account research --op modify --grp-tres cpu=512
-hpc-agent assoc alice research --qos-add gpu
-hpc-agent set-limits qos --name gpu --max-wall-min 2880
-hpc-agent node-state gpu01 drain --reason maintenance
-hpc-agent node-status --node gpu01
-hpc-agent queue --user alice --partition gpu
-hpc-agent job-accounting --user alice --start 2026-05-01 --end 2026-05-02
-hpc-agent usage-report --user alice --account research --start 2026-05-01 --end 2026-05-02
-hpc-agent show-assoc --user alice --account research
-hpc-agent diag
-hpc-agent reservation maint-gpu create --nodes gpu01 --start 2026-06-01T01:00:00 --duration-min 60
-hpc-agent reconfigure
-
-# validate a curated Ansible playbook before apply
-hpc-agent manage-inventory
-hpc-agent compose-playbook site --target-group compute_cpu --roles common
-hpc-agent lint-playbook /etc/hpc-agent/ansible/playbooks/site.yml
-hpc-agent run-playbook /etc/hpc-agent/ansible/playbooks/site.yml
-hpc-agent check-secret munge/key
-
-# inspect Spack environments and specs without building anything
-hpc-agent spack-envs
-hpc-agent spack-find gpu-stack
-hpc-agent spack-spec "openmpi@5 +cuda"
-
-# manage Spack compilers (find/add, dry-run unless --apply)
-hpc-agent spack-compilers --op find --scope site
-hpc-agent spack-compilers --op add --scope site --path /opt/gcc/bin --apply
-
-# generate Spack modulefiles
-hpc-agent spack-modules gpu-stack --module-type lmod
-# manage Spack environments (create/add/remove specs, dry-run unless --apply)
-hpc-agent spack-env my-env --op create
-hpc-agent spack-env my-env --op add_specs --specs "gcc@13" --specs "openmpi"
-hpc-agent spack-env my-env --op remove_specs --specs "gcc@13" --apply
-
-hpc-agent spack-modules gpu-stack --module-type lmod --apply
-
-# create Spack filesystem view
-hpc-agent spack-view gpu-stack
-
-# manage Spack buildcache
-hpc-agent spack-buildcache push /path/to/mirror
-
-# install packages
-hpc-agent spack-install gpu-stack
-hpc-agent spack-buildcache update_index /path/to/mirror
-hpc-agent spack-buildcache add_mirror /path/to/mirror --apply
-hpc-agent spack-view gpu-stack --prefix /opt/modules --apply
-
-# build a plan from a natural-language intent, then optionally execute it
-hpc-agent plan "give alice 48 hours of wall time on the gpu qos"
-hpc-agent plan "extend the normal qos wall time to 2 days" --apply
-
-# create/update the production state schema
-HPC_DB_URL=postgresql+psycopg://hpcagent@localhost/hpc_agent alembic upgrade head
-# or pass an explicit URL without touching the environment
-alembic -x db_url=sqlite+pysqlite:////tmp/hpc-agent-state.sqlite upgrade head
 ```
 
-## How to add the next tool
-
-Copy the structure of `manage_qos` in `hpc_agent/tools/slurm.py`. Every mutating tool
-follows the spec 00 §3.4 execution contract in order:
-
-1. Define a Pydantic `*In` model; decorate the function with `@tool(name=..., risk=...,
-   domain=..., blast_radius=...)`.
-2. Open an audit event.
-3. Read current state (via `run_command` with `-P`/`--json`; parse structurally).
-4. Compute the delta; return an idempotent no-op if there's nothing to change.
-5. Build a `Diff` (changes + redacted command preview + blast radius + reversibility).
-6. Call `safety_gate.evaluate(...)`.
-7. Honor `dry_run`, `denied`, and `needs_approval` before executing.
-8. Snapshot config (if the tool edits config files) before mutating.
-9. Execute via `run_command`.
-10. Record the inverse command(s) for revert, commit the audit event, upsert state.
-11. Return a `ToolResult`.
-
-Tests for a new tool should mock `run_command` (see `tests/unit/test_manage_qos.py`) and
-cover: dry-run mutates nothing, in-policy auto-apply, out-of-policy deny, idempotent
-no-op, not-found precondition, and inverse-command recording.
-
-## Now implemented since the initial scaffold
-
-- State store ORM + repositories + Alembic initial migration (spec 00 §1); mutating Slurm
-  tools upsert desired-state rows when the schema has a corresponding row.
-- Durable SQL audit operation log with `audit_events` and `audit_commands`, plus
-  `hpc-agent audit-init`, `audit-log`, and `audit-show` for tracking applied operations.
-- Config-repo git wrapper with audited git operations and rollback primitives
-  (spec 00 §2, 01 §5).
-- Plan/Step models, topological ordering, rule-based planner, and the executor with
-  pause-for-approval and diff-revalidated resume (spec 02 §3-5).
-- Slurm account creation/modification, user association management, node drain/resume/down,
-  maintenance reservations, controller reconfigure, node status, queue, job accounting,
-  usage reporting, diagnostics, and association query tools (spec 05).
-- Ansible curated-role playbook composition plus lint/syntax validation tools
-  state-store inventory generation, and lint-gated playbook dry-run/apply
-  plus secret-reference checks that never expose secret material (spec 04 §2.1-2.5).
-- Spack read-only environment/spec query tools for safe software inventory and
-  concretization previews (spec 06 §1.7).
-- Spack compiler management (`find`/`add`, low-risk, `site`/`env` scope, spec 06 §1.3).
-- Spack environment management (`create`/`add_specs`/`remove_specs`, spec 06 §1.1).
-- Spack modulefile generation (Lmod/Tcl) and filesystem views (spec 06 §1.5-1.6).
-- Approval backends include CLI, mock, and API-pending behavior (spec 01 §3).
-- Policy evaluation includes YAML assertions, blast-radius checks, and the sample
-  blackout-window rule (spec 01 §4).
-
-## Quality gates (all green)
+For local development, SQLite is the easiest way to try the state and audit stores:
 
 ```bash
-ruff check .             # lint
-black --check .          # formatting
-mypy hpc_agent tests     # strict type check (84 source files)
-pytest tests/unit        # 158 unit tests
+export HPC_DB_URL=sqlite+pysqlite:////tmp/hpc-agent-state.sqlite
+export HPC_AUDIT_DB_URL=sqlite+pysqlite:////tmp/hpc-agent-audit.sqlite
+export HPC_CONFIG_REPO="$PWD/config_repo"
+
+alembic upgrade head
+hpc-agent audit-init
 ```
 
-### Progress
+Production deployments should use PostgreSQL-compatible URLs for `HPC_DB_URL` and
+`HPC_AUDIT_DB_URL`.
 
-| Component | Status | Spec |
-|-----------|--------|------|
-| **Core foundations** | ✅ Implemented | §00-02 |
-| **Slurm tools** | ✅ Broad implementation, strongest coverage | §05 |
-| **Ansible tools** | ✅ Implemented and unit-tested | §04 |
-| **Spack tools** | ✅ CLI/tool surface implemented; deeper concretize/install fidelity remains future work | §06 |
-| **Warewulf tools** | ✅ CLI/tool surface implemented; image-build internals remain reference-level | §03 |
-| **Workflows** | ✅ Plan builders implemented | §07 |
+## Interfaces
 
-The repo is ready for mocked unit development and local CLI dry-runs. It is not yet a
-complete production implementation of every acceptance criterion in specs 03-08.
+List available commands:
 
-## Still to implement (enhancements, not blockers)
+```bash
+hpc-agent --help
+```
 
-- Full LLM planner integration for open-ended natural language intent processing
-- Slack approval backend
-- Virtual cluster + integration/eval suites (spec 08: deploy/, tests/integration/, tests/evals/)
-- More complete Spack environment semantics: config-repo `spack.yaml`/`spack.lock` edits,
-  concretize-on-dry-run, and lockfile diffs
-- More complete Warewulf image-build internals and state persistence
+Start the interactive REPL:
 
-Running: `ruff check .` ✅ | `black --check .` ✅ | `mypy hpc_agent tests` ✅ |
-`pytest tests/unit` ✅ (158 tests)
+```bash
+hpc-agent shell
+```
+
+Start the split-pane terminal UI:
+
+```bash
+hpc-agent tui
+```
+
+Useful shell/TUI commands:
+
+```text
+<intent>          build and display a plan
+/run [intent]     execute the current plan, or build and execute a new intent
+/approve [step]   approve and resume a paused plan step
+/show             show the current plan
+/tools            list registered tools
+/help             show interactive help
+/exit             quit
+```
+
+## Common Operations
+
+Dry-run is the default for mutating tools.
+
+```bash
+# Preview a QOS change
+hpc-agent qos gpu --op modify --max-wall-min 2880
+
+# Apply after reviewing the diff and policy result
+hpc-agent qos gpu --op modify --max-wall-min 2880 --apply
+
+# Inspect Slurm state
+hpc-agent node-status --node gpu01
+hpc-agent queue --user alice --partition gpu
+hpc-agent usage-report --account research --start 2026-05-01
+
+# Manage user/account associations
+hpc-agent assoc alice research --qos-add gpu
+hpc-agent assoc alice research --qos-add gpu --apply
+
+# Drain and resume a node
+hpc-agent node-state gpu01 drain --reason maintenance
+hpc-agent node-state gpu01 drain --reason maintenance --apply
+hpc-agent node-state gpu01 resume --apply
+```
+
+Plan from a natural-language intent:
+
+```bash
+hpc-agent plan "give alice 48 hours of wall time on the gpu qos"
+hpc-agent plan "give alice 48 hours of wall time on the gpu qos" --apply
+```
+
+Track applied operations:
+
+```bash
+export HPC_AUDIT_SINK=db
+hpc-agent audit-log --result-status ok
+hpc-agent audit-show <audit_id>
+```
+
+## Configuration
+
+| Variable | Purpose | Default |
+|----------|---------|---------|
+| `HPC_DB_URL` | Desired-state database URL | `postgresql+psycopg://hpcagent@localhost/hpc_agent` |
+| `HPC_AUDIT_DB_URL` | Audit database URL | `postgresql+psycopg://hpcagent@localhost/hpc_audit` |
+| `HPC_AUDIT_SINK` | Audit sink: `memory` or `db` | `memory` |
+| `HPC_AUDIT_AUTO_INIT` | Auto-create audit tables for the DB sink | `false` |
+| `HPC_CONFIG_REPO` | Git-backed config repository | `/etc/hpc-agent/config` |
+| `HPC_SLURM_BIN_DIR` | Slurm binary directory | `/usr/bin` |
+| `HPC_WW_BIN_DIR` | Warewulf binary directory | `/usr/bin` |
+| `HPC_SPACK_ROOT` | Spack root | `/opt/spack` |
+| `HPC_ANSIBLE_DIR` | Ansible control directory | `/etc/hpc-agent/ansible` |
+| `HPC_APPROVAL_BACKEND` | Approval backend: `cli`, `api`, or `mock` | `cli` |
+| `HPC_MAX_BLAST_RADIUS_AUTO` | Auto-run blast-radius cap | `4` |
+
+Sample policy files live in [config_repo/policy](config_repo/policy).
+
+## Safety Model
+
+AutoHPC tools follow the same operational contract:
+
+1. Validate input with Pydantic.
+2. Read current state from the live system and/or desired-state repository.
+3. Compute the delta.
+4. Return a structured no-op when the target is already converged.
+5. Build a human-readable `Diff`.
+6. Evaluate RBAC, policy, risk tier, and blast radius.
+7. Honor dry-run and approval decisions before executing.
+8. Execute only through the allowlisted command runner.
+9. Record audit data, commands, revert hints, and state updates.
+
+Medium and high-risk actions can pause for approval. Read-only and low-risk actions may
+auto-run when policy allows them.
+
+## Development
+
+Run the standard checks:
+
+```bash
+ruff check .
+black --check .
+mypy hpc_agent tests
+pytest tests/unit
+```
+
+Add a new tool by following the established pattern:
+
+1. Define a Pydantic input model.
+2. Register the function with `@tool`.
+3. Build a `Diff` before mutation.
+4. Gate with `safety_gate.evaluate`.
+5. Execute through `run_command`.
+6. Commit an audit event.
+7. Add unit tests for dry-run, apply, policy denial, no-op, and command failures.
+
+More detailed operator and developer documentation is available in:
+
+- [Quick Start](QUICK_START.md)
+- [User Guide](USER_GUIDE.md)
+- [Documentation Index](DOCS_INDEX.md)
+- [Design Reference](agent-specs/README.md)

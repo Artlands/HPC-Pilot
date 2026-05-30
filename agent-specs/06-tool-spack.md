@@ -104,11 +104,12 @@ tracked.
 - GPU vs CPU: maintain separate envs/targets; the planner picks the env matching the node
   role when wiring software to a node group (spec 07 §3 step: apply `spack_view` role).
 
-## 3. Acceptance criteria
+## 3. Validation checklist
 
-- [ ] `manage_environment` always concretizes and surfaces the `spack.lock` diff as the Diff.
-- [ ] Dry-run of `install_packages` builds nothing.
-- [ ] GPU env refuses to build on a CPU-only host (PRECONDITION) and succeeds on a GPU host.
-- [ ] `spack.yaml` + `spack.lock` are committed together on every env change.
-- [ ] Generated Lmod modules are loadable on a virtual-cluster node.
-- [ ] Buildcache signing key is referenced by id, never written into config/audit.
+- `manage_environment` concretizes and surfaces the `spack.lock` diff as the `Diff`.
+- Dry-run of `install_packages` builds nothing.
+- GPU environments refuse to build on CPU-only hosts with `PRECONDITION` and succeed on
+  GPU hosts.
+- `spack.yaml` and `spack.lock` are committed together on every environment change.
+- Generated Lmod modules are loadable on a virtual-cluster node.
+- Buildcache signing keys are referenced by id and never written into config or audit.

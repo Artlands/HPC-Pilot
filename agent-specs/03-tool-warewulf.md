@@ -143,11 +143,12 @@ Risk: LOW. `wwctl overlay build [node|--all]`. Used after any overlay/config cha
 | Validation | `slurmd -C` boots | + `nvidia-smi`, `dcgmi discovery -l` |
 | spec_hash inputs | base+pkgs+kargs | + driver+cuda+fabricmanager flag |
 
-## 3. Acceptance criteria
+## 3. Validation checklist
 
-- [ ] `build_node_image` is idempotent: re-running with same inputs yields a no-op diff.
-- [ ] GPU build fails cleanly with PRECONDITION on driver/kernel ABI mismatch.
-- [ ] Dry-run never invokes `wwctl container build` or `container exec`.
-- [ ] `provision_node` -> `assign_image_to_nodes` -> `rebuild_overlay` produces a node the
-      virtual cluster (spec 08) can PXE boot.
-- [ ] Munge key is never written to the git config repo in plaintext.
+- `build_node_image` is idempotent; re-running it with the same inputs yields a no-op
+  diff.
+- GPU builds fail cleanly with `PRECONDITION` on driver/kernel ABI mismatch.
+- Dry-run never invokes `wwctl container build` or `container exec`.
+- `provision_node` -> `assign_image_to_nodes` -> `rebuild_overlay` produces a node that
+  the virtual cluster can PXE boot.
+- The Munge key is never written to the git config repo in plaintext.

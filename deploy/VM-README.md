@@ -1,63 +1,56 @@
-# AutoHPC Virtual Cluster - VM Definition
+# VM Definition Reference
 
-VM definitions for libvirt/QEMU.
+This directory contains libvirt XML definitions for the AutoHPC virtual test cluster.
 
-## VM Specifications
+## VM Roles
 
-### mgmt (Controller)
-- CPUs: 8
-- Memory: 16384 MB
-- Disk: 100 GB
-- Network: virbr0 (192.168.122.0/24)
-- Services: slurmctld, slurmdbd, mariadb, warewulf server, ansible control, spack root
+| VM | Purpose | Definition |
+|----|---------|------------|
+| `mgmt` | Slurm/Warewulf/Ansible/Spack controller | `vm-mgmt.xml` |
+| `login01` | User-facing login node | `vm-login01.xml` |
+| `cpu01` | CPU compute node | `vm-cpu01.xml` |
+| `gpu01` | GPU workflow node with stubbed GPU behavior | `vm-gpu01.xml` |
 
-### login01 (Login Node)
-- CPUs: 4
-- Memory: 8192 MB
-- Disk: 50 GB
-- Network: virbr0
-- Services: SSH, common system services
+## Network
 
-### cpu01 (Compute CPU)
-- CPUs: 4
-- Memory: 8192 MB
-- Disk: 50 GB
-- Network: virbr0
-- Boot: PXE ( warewulf)
+`network.xml` defines the libvirt network used by the VMs. Review the subnet and bridge
+settings before starting the cluster on a shared workstation.
 
-### gpu01 (Compute GPU)
-- CPUs: 4
-- Memory: 8192 MB
-- Disk: 50 GB
-- Network: virbr0
-- Boot: PXE (warewulf)
-- GPU: Virtual (stubbed via HPC_GPU_STUB=1)
-
-## Files
-
-- `vm-mgmt.xml` - Management node definition
-- `vm-login01.xml` - Login node definition
-- `vm-cpu01.xml` - CPU compute node definition
-- `vm-gpu01.xml` - GPU compute node definition
-- `network.xml` - Virtual network definition
-
-## Usage
+## Manual Usage
 
 ```bash
-# Create the network
+cd deploy
+
 virsh net-define network.xml
 virsh net-start hpc-cluster
 virsh net-autostart hpc-cluster
 
-# Create VMs
 virsh define vm-mgmt.xml
 virsh define vm-login01.xml
 virsh define vm-cpu01.xml
 virsh define vm-gpu01.xml
 
-# Start VMs
 virsh start mgmt
 virsh start login01
 virsh start cpu01
 virsh start gpu01
 ```
+
+Stop and remove the VMs when finished:
+
+```bash
+virsh shutdown gpu01
+virsh shutdown cpu01
+virsh shutdown login01
+virsh shutdown mgmt
+```
+
+Use `virsh destroy` and `virsh undefine` only when you intentionally want to force-stop
+or remove definitions.
+
+## Notes for Developers
+
+- Keep VM XML definitions small and reviewable.
+- Avoid embedding local absolute paths unless they are clearly documented.
+- Prefer changes that make the virtual cluster easier to reproduce in CI.
+- Keep GPU behavior stub-friendly so tests can run on hosts without physical GPUs.

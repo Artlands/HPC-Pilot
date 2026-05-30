@@ -96,10 +96,10 @@ secrets by id (`munge_key_ref`); it never prints or commits secret material. Pro
 - All playbooks idempotent by construction (roles use proper modules, not `command`).
 - `--diff` output is captured but secrets are redacted before entering the audit log.
 
-## 4. Acceptance criteria
+## 4. Validation checklist
 
-- [ ] `compose_playbook` rejects a non-existent role and an unknown var.
-- [ ] `run_playbook` refuses to apply if `ansible-lint` fails.
-- [ ] Dry-run produces a per-host Diff via `--check` and applies nothing.
-- [ ] `manage_inventory` output exactly reflects state-store node roles.
-- [ ] No secret value ever appears in a committed file or audit event.
+- `compose_playbook` rejects a non-existent role and an unknown variable.
+- `run_playbook` refuses to apply if `ansible-lint` fails.
+- Dry-run produces a per-host `Diff` via `--check` and applies nothing.
+- `manage_inventory` output reflects state-store node roles.
+- Secret values do not appear in committed files or audit events.

@@ -125,10 +125,11 @@ reference "last time we rebuilt gpu image we pinned driver 550.x".
 All three funnel into the same planner/executor; the interaction layer only handles I/O
 and identity resolution (who is `actor`).
 
-## 8. Acceptance criteria
+## 8. Validation checklist
 
-- [ ] Planner produces a valid dependency-ordered Plan for "add 2 GPU nodes to partition gpu".
-- [ ] A plan with a MEDIUM step pauses, persists, and resumes correctly after approval.
-- [ ] Read-only intents ("show down nodes") execute with no approval and no mutation.
-- [ ] Stale approval (diff changed or TTL expired) is rejected on resume.
-- [ ] ClusterSummary is always sourced from state store, never hallucinated.
+- The planner produces a valid dependency-ordered plan for "add 2 GPU nodes to partition
+  gpu".
+- A plan with a MEDIUM step pauses, persists, and resumes correctly after approval.
+- Read-only intents, such as "show down nodes", execute with no approval and no mutation.
+- Stale approval, caused by a changed diff or expired TTL, is rejected on resume.
+- `ClusterSummary` is sourced from the state store.

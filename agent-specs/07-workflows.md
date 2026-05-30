@@ -94,14 +94,14 @@ Steps: archive usage (`sreport`), `slurm.manage_user_assoc` remove (modify, not 
 account), reclaim quota via ansible. **Permanent deletion is prohibited** — assoc removal
 + archival only; data deletion is flagged for a human.
 
-## 10. Acceptance criteria
+## 10. Validation checklist
 
-- [ ] Each workflow returns a valid dependency-ordered Plan; none executes side effects at
-      build time.
-- [ ] `add_node` works for both a CPU and a GPU node on the virtual cluster (spec 08),
-      ending with the node `idle` in its partition.
-- [ ] `extend_allocation` for an in-policy wall-time bump runs without approval; an
-      out-of-policy one pauses for approval.
-- [ ] `reconcile` reports injected drift and proposes (but never auto-applies) a fix.
-- [ ] `node_maintenance` drains before touching a node and resumes after validation.
-- [ ] `offboard_user` performs no permanent deletion.
+- Each workflow returns a valid dependency-ordered `Plan`; workflows do not execute side
+  effects at build time.
+- `add_node` works for both CPU and GPU nodes on the virtual cluster, ending with the node
+  `idle` in its partition.
+- `extend_allocation` for an in-policy wall-time bump runs without approval; an
+  out-of-policy change pauses for approval.
+- `reconcile` reports injected drift and proposes, but does not auto-apply, a fix.
+- `node_maintenance` drains before touching a node and resumes after validation.
+- `offboard_user` performs no permanent deletion.

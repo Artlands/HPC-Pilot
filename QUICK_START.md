@@ -1,167 +1,123 @@
 # AutoHPC Quick Start
 
-Get up and running with the HPC agent in 5 minutes.
+This guide gets a local development checkout running with SQLite-backed state and audit
+databases. It is meant for trying the CLI safely, writing tests, and exploring the tool
+contracts.
 
-## 1. Installation
+## Install
 
 ```bash
-git clone https://github.com/your-org/AutoHPC.git
-cd AutoHPC
 pip install -e ".[dev]"
 ```
 
-## 2. Configuration
+## Configure Local State
 
 ```bash
-# Set minimal configuration
-export HPC_CONFIG_REPO=/tmp/hpc-agent-config
-export HPC_DRY_RUN_DEFAULT=true
-
-# Create config directory
-mkdir -p $HPC_CONFIG_REPO/policy
-cp config_repo/policy/*.yaml $HPC_CONFIG_REPO/policy/
-```
-
-## 3. Initialize Database
-
-```bash
-# For testing, use SQLite
 export HPC_DB_URL=sqlite+pysqlite:////tmp/hpc-agent-state.sqlite
 export HPC_AUDIT_DB_URL=sqlite+pysqlite:////tmp/hpc-agent-audit.sqlite
+export HPC_CONFIG_REPO="$PWD/config_repo"
+```
 
-# Initialize schema
+Create the database schema:
+
+```bash
 alembic upgrade head
+hpc-agent audit-init
 ```
 
-## 4. First Command (Dry-Run)
+## Inspect the CLI
 
 ```bash
-# List available tools
-hpc-agent tools | head -20
-
-# Check QOS (dry-run)
-hpc-agent qos gpu
-
-# Expected: shows current QOS config
+hpc-agent --help
+hpc-agent tools
 ```
 
-## 5. Test a Mutating Operation
+AutoHPC also has interactive interfaces:
 
 ```bash
-# Create/modify a QOS (still dry-run by default)
-hpc-agent qos debug --op create --max-wall-min 60 --priority 100
-
-# Shows what WOULD change
-# Now actually apply:
-hpc-agent qos debug --op create --max-wall-min 60 --priority 100 --apply
+hpc-agent shell
+hpc-agent tui
 ```
 
-## 6. Common Operations
+Inside either interface, try:
 
-### Slurm
-
-```bash
-# View node status
-hpc-agent node-status
-
-# View queue
-hpc-agent queue --user your-username
-
-# Manage accounts
-hpc-agent account mygroup --op modify --grp-tres cpu=128
-
-# Drain a node
-hpc-agent node-state gpu01 drain --reason "testing" --apply
+```text
+give alice 48 hours of wall time on the gpu qos
+/show
+/run
+/help
 ```
 
-### Spack
+## Run a Dry-Run Operation
+
+Most mutating commands default to dry-run. The command below previews a QOS update and
+does not apply it:
 
 ```bash
-# List environments
-hpc-agent spack-envs
-
-# Create environment
-hpc-agent spack-env my-env --op create
-
-# Add specs
-hpc-agent spack-env my-env --op add_specs --specs "gcc@13" "openmpi"
+hpc-agent qos gpu --op modify --max-wall-min 2880
 ```
 
-### Ansible
+Use `--apply` only when you want the agent to execute the live command:
 
 ```bash
-# Generate inventory
+hpc-agent qos gpu --op modify --max-wall-min 2880 --apply
+```
+
+Local machines usually do not have Slurm, Warewulf, Spack, or Ansible configured, so live
+commands may fail unless those tools are installed or mocked. The unit tests show how the
+external command runner is stubbed.
+
+## Track Applied Operations
+
+Enable durable audit logging for commands you want to track:
+
+```bash
+export HPC_AUDIT_SINK=db
+hpc-agent audit-log
+hpc-agent audit-log --result-status ok
+hpc-agent audit-show <audit_id>
+```
+
+Each audit event records the actor, tool, input, decision, result status, diff summary,
+redacted command argv, return codes, durations, config commits, and revert hints where
+available.
+
+## Common Commands
+
+```bash
+# Slurm read-only queries
+hpc-agent node-status --node gpu01
+hpc-agent queue --user alice
+hpc-agent usage-report --account research --start 2026-05-01
+
+# Slurm mutations, dry-run by default
+hpc-agent assoc alice research --qos-add gpu
+hpc-agent node-state gpu01 drain --reason maintenance
+hpc-agent reservation maint-gpu create --nodes gpu01 --start 2026-06-01T01:00:00 --duration-min 60
+
+# Ansible helpers
 hpc-agent manage-inventory
+hpc-agent compose-playbook site compute_gpu --roles common
+hpc-agent lint-playbook /etc/hpc-agent/ansible/playbooks/site.yml
 
-# Compose playbook
-hpc-agent compose-playbook my-playbook --target-group compute_gpu --roles common
+# Spack helpers
+hpc-agent spack-envs
+hpc-agent spack-spec "openmpi@5 +cuda"
+hpc-agent spack-env my-env --op add_specs --specs "gcc@13" --specs "openmpi"
 ```
 
-## 7. Next Steps
+## Developer Checks
 
-1. Read `USER_GUIDE.md` for detailed documentation
-2. Check `agent-specs/` for technical specifications
-3. Run `pytest` to see tests in action
-4. Configure approval backend in production
-
-## CLI Cheat Sheet
-
-| Command | Description |
-|---------|-------------|
-| `hpc-agent tools` | List all tools |
-| `hpc-agent qos <name>` | Manage QOS |
-| `hpc-agent account <name>` | Manage accounts |
-| `hpc-agent node-status` | Show node status |
-| `hpc-agent queue` | Show job queue |
-| `hpc-agent spack-envs` | List Spack envs |
-| `hpc-agent manage-inventory` | Generate Ansible inventory |
-| `hpc-agent plan "<intent>"` | Build plan from intent |
-
-## Troubleshooting
-
-**"Command not found"**
 ```bash
-pip install -e ".[dev]"  # Reinstall
+ruff check .
+black --check .
+mypy hpc_agent tests
+pytest tests/unit
 ```
 
-**"Database not found"**
-```bash
-export HPC_DB_URL=sqlite+pysqlite:////tmp/test.db
-alembic upgrade head
-```
+## Next Steps
 
-**"Config repo not found"**
-```bash
-export HPC_CONFIG_REPO=/tmp/hpc-config
-mkdir -p $HPC_CONFIG_REPO/policy
-```
-
-## Examples
-
-### Extend QOS wall time
-```bash
-hpc-agent qos gpu --max-wall-min 2880 --apply
-```
-
-### Add user to account
-```bash
-hpc-agent assoc alice research --qos-add gpu --apply
-```
-
-### Drain node for maintenance
-```bash
-hpc-agent node-state gpu01 drain --reason "memory upgrade" --apply
-```
-
-### Preview changes
-All commands work in dry-run mode by default. Use `--apply` to execute.
-
-### Batch operations
-```bash
-# Add 3 specs to environment
-hpc-agent spack-env my-env --op add_specs \
-  --specs "gcc@13" \
-  --specs "openmpi" \
-  --specs "cuda@12.4" \
-  --apply
-```
+- Read [USER_GUIDE.md](USER_GUIDE.md) for operator workflows and developer details.
+- Read [agent-specs/README.md](agent-specs/README.md) for the design reference.
+- Use the virtual-cluster notes in [deploy/README.md](deploy/README.md) when preparing
+  integration testing.

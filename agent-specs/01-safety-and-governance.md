@@ -155,12 +155,13 @@ spec 00; the agent refuses and instructs the human to do them manually.
 input. Exceeding `MAX_BLAST_RADIUS_AUTO` forces approval; exceeding a hard per-domain cap
 (policy) denies and tells the operator to batch the action.
 
-## 7. Acceptance criteria
+## 7. Validation checklist
 
-- [ ] Every mutating tool returns a populated `Diff` in dry-run mode and executes nothing.
-- [ ] Policy YAML loads, hot-reloads, and `evaluate()` returns correct Gate for a table of
-      fixture cases (auto / approval / deny).
-- [ ] An approved action whose diff later changes is re-gated (approval invalidated).
-- [ ] `revert(audit_id)` restores prior config commit AND prior live state for a sample
-      QOS-modify and a node-drain.
-- [ ] Blackout-window rule denies a MEDIUM action inside the window, allows outside.
+- Every mutating tool returns a populated `Diff` in dry-run mode and executes nothing.
+- Policy YAML loads, hot-reloads, and `evaluate()` returns the correct Gate for fixture
+  cases covering auto, approval, and deny.
+- An approved action whose diff later changes is re-gated and its earlier approval is
+  invalidated.
+- `revert(audit_id)` restores the prior config commit and prior live state for a sample
+  QOS modification and node drain.
+- Blackout-window rules deny a MEDIUM action inside the window and allow it outside.

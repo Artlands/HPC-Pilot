@@ -1,162 +1,69 @@
-# AutoHPC Documentation Index
+# AutoHPC Documentation
 
-## Overview
+Use this index to find the right document for the job you are doing.
 
-AutoHPC is an AI agent that configures and manages HPC clusters using:
-- **Warewulf**: Node provisioning and image management
-- **Ansible**: Configuration management
-- **Slurm**: Job scheduler and resource management
-- **Spack**: Software stack management
+## Start Here
 
-## Documentation
+- [README.md](README.md): project overview, installation, interfaces, core concepts,
+  configuration, and developer workflow.
+- [QUICK_START.md](QUICK_START.md): fastest path to a local SQLite-backed development
+  setup.
+- [USER_GUIDE.md](USER_GUIDE.md): operator and developer guide with command examples,
+  audit logging, policies, RBAC, and troubleshooting.
 
-### Getting Started
-- **[QUICK_START.md](./QUICK_START.md)** - Get running in 5 minutes
-  - Installation
-  - Configuration
-  - First commands
-  - Common operations
-  - CLI cheat sheet
+## Operations
 
-### Full Documentation
-- **[USER_GUIDE.md](./USER_GUIDE.md)** - Comprehensive user guide
-  - Architecture overview
-  - CLI reference (all 27 commands)
-  - Tool examples
-  - Workflows
-  - Safety & approval system
-  - Configuration reference
-  - RBAC roles
-  - Development guide
-  - Troubleshooting
-
-### Technical Reference
-- **[README.md](./README.md)** - Project overview
-  - What's implemented
-  - Quickstart examples
-  - How to add tools
-  - Quality gates
-
-### Specifications
-- **[agent-specs/README.md](./agent-specs/README.md)** - Specification overview
-  - 00-foundations.md - State store, tool framework, RBAC, audit
-  - 01-safety-and-governance.md - Dry-run, approval, policy engine
-  - 02-agent-core.md - Planner, executor, memory
-  - 03-tool-warewulf.md - Provisioning tools
-  - 04-tool-ansible.md - Configuration management
-  - 05-tool-slurm.md - Scheduler tools
-  - 06-tool-spack.md - System software tools
-  - 07-workflows.md - Composite workflows
-  - 08-testing.md - Testing & validation
-
-## Command Categories
-
-### Slurm Management (13 tools)
-- `qos` - Quality of Service management
-- `account` - Account hierarchy
-- `assoc` - User associations
-- `set-limits` - Resource limits
-- `show-assoc` - View associations
-- `node-status` - Node status
-- `queue` - Job queue
-- `job-accounting` - Completed job records
-- `usage-report` - Utilization reports
-- `diag` - Diagnostics
-- `node-state` - Drain/resume/down
-- `reservation` - Maintenance reservations
-- `reconfigure` - Controller reload
-
-### Warewulf Provisioning (9 tools)
-- `import-container` - Import OS images
-- `build-node-image` - Build compute images
-- `define-profile` - Define node profiles
-- `manage-overlay` - Manage overlays
-- `assign-image-to-nodes` - Assign images
-- `provision-node` - Register new nodes
-- `rebuild-overlay` - Rebuild overlays
-- `list-images` - List images
-- `list-nodes` - List nodes
-
-### Ansible Configuration (5 tools)
-- `lint-playbook` - Validate playbooks
-- `compose-playbook` - Compose from roles
-- `manage-inventory` - Generate inventory
-- `run-playbook` - Execute playbooks
-- `check-secret` - Verify secrets
-
-### Spack Software (11 tools)
-- `spack-envs` - List environments
-- `spack-find` - List installed specs
-- `spack-spec` - Preview concretization
-- `spack-compilers` - Manage compilers
-- `spack-env` - Manage environments
-- `spack-buildcache` - Buildcache management
-- `spack-modules` - Generate modulefiles
-- `spack-view` - Create filesystem views
-- `spack-install` - Install packages
-
-### Core Functions (2 tools)
-- `tools` - List all tools and schemas
-- `plan` - Build/execute plans from intent
-
-## Workflow Examples
-
-### Quick Operations
-```bash
-# Extend user wall time
-hpc-agent plan "give alice 48 hours wall time on gpu qos" --apply
-
-# Add new GPU node (requires full provisioning workflow)
-# See USER_GUIDE.md for detailed examples
-
-# Rolling update
-python3 -m hpc_agent.workflows.rolling_update \
-  --group compute_gpu \
-  --new-image gpu-rocky9-v2 \
-  --batch-size 2 \
-  --actor admin
-```
-
-### Safety Features
-- **Default dry-run**: All mutating tools show changes first
-- **Approval gates**: Medium/High risk actions require approval
-- **Policy engine**: YAML rules enforce site policies
-- **Audit trail**: Complete command history
-- **Rollback**: Undo every action
-
-## Architecture
-
-```
-Interaction Layer (CLI/HTTP/Chat)
-         │
-    Agent Core (Planner/Executor)
-         │
-   Safety Layer (Diff/Policy/Approval)
-         │
-    Tools Layer (Slurm/Warewulf/Ansible/Spack)
-         │
-   State Store (PostgreSQL/SQLite)
-```
+- [USER_GUIDE.md](USER_GUIDE.md#interfaces): CLI, shell, and TUI usage.
+- [USER_GUIDE.md](USER_GUIDE.md#audit-log): durable operation tracking.
+- [USER_GUIDE.md](USER_GUIDE.md#slurm-operations): Slurm operations.
+- [USER_GUIDE.md](USER_GUIDE.md#ansible-operations): Ansible operations.
+- [USER_GUIDE.md](USER_GUIDE.md#spack-operations): Spack operations.
+- [USER_GUIDE.md](USER_GUIDE.md#warewulf-operations): Warewulf tool surface.
+- [USER_GUIDE.md](USER_GUIDE.md#policies): policy files and approval behavior.
 
 ## Development
 
-### Setup
-```bash
-pip install -e ".[dev]"
-mypy hpc_agent/        # Type checking
-ruff check hpc_agent   # Linting
-pytest                 # Run tests
-```
+- [README.md](README.md#development): checks and tool-extension workflow.
+- [USER_GUIDE.md](USER_GUIDE.md#developer-workflow): implementation checklist for new
+  tools.
+- [agent-specs/README.md](agent-specs/README.md): design reference for core contracts and
+  domain tools.
 
-### Adding Tools
-See `USER_GUIDE.md` → Development → Adding a New Tool
+## Deployment and Integration Testing
 
-## Support
+- [deploy/README.md](deploy/README.md): virtual-cluster overview and current deploy files.
+- [deploy/VM-README.md](deploy/VM-README.md): libvirt XML definitions and VM roles.
 
-- **Issues**: https://github.com/your-org/AutoHPC/issues
-- **Discussions**: https://github.com/your-org/AutoHPC/discussions
-- **Specs**: `agent-specs/` directory
+## Design Reference
 
-## License
+The files in `agent-specs/` are product and engineering reference documents. They are not
+release notes or progress trackers.
 
-[Your chosen license here]
+- [00-foundations.md](agent-specs/00-foundations.md): state store, repositories, config
+  repo, tool framework, runner, audit, RBAC, settings.
+- [01-safety-and-governance.md](agent-specs/01-safety-and-governance.md): diffs,
+  approval gates, policy evaluation, rollback, blast radius.
+- [02-agent-core.md](agent-specs/02-agent-core.md): plan model, planner, executor,
+  resumable plans, interaction layer.
+- [03-tool-warewulf.md](agent-specs/03-tool-warewulf.md): Warewulf provisioning tools.
+- [04-tool-ansible.md](agent-specs/04-tool-ansible.md): Ansible composition and apply
+  tools.
+- [05-tool-slurm.md](agent-specs/05-tool-slurm.md): Slurm account, QOS, node, partition,
+  reservation, and reporting tools.
+- [06-tool-spack.md](agent-specs/06-tool-spack.md): Spack environment, install,
+  buildcache, compiler, module, and view tools.
+- [07-workflows.md](agent-specs/07-workflows.md): multi-tool workflow plan builders.
+- [08-testing.md](agent-specs/08-testing.md): unit, integration, virtual-cluster, and eval
+  strategy.
+
+## Command Groups
+
+| Area | Commands |
+|------|----------|
+| Core | `tools`, `shell`, `tui`, `plan` |
+| Audit | `audit-init`, `audit-log`, `audit-show` |
+| Slurm | `qos`, `account`, `assoc`, `set-limits`, `show-assoc`, `node-status`, `queue`, `job-accounting`, `usage-report`, `diag`, `node-state`, `reservation`, `reconfigure` |
+| Ansible | `compose-playbook`, `manage-inventory`, `lint-playbook`, `run-playbook`, `check-secret` |
+| Spack | `spack-envs`, `spack-find`, `spack-spec`, `spack-compilers`, `spack-env`, `spack-buildcache`, `spack-modules`, `spack-view`, `spack-install` |
+
+Run `hpc-agent --help` for the current command list.

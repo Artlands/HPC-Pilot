@@ -192,11 +192,12 @@ Planner emits:
 4. Apply; record inverse (`MaxWall=1-00:00:00`); audit. No reconfigure needed (QOS is in
    slurmdbd, not slurm.conf).
 
-## 5. Acceptance criteria
+## 5. Validation checklist
 
-- [ ] `manage_qos` modify changes only specified fields; dry-run shows exact before/after.
-- [ ] `manage_user_assoc` errors PRECONDITION if a requested QOS doesn't exist.
-- [ ] `slurm.conf` edits are rejected if `slurmctld -t` validation fails (no apply).
-- [ ] `node_state drain` records a working `resume` inverse for revert.
-- [ ] All queries parse `--json`/`-P`, never human tables.
-- [ ] Account/QOS deletes are never auto-executed (prohibited; flagged to human).
+- `manage_qos` modify changes only specified fields; dry-run shows exact before/after.
+- `manage_user_assoc` returns `PRECONDITION` if a requested QOS does not exist.
+- `slurm.conf` edits are rejected if `slurmctld -t` validation fails.
+- `node_state drain` records a working `resume` inverse for revert.
+- Queries parse `--json` or `-P` output rather than human tables.
+- Account and QOS deletes are never auto-executed; they are prohibited and flagged to a
+  human operator.

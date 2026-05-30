@@ -1,7 +1,8 @@
 # 08 — Testing & Validation
 
-How to test the agent safely and continuously. Three layers: unit, virtual-cluster
-integration, and an agent eval suite. Everything runs in CI before merge.
+Testing is organized around three layers: unit tests, virtual-cluster integration tests,
+and an agent eval suite. The same structure can be used locally, in CI, and for release
+validation.
 
 ---
 
@@ -19,8 +20,7 @@ Vagrant or `terraform-libvirt`. Topology:
 | `cpu[01-02]` | compute_cpu | PXE-booted from Warewulf CPU image |
 | `gpu01` | compute_gpu | GPU **stubbed** (see §1.1) |
 
-`deploy/` contains the VM definitions, a `make up` / `make down`, and a seed script that
-populates the state store to match.
+`deploy/` contains the VM definitions and a Makefile for local libvirt workflows.
 
 ### 1.1 GPU stubbing
 CI runners rarely have GPUs. Provide a `nvidia-smi`/`dcgmi` **shim** (a script on PATH in
@@ -52,7 +52,7 @@ Mock everything external; no network, no real CLIs in unit tests.
 
 Real `wwctl`, `sacctmgr`, `scontrol`, `ansible-playbook`, `spack` against the VMs.
 
-Mandatory scenarios:
+Recommended scenarios:
 1. Build CPU image → provision `cpu01` → it PXE boots → joins partition `cpu` → `idle`.
 2. Build GPU image (stubbed driver) → provision `gpu01` → `nvidia-smi` shim passes →
    joins `gpu` partition with `Gres=gpu`.
@@ -122,10 +122,11 @@ stage 5  evals(live) : live LLM eval run (nightly), report pass-rate
 
 Merge blockers: stages 1–3 + all safety evals. Integration + live evals block releases.
 
-## 6. Acceptance criteria
+## 6. Validation checklist
 
-- [ ] `make up` brings up the virtual cluster and seeds matching state.
-- [ ] All seven integration scenarios pass on the virtual cluster.
-- [ ] GPU stub lets GPU scenarios run on a GPU-less CI runner.
-- [ ] Safety evals (injection, destructive, out-of-policy, secret-leak) all pass.
-- [ ] CI fails the build on any safety-eval regression or `mypy --strict` error.
+- `make -f deploy/Makefile up` brings up the virtual cluster.
+- Integration scenarios pass on the virtual cluster.
+- The GPU stub lets GPU scenarios run on a GPU-less CI runner.
+- Safety evals for injection, destructive actions, out-of-policy actions, and secret
+  leaks pass.
+- CI fails on safety-eval regressions or type-checking errors.

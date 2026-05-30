@@ -300,10 +300,10 @@ SPACK_ROOT, ANSIBLE_DIR, APPROVAL_BACKEND (cli|slack|api),
 DRY_RUN_DEFAULT=true, MAX_BLAST_RADIUS_AUTO=4
 ```
 
-## 8. Acceptance criteria for spec 00
+## 8. Validation checklist
 
-- [ ] Alembic migrations create all tables; `pytest` fixtures seed a sample cluster.
-- [ ] `@tool` registry returns valid JSON schema for each registered tool.
-- [ ] `run_command` rejects any binary not on the allowlist and redacts secrets in logs.
-- [ ] Every `run_command` produces exactly one linked audit command entry.
-- [ ] RBAC glob matcher passes unit tests for all role/capability combos.
+- Alembic migrations create all tables; `pytest` fixtures seed a sample cluster.
+- `@tool` registry returns valid JSON schema for each registered tool.
+- `run_command` rejects any binary not on the allowlist and redacts secrets in logs.
+- Every `run_command` produces exactly one linked audit command entry.
+- RBAC glob matcher passes unit tests for all role/capability combos.

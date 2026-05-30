@@ -102,6 +102,20 @@ def shell_cmd(
     ShellSession(actor=actor, actor_role=Role(role), policy=policy).loop()
 
 
+@app.command("tui")
+def tui_cmd(
+    actor: str = typer.Option("cli-user", help="Operator identity for audit records."),
+    role: str = typer.Option("operator", help="RBAC role: viewer, operator, admin."),
+) -> None:
+    """Start the split-pane curses TUI."""
+    from hpc_agent.core.shell import ShellSession
+    from hpc_agent.core.tui import TuiApp
+
+    policy = PolicyEngine.from_dir(f"{settings.config_repo}/policy")
+    session = ShellSession(actor=actor, actor_role=Role(role), policy=policy)
+    TuiApp(session).run()
+
+
 @app.command("lint-playbook")
 def lint_playbook_cmd(
     playbook: str,

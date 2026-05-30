@@ -60,6 +60,8 @@ hpc-agent tools
 
 # start an interactive Claude Code / OpenCode-style operator shell
 hpc-agent shell
+# or launch the split-pane terminal UI
+hpc-agent tui
 # inside the shell:
 #   give alice 48 hours of wall time on the gpu qos
 #   /run
@@ -183,7 +185,7 @@ no-op, not-found precondition, and inverse-command recording.
 ruff check .             # lint
 black --check .          # formatting
 mypy hpc_agent tests     # strict type check (79 source files)
-pytest tests/unit        # 153 unit tests
+pytest tests/unit        # 156 unit tests
 ```
 
 ### Progress
@@ -210,4 +212,4 @@ complete production implementation of every acceptance criterion in specs 03-08.
 - More complete Warewulf image-build internals and state persistence
 
 Running: `ruff check .` ✅ | `black --check .` ✅ | `mypy hpc_agent tests` ✅ |
-`pytest tests/unit` ✅ (153 tests)
+`pytest tests/unit` ✅ (156 tests)

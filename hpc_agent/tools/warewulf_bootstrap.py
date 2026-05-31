@@ -74,6 +74,12 @@ def _finish_read(audit_id: str, *, ok: bool) -> None:
     audit.commit_event(event)
 
 
+def _decision_str(g: safety_gate.Gate) -> str:
+    if g.approved:
+        return f"approved-by:{g.approver or 'unknown'}"
+    return "auto"
+
+
 # --- warewulf.conf helpers (config-as-code) -------------------------------------------
 
 
@@ -302,7 +308,7 @@ def configure_dhcp(
         audit_id=audit_id,
     )
     if res.rc != 0:
-        event.decision = "approved-by:operator"
+        event.decision = _decision_str(g)
         event.diff_summary = diff.render()
         event.result_status = "error"
         event.config_commit = config_commit
@@ -316,7 +322,7 @@ def configure_dhcp(
             )
         )
 
-    event.decision = "approved-by:operator"
+    event.decision = _decision_str(g)
     event.diff_summary = diff.render()
     event.result_status = "ok"
     event.config_commit = config_commit

@@ -35,10 +35,13 @@ def _call_tool(
     policy: PolicyEngine | None,
     gate_override: safety_gate.Gate | None = None,
 ) -> ToolResult:
+    import inspect
+
     meta, fn, _br = get_tool(tool_name)
     inp_model: BaseModel = meta.input_model.model_validate(raw_input)
     kwargs: dict[str, object] = {"actor": actor, "actor_role": actor_role, "policy": policy}
-    if gate_override is not None:
+    sig = inspect.signature(fn)
+    if gate_override is not None and "gate_override" in sig.parameters:
         kwargs["gate_override"] = gate_override
     return fn(inp_model, **kwargs)
 

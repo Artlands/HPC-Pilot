@@ -61,8 +61,10 @@ def _gate_read(
         event.result_status = "denied"
         audit.commit_event(event)
         return audit_id, ToolResult.denied(g.reason or "denied by policy")
-    return audit_id, None
+    event.decision = "auto"
+    event.result_status = "ok"
     audit.commit_event(event)
+    return audit_id, None
 
 
 def _parse_envs(stdout: str) -> list[str]:

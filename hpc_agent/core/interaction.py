@@ -158,11 +158,11 @@ def tui_cmd(
 ) -> None:
     """Start the conversational TUI."""
     from hpc_agent.core.shell import ShellSession
-    from hpc_agent.core.tui import TuiApp
+    from hpc_agent.core.tui import HPCPilotApp
 
     policy = PolicyEngine.from_dir(f"{settings.config_repo}/policy")
     session = ShellSession(actor=actor, actor_role=Role(role), policy=policy)
-    TuiApp(session).run()
+    HPCPilotApp(session).run()
 
 
 @app.command("lint-playbook")

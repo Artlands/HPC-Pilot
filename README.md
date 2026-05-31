@@ -4,44 +4,14 @@ HPC Pilot is an operator-focused agent for managing HPC clusters that use Slurm,
 Warewulf, Ansible, and Spack. It provides typed tools, dry-run diffs, policy gates,
 audit logging, and interactive command-line interfaces for common cluster operations.
 
-The project is designed around a simple rule: every operation should be previewable,
-auditable, and reversible where the underlying system allows it.
+Every operation is previewable, auditable, and reversible where the underlying system
+allows it.
 
-## Key Features
-
-- Slurm operations for QOS, accounts, user associations, node state, reservations,
-  queue/accounting queries, diagnostics, and controller reconfiguration.
-- Ansible helpers for curated playbook composition, inventory generation, linting,
-  dry-run/apply workflows, and secret-reference checks.
-- Spack helpers for environment queries, compiler discovery, environment edits,
-  buildcache management, module generation, views, and installs.
-- Warewulf tool surface for container import, image builds, profiles, overlays,
-  node provisioning, image assignment, and overlay rebuilds.
-- Safety layer with structured diffs, RBAC, YAML policies, blast-radius checks,
-  dry-run defaults, approval pauses, and resumable plans.
-- Durable operation tracking with SQL-backed `audit_events` and `audit_commands`
-  tables.
-- CLI, REPL shell, and split-pane terminal UI.
-
-## Install
+## Quick Start
 
 ```bash
 pip install -e ".[dev]"
-```
 
-Or with LLM support (choose one):
-
-```bash
-# Anthropic Claude
-pip install -e ".[dev,anthropic]"
-
-# OpenAI ChatGPT
-pip install -e ".[dev,openai]"
-```
-
-For local development, SQLite is the easiest way to try the state and audit stores:
-
-```bash
 export HPC_DB_URL=sqlite+pysqlite:////tmp/hpc-pilot-state.sqlite
 export HPC_AUDIT_DB_URL=sqlite+pysqlite:////tmp/hpc-pilot-audit.sqlite
 export HPC_CONFIG_REPO="$PWD/config_repo"
@@ -50,60 +20,21 @@ alembic upgrade head
 hpc-pilot audit-init
 ```
 
-Production deployments should use PostgreSQL-compatible URLs for `HPC_DB_URL` and
-`HPC_AUDIT_DB_URL`.
-
-## LLM Configuration
-
-HPC Pilot supports natural-language plan generation using LLMs. Configure your provider:
-
-### Anthropic Claude (default)
+For LLM-powered natural-language planning, install with an extra provider:
 
 ```bash
-export LLM_PROVIDER=anthropic
-export ANTHROPIC_API_KEY=your-api-key
+pip install -e ".[dev,anthropic]"   # or .[dev,openai]
 ```
-
-### OpenAI ChatGPT
-
-```bash
-export LLM_PROVIDER=openai
-export OPENAI_API_KEY=your-api-key
-```
-
-### Custom local LLM (e.g., Ollama)
-
-Implement the `LLMProvider` interface (see `hpc_agent/core/llm.py`) and register it in
-`get_llm_provider()`. Then set `LLM_PROVIDER` to your custom provider name.
-
-### LLM-DISABLED mode
-
-Set `LLM_PROVIDER=mock` to disable LLM calls (useful for testing or CLI-only operation).
-
-Plan from natural language intent requires LLM. Without LLM, use rule-based planning via
-`hpc-pilot plan --apply` with supported intent patterns, or use direct tool commands.
 
 ## Interfaces
 
-List available commands:
-
 ```bash
-hpc-pilot --help
+hpc-pilot --help          # list all commands
+hpc-pilot shell           # interactive REPL
+hpc-pilot tui             # split-pane terminal UI
 ```
 
-Start the interactive REPL:
-
-```bash
-hpc-pilot shell
-```
-
-Start the split-pane terminal UI:
-
-```bash
-hpc-pilot tui
-```
-
-Useful shell/TUI commands:
+### Shell / TUI commands
 
 ```text
 <intent>          build and display a plan
@@ -115,46 +46,21 @@ Useful shell/TUI commands:
 /exit             quit
 ```
 
-## Common Operations
-
-Dry-run is the default for mutating tools.
+## Installation
 
 ```bash
-# Preview a QOS change
-hpc-pilot qos gpu --op modify --max-wall-min 2880
-
-# Apply after reviewing the diff and policy result
-hpc-pilot qos gpu --op modify --max-wall-min 2880 --apply
-
-# Inspect Slurm state
-hpc-pilot node-status --node gpu01
-hpc-pilot queue --user alice --partition gpu
-hpc-pilot usage-report --account research --start 2026-05-01
-
-# Manage user/account associations
-hpc-pilot assoc alice research --qos-add gpu
-hpc-pilot assoc alice research --qos-add gpu --apply
-
-# Drain and resume a node
-hpc-pilot node-state gpu01 drain --reason maintenance
-hpc-pilot node-state gpu01 drain --reason maintenance --apply
-hpc-pilot node-state gpu01 resume --apply
+pip install -e ".[dev]"
 ```
 
-Plan from a natural-language intent (requires LLM):
+Optional LLM support:
 
 ```bash
-hpc-pilot plan "give alice 48 hours of wall time on the gpu qos"
-hpc-pilot plan "give alice 48 hours of wall time on the gpu qos" --apply
+pip install -e ".[dev,anthropic]"   # Anthropic Claude
+pip install -e ".[dev,openai]"      # OpenAI ChatGPT
 ```
 
-Track applied operations:
-
-```bash
-export HPC_AUDIT_SINK=db
-hpc-pilot audit-log --result-status ok
-hpc-pilot audit-show <audit_id>
-```
+Production deployments should use PostgreSQL-compatible URLs for `HPC_DB_URL` and
+`HPC_AUDIT_DB_URL`.
 
 ## Configuration
 
@@ -171,23 +77,156 @@ hpc-pilot audit-show <audit_id>
 | `HPC_ANSIBLE_DIR` | Ansible control directory | `/etc/hpc-pilot/ansible` |
 | `HPC_APPROVAL_BACKEND` | Approval backend: `cli`, `api`, or `mock` | `cli` |
 | `HPC_MAX_BLAST_RADIUS_AUTO` | Auto-run blast-radius cap | `4` |
-| `LLM_PROVIDER` | LLM backend: `anthropic`, `openai`, `mock` | `anthropic` |
-| `ANTHROPIC_API_KEY` | Anthropic API key | - |
-| `OPENAI_API_KEY` | OpenAI API key | - |
-
-### LLM Configuration
-
-| Variable | Purpose | Default |
-|----------|---------|---------|
-| `LLM_PROVIDER` | LLM backend: `anthropic`, `openai`, `mock` | `anthropic` |
-| `ANTHROPIC_API_KEY` | Anthropic API key (if using Claude) | - |
-| `OPENAI_API_KEY` | OpenAI API key (if using ChatGPT) | - |
+| `HPC_DRY_RUN_DEFAULT` | Dry-run by default for mutating tools | `true` |
 
 Sample policy files live in [config_repo/policy](config_repo/policy).
 
+## LLM Configuration
+
+HPC Pilot supports natural-language plan generation using LLMs.
+
+### Supported providers
+
+| Provider | Model Family | API Key Env Var |
+|----------|-------------|-----------------|
+| Anthropic | Claude 3.x | `ANTHROPIC_API_KEY` |
+| OpenAI | GPT-4o, GPT-4 Turbo | `OPENAI_API_KEY` |
+
+### Setup
+
+```bash
+# Anthropic Claude (default)
+export LLM_PROVIDER=anthropic
+export ANTHROPIC_API_KEY=sk-ant-api03-...
+
+# OpenAI ChatGPT
+export LLM_PROVIDER=openai
+export OPENAI_API_KEY=sk-proj-...
+
+# Disable LLM (CLI-only / testing)
+export LLM_PROVIDER=mock
+```
+
+Switch providers per-command:
+
+```bash
+LLM_PROVIDER=anthropic ANTHROPIC_API_KEY=... hpc-pilot plan "install 4 GPU nodes"
+LLM_PROVIDER=openai OPENAI_API_KEY=... hpc-pilot plan "extend user wall time"
+```
+
+### How it works
+
+1. **Intent** — LLM receives your natural language request.
+2. **Tool schemas** — LLM sees available HPC Pilot tools.
+3. **Plan** — LLM generates ordered tool calls with arguments.
+4. **Safety** — All plans go through RBAC, policy, and approval gates.
+5. **Execution** — Plan steps execute with dry-run, approval, and apply.
+
+### Custom provider
+
+Implement `LLMProvider` in `hpc_agent/core/llm.py` and register it in
+`get_llm_provider()`. Set `LLM_PROVIDER` to your custom provider name.
+
+### Cost estimates
+
+| Action | Cost |
+|--------|------|
+| Small intent | $0.001–$0.005 |
+| Complex plan (10+ steps) | $0.01–$0.05 |
+
+## Common Operations
+
+Dry-run is the default for mutating tools.
+
+```bash
+# QOS changes
+hpc-pilot qos gpu --op modify --max-wall-min 2880          # preview
+hpc-pilot qos gpu --op modify --max-wall-min 2880 --apply  # apply
+
+# Slurm queries
+hpc-pilot node-status --node gpu01
+hpc-pilot queue --user alice --partition gpu
+hpc-pilot usage-report --account research --start 2026-05-01
+hpc-pilot show-assoc --user alice --account research
+hpc-pilot job-accounting --user alice --start 2026-05-01
+
+# User/account associations
+hpc-pilot assoc alice research --qos-add gpu
+hpc-pilot assoc alice research --qos-add gpu --apply
+hpc-pilot set-limits qos --name gpu --max-jobs-pu 8
+
+# Node state
+hpc-pilot node-state gpu01 drain --reason maintenance
+hpc-pilot node-state gpu01 drain --reason maintenance --apply
+hpc-pilot node-state gpu01 resume --apply
+
+# Reservations
+hpc-pilot reservation maint-gpu create --nodes gpu01 \
+  --start 2026-06-01T01:00:00 --duration-min 60
+
+# Diagnostics
+hpc-pilot diag
+hpc-pilot reconfigure
+```
+
+### Ansible
+
+```bash
+hpc-pilot compose-playbook site compute_gpu --roles common --roles chrony
+hpc-pilot manage-inventory
+hpc-pilot lint-playbook /etc/hpc-pilot/ansible/playbooks/site.yml
+hpc-pilot run-playbook /etc/hpc-pilot/ansible/playbooks/site.yml --limit gpu01
+hpc-pilot check-secret munge/key
+```
+
+### Spack
+
+```bash
+hpc-pilot spack-envs
+hpc-pilot spack-find gpu-stack
+hpc-pilot spack-spec "openmpi@5 +cuda"
+hpc-pilot spack-compilers --op find --scope site
+hpc-pilot spack-env my-env --op create
+hpc-pilot spack-env my-env --op add_specs --specs "gcc@13" --specs "openmpi"
+hpc-pilot spack-buildcache push /path/to/mirror
+hpc-pilot spack-modules gpu-stack --module-type lmod
+hpc-pilot spack-install gpu-stack
+```
+
+### Natural-language planning
+
+```bash
+hpc-pilot plan "give alice 48 hours of wall time on the gpu qos"
+hpc-pilot plan "give alice 48 hours of wall time on the gpu qos" --apply
+```
+
+## Audit Log
+
+Initialize and enable durable operation tracking:
+
+```bash
+hpc-pilot audit-init
+export HPC_AUDIT_SINK=db
+```
+
+List and inspect audit events:
+
+```bash
+hpc-pilot audit-log
+hpc-pilot audit-log --actor cli-user --result-status ok
+hpc-pilot audit-log --json
+hpc-pilot audit-show <audit_id>
+```
+
+The audit database contains:
+
+- **`audit_events`** — actor, tool, risk, input, decision, result status, diff summary,
+  config commit, and revert argv.
+- **`audit_commands`** — redacted argv, return code, and command duration for each event.
+
 ## Safety Model
 
-HPC Pilot tools follow the same operational contract:
+HPC Pilot tools follow this operational contract:
 
 1. Validate input with Pydantic.
 2. Read current state from the live system and/or desired-state repository.
@@ -202,6 +241,27 @@ HPC Pilot tools follow the same operational contract:
 Medium and high-risk actions can pause for approval. Read-only and low-risk actions may
 auto-run when policy allows them.
 
+## Policies
+
+Policies are YAML files in `config_repo/policy/`. They can deny actions, require
+approval, or explicitly allow safe medium-risk actions. Examples:
+
+- Deny QOS wall time above a site cap.
+- Require approval for high blast-radius node operations.
+- Deny medium/high-risk mutations during maintenance blackout windows.
+
+Keep production policy files in version control and review them like operational code.
+
+## RBAC
+
+| Role | Intended Use |
+|------|--------------|
+| `viewer` | Read-only queries and reports |
+| `operator` | Day-to-day managed operations within policy |
+| `admin` | Full tool access |
+
+RBAC is enforced before policy approval decisions.
+
 ## Development
 
 Run the standard checks:
@@ -213,7 +273,7 @@ mypy hpc_agent tests
 pytest tests/unit
 ```
 
-Add a new tool by following the established pattern:
+### Adding a new tool
 
 1. Define a Pydantic input model.
 2. Register the function with `@tool`.
@@ -223,9 +283,32 @@ Add a new tool by following the established pattern:
 6. Commit an audit event.
 7. Add unit tests for dry-run, apply, policy denial, no-op, and command failures.
 
-More detailed operator and developer documentation is available in:
+## Troubleshooting
 
-- [Quick Start](QUICK_START.md)
-- [User Guide](USER_GUIDE.md)
-- [Documentation Index](DOCS_INDEX.md)
-- [Design Reference](agent-specs/README.md)
+**Command failed because the site CLI is missing** — Install or configure the relevant
+Slurm, Warewulf, Spack, or Ansible binary. For local development, mock `run_command` in
+tests.
+
+**Audit events are not durable** — Set `HPC_AUDIT_SINK=db`, initialize with
+`hpc-pilot audit-init`, and confirm `HPC_AUDIT_DB_URL` points to the intended database.
+
+**Policy denies an expected operation** — Inspect files in `config_repo/policy/`, then
+rerun without `--apply` to review the diff and policy result.
+
+**LLM cannot parse an intent** — Use the explicit CLI command for now. The rule-based
+planner handles common QOS wall-time intents; broader LLM planning requires a configured
+provider.
+
+**LLM returns content instead of tool calls** — Use models with strong tool-calling
+support (Claude 3.5 Sonnet+, GPT-4o, GPT-4 Turbo).
+
+## Documentation
+
+| Document | Description |
+|----------|-------------|
+| [README.md](README.md) | This file — project overview, setup, usage, and reference |
+| [deploy/README.md](deploy/README.md) | Virtual-cluster deployment and integration testing |
+| [agent-specs/](agent-specs/) | Engineering design reference for core contracts and domain tools |
+
+The `agent-specs/` directory contains product and engineering reference documents. They
+are not release notes or progress trackers.

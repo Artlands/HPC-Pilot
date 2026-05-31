@@ -5,8 +5,7 @@ are useful when extending the agent, reviewing behavior, or deciding whether a t
 change preserves the safety model.
 
 These documents are not release notes. For day-to-day usage, start with the top-level
-[README](../README.md), [Quick Start](../QUICK_START.md), [User Guide](../USER_GUIDE.md),
-or [LLM Setup](../LLM_SETUP.md) for LLM configuration.
+[README](../README.md) for setup, usage, and LLM configuration.
 
 ## LLM Support
 
@@ -18,7 +17,7 @@ HPC Pilot includes optional LLM-powered planning:
 - **Default to CLI mode** - works without LLM for rule-based planning
 - **Mock mode** for testing deterministic behavior
 
-See [LLM_SETUP.md](../LLM_SETUP.md) for setup instructions.
+See [README.md](../README.md#llm-configuration) for setup instructions.
 
 ## Reference Documents
 

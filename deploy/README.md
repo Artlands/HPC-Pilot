@@ -10,21 +10,21 @@ base-image adjustments.
 
 ## Topology
 
-| VM | Role | File |
-|----|------|------|
-| `mgmt` | Controller and management node | `vm-mgmt.xml` |
-| `login01` | Login node | `vm-login01.xml` |
+| VM | Role | Definition |
+|----|------|------------|
+| `mgmt` | Slurm/Warewulf/Ansible/Spack controller | `vm-mgmt.xml` |
+| `login01` | User-facing login node | `vm-login01.xml` |
 | `cpu01` | CPU compute node | `vm-cpu01.xml` |
-| `gpu01` | GPU compute node with stubbed GPU behavior | `vm-gpu01.xml` |
+| `gpu01` | GPU workflow node with stubbed GPU behavior | `vm-gpu01.xml` |
 
 The network is defined in `network.xml`.
 
 ## Files
 
-- `Makefile`: convenience targets for local libvirt workflows.
-- `network.xml`: libvirt network definition.
-- `vm-*.xml`: VM definitions.
-- `scripts/setup-controller.sh`: controller bootstrap helper.
+- `Makefile` — convenience targets for local libvirt workflows.
+- `network.xml` — libvirt network definition.
+- `vm-*.xml` — VM definitions.
+- `scripts/setup-controller.sh` — controller bootstrap helper.
 
 ## Prerequisites
 
@@ -53,12 +53,14 @@ make -f deploy/Makefile down
 The Makefile is a development convenience, not a production installer. If it does not
 match your local libvirt setup, use the XML files directly.
 
-Manual libvirt flow:
+### Manual libvirt flow
 
 ```bash
 cd deploy
+
 virsh net-define network.xml
 virsh net-start hpc-cluster
+virsh net-autostart hpc-cluster
 
 virsh define vm-mgmt.xml
 virsh define vm-login01.xml
@@ -71,6 +73,18 @@ virsh start cpu01
 virsh start gpu01
 ```
 
+Stop and remove the VMs when finished:
+
+```bash
+virsh shutdown gpu01
+virsh shutdown cpu01
+virsh shutdown login01
+virsh shutdown mgmt
+```
+
+Use `virsh destroy` and `virsh undefine` only when you intentionally want to force-stop
+or remove definitions.
+
 ## Testing
 
 Unit tests do not require the virtual cluster:
@@ -79,8 +93,7 @@ Unit tests do not require the virtual cluster:
 pytest tests/unit
 ```
 
-Integration tests are intended to run against the VMs after the controller and services
-are configured:
+Integration tests run against the VMs after the controller and services are configured:
 
 ```bash
 pytest tests/integration
@@ -95,22 +108,24 @@ The `gpu01` VM is intended for GPU workflow validation without requiring physica
 Set `HPC_GPU_STUB=1` in the guest image or test environment when using stubbed commands
 such as `nvidia-smi`.
 
+## Developer Notes
+
+- Keep VM XML definitions small and reviewable.
+- Avoid embedding local absolute paths unless they are clearly documented.
+- Prefer changes that make the virtual cluster easier to reproduce in CI.
+- Keep GPU behavior stub-friendly so tests can run on hosts without physical GPUs.
+
 ## Troubleshooting
 
-**VMs do not start**
+**VMs do not start** — Check libvirt service status, storage pool paths, and VM names
+that may already exist.
 
-Check libvirt service status, storage pool paths, and VM names that may already exist.
+**Network conflicts** — Inspect `network.xml` and adjust the subnet or bridge for your
+host.
 
-**Network conflicts**
+**PXE or Warewulf boot fails** — Check DHCP/TFTP services on the management VM and
+verify the Warewulf overlay and profile configuration.
 
-Inspect `network.xml` and adjust the subnet or bridge for your host.
-
-**PXE or Warewulf boot fails**
-
-Check DHCP/TFTP services on the management VM and verify the Warewulf overlay and profile
-configuration.
-
-**Controller setup is incomplete**
-
-Log into `mgmt`, inspect `scripts/setup-controller.sh`, and run the remaining setup steps
-manually. The script is a bootstrap helper and may require local adaptation.
+**Controller setup is incomplete** — Log into `mgmt`, inspect
+`scripts/setup-controller.sh`, and run the remaining setup steps manually. The script is
+a bootstrap helper and may require local adaptation.

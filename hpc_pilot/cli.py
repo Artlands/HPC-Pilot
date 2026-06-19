@@ -19,6 +19,7 @@ Direct cluster commands (no API key needed):
 """
 from __future__ import annotations
 
+import json
 import os
 import sys
 import argparse
@@ -115,12 +116,37 @@ def chat_command(args: argparse.Namespace) -> int:
     ensure_home()
     init_config()
 
+    # --list-sessions doesn't require the API key
+    if getattr(args, "list_sessions", False):
+        import datetime
+        from hpc_pilot.agent import list_sessions
+        sessions = list_sessions()
+        if not sessions:
+            print("No saved sessions.")
+        else:
+            for s in sessions:
+                ts = datetime.datetime.fromtimestamp(s["ts"]).strftime("%Y-%m-%d %H:%M:%S")
+                print(f"{s['id']}  {ts}  {s['turn_count']} turn(s)  [{s['role']}]")
+        return 0
+
     try:
-        from hpc_pilot.agent import HpcAgent, run_chat_loop
+        from hpc_pilot.agent import HpcAgent, load_session, run_chat_loop
     except ImportError as exc:
         print(f"Missing dependency: {exc}", file=sys.stderr)
         print("Install with: pip install 'hpc-pilot[agent]'", file=sys.stderr)
         return 1
+
+    # Validate --resume before touching the API key — gives a clear error immediately.
+    initial_history: list[dict[str, Any]] | None = None
+    resume_id: str | None = getattr(args, "resume", None)
+    if resume_id:
+        try:
+            initial_history, _meta = load_session(resume_id)
+            turn_count = sum(1 for m in initial_history if m.get("role") == "user")
+            print(f"Resuming session {resume_id}  ({turn_count} previous turn(s))\n")
+        except FileNotFoundError:
+            print(f"Session not found: {resume_id}", file=sys.stderr)
+            return 1
 
     if not os.environ.get("ANTHROPIC_API_KEY"):
         # Try loading from .env
@@ -148,7 +174,7 @@ def chat_command(args: argparse.Namespace) -> int:
             print(f"Error: {exc}", file=sys.stderr)
             return 1
 
-    return run_chat_loop(agent)
+    return run_chat_loop(agent, initial_history=initial_history)
 
 
 def shell_command(args: argparse.Namespace) -> int:
@@ -235,7 +261,11 @@ def nodes_command(args: argparse.Namespace) -> int:
         "hpc_slurm_node_status", {"node": node}, get_role(), _get_actor()
     )
     if result is not None:
-        print(result)
+        if getattr(args, "json", False):
+            from hpc_pilot.tools import parse_slurm_nodes
+            print(json.dumps(parse_slurm_nodes(result), indent=2))
+        else:
+            print(result)
     return code
 
 
@@ -248,7 +278,11 @@ def queue_command(args: argparse.Namespace) -> int:
         tool_args["partition"] = args.partition
     result, code = _invoke_cli("hpc_slurm_queue", tool_args, get_role(), _get_actor())
     if result is not None:
-        print(result)
+        if getattr(args, "json", False):
+            from hpc_pilot.tools import parse_slurm_queue
+            print(json.dumps(parse_slurm_queue(result), indent=2))
+        else:
+            print(result)
     return code
 
 
@@ -283,7 +317,11 @@ def warewulf_command(args: argparse.Namespace) -> int:
     ensure_home()
     result, code = _invoke_cli("hpc_warewulf_node_status", {}, get_role(), _get_actor())
     if result is not None:
-        print(result)
+        if getattr(args, "json", False):
+            from hpc_pilot.tools import parse_warewulf_nodes
+            print(json.dumps(parse_warewulf_nodes(result), indent=2))
+        else:
+            print(result)
     return code
 
 
@@ -292,6 +330,7 @@ def spack_command(args: argparse.Namespace) -> int:
     role = get_role()
     actor = _get_actor()
     action: str = getattr(args, "action", "list") or "list"
+    emit_json: bool = getattr(args, "json", False)
 
     if action == "find":
         result, code = _invoke_cli("hpc_spack_find", {"env": args.env}, role, actor)
@@ -301,7 +340,11 @@ def spack_command(args: argparse.Namespace) -> int:
         result, code = _invoke_cli("hpc_spack_env_list", {}, role, actor)
 
     if result is not None:
-        print(result)
+        if emit_json and action not in ("find", "compilers"):
+            from hpc_pilot.tools import parse_spack_envs
+            print(json.dumps(parse_spack_envs(result), indent=2))
+        else:
+            print(result)
     return code
 
 
@@ -362,6 +405,11 @@ def main(argv: Optional[list[str]] = None) -> int:
     chat_p = subs.add_parser("chat", help="Start interactive AI chat")
     chat_p.add_argument("-q", "--query", help="Single query")
     chat_p.add_argument("-m", "--model", help="Model name")
+    chat_p.add_argument("--resume", metavar="SESSION-ID", help="Resume a previous session")
+    chat_p.add_argument(
+        "--list-sessions", action="store_true", dest="list_sessions",
+        help="List saved sessions",
+    )
     chat_p.set_defaults(func=chat_command)
 
     # shell
@@ -395,12 +443,14 @@ def main(argv: Optional[list[str]] = None) -> int:
     # nodes
     nodes_p = subs.add_parser("nodes", help="Show Slurm node status")
     nodes_p.add_argument("node", nargs="?", default="", help="Node name (omit for all)")
+    nodes_p.add_argument("--json", action="store_true", help="Emit machine-readable JSON")
     nodes_p.set_defaults(func=nodes_command)
 
     # queue
     queue_p = subs.add_parser("queue", help="Show job queue")
     queue_p.add_argument("--user", help="Filter by user")
     queue_p.add_argument("--partition", help="Filter by partition")
+    queue_p.add_argument("--json", action="store_true", help="Emit machine-readable JSON")
     queue_p.set_defaults(func=queue_command)
 
     # qos
@@ -413,10 +463,12 @@ def main(argv: Optional[list[str]] = None) -> int:
 
     # warewulf
     ww_p = subs.add_parser("warewulf", help="Show Warewulf node status")
+    ww_p.add_argument("--json", action="store_true", help="Emit machine-readable JSON")
     ww_p.set_defaults(func=warewulf_command)
 
     # spack
     spack_p = subs.add_parser("spack", help="Spack queries")
+    spack_p.add_argument("--json", action="store_true", help="Emit machine-readable JSON (env list only)")
     spack_subs = spack_p.add_subparsers(dest="action")
     spack_subs.add_parser("list", help="List environments")
     spack_find_p = spack_subs.add_parser("find", help="List specs in an environment")

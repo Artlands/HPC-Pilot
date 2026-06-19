@@ -248,6 +248,55 @@ def hpc_ansible_inventory_generate() -> str:
 # ---------------------------------------------------------------------------
 
 
+def parse_slurm_queue(output: str) -> list[dict[str, str]]:
+    """Parse ``squeue`` tabular output into a list of job dicts.
+
+    Handles both default and ``--long`` formats.  The first line that starts
+    with ``JOBID`` (case-insensitive) is used as the header row.
+    """
+    rows: list[dict[str, str]] = []
+    header: list[str] = []
+    for line in output.splitlines():
+        stripped = line.strip()
+        if not stripped or stripped.startswith("---"):
+            continue
+        if not header and stripped.upper().startswith("JOBID"):
+            header = stripped.split()
+            continue
+        if header:
+            parts = stripped.split(None, len(header) - 1)
+            if parts:
+                rows.append(dict(zip(header, parts)))
+    return rows
+
+
+def parse_warewulf_nodes(output: str) -> list[dict[str, str]]:
+    """Parse ``wwctl node list`` tabular output into a list of node dicts."""
+    rows: list[dict[str, str]] = []
+    header: list[str] = []
+    for line in output.splitlines():
+        stripped = line.strip()
+        if not stripped:
+            continue
+        if not header:
+            header = stripped.split()
+            continue
+        parts = stripped.split(None, len(header) - 1)
+        if parts:
+            rows.append(dict(zip(header, parts)))
+    return rows
+
+
+def parse_spack_envs(output: str) -> list[str]:
+    """Parse ``spack env list`` output into a list of environment names."""
+    envs: list[str] = []
+    for line in output.splitlines():
+        stripped = line.strip()
+        if stripped and not stripped.startswith("==>") and not stripped.startswith("#"):
+            envs.append(stripped.lstrip("* "))
+    return envs
+
+
 def parse_slurm_nodes(output: str) -> dict[str, Any]:
     """Parse ``scontrol show node`` output into a mapping keyed by node name.
 

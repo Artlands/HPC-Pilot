@@ -428,5 +428,100 @@ class TestClusterHealthCheck:
         assert result["components"]["slurm"]["available"] is False
 
 
+# ---------------------------------------------------------------------------
+# Output parsers (Q1)
+# ---------------------------------------------------------------------------
+
+
+class TestParseSlurmQueue:
+    def test_parses_standard_squeue_long_output(self):
+        from hpc_pilot.tools import parse_slurm_queue
+
+        output = (
+            "Thu Jun 19 12:00:00 2025\n"
+            "             JOBID PARTITION     NAME     USER    STATE       TIME\n"
+            "           1234567     short  my_job    alice  RUNNING    01:23:00\n"
+            "           9999999       gpu big_job      bob  PENDING       0:00\n"
+        )
+        rows = parse_slurm_queue(output)
+        assert len(rows) == 2
+        assert rows[0]["JOBID"] == "1234567"
+        assert rows[0]["USER"] == "alice"
+        assert rows[1]["STATE"] == "PENDING"
+
+    def test_empty_queue_returns_empty_list(self):
+        from hpc_pilot.tools import parse_slurm_queue
+
+        output = "JOBID PARTITION NAME USER STATE TIME\n"
+        assert parse_slurm_queue(output) == []
+
+    def test_no_header_returns_empty_list(self):
+        from hpc_pilot.tools import parse_slurm_queue
+
+        assert parse_slurm_queue("some unrelated text\n") == []
+
+
+class TestParseWarewulfNodes:
+    def test_parses_wwctl_node_list_output(self):
+        from hpc_pilot.tools import parse_warewulf_nodes
+
+        output = (
+            "NODE    PROFILES  STATUS  NETWORK\n"
+            "node01  default   up      192.168.1.101\n"
+            "node02  gpu       up      192.168.1.102\n"
+        )
+        rows = parse_warewulf_nodes(output)
+        assert len(rows) == 2
+        assert rows[0]["NODE"] == "node01"
+        assert rows[1]["PROFILES"] == "gpu"
+
+    def test_empty_output_returns_empty_list(self):
+        from hpc_pilot.tools import parse_warewulf_nodes
+
+        assert parse_warewulf_nodes("") == []
+
+
+class TestParseSpackEnvs:
+    def test_parses_spack_env_list_output(self):
+        from hpc_pilot.tools import parse_spack_envs
+
+        output = (
+            "==> 3 environments\n"
+            "    default\n"
+            "    my_env\n"
+            "    test_env\n"
+        )
+        envs = parse_spack_envs(output)
+        assert envs == ["default", "my_env", "test_env"]
+
+    def test_active_env_asterisk_stripped(self):
+        from hpc_pilot.tools import parse_spack_envs
+
+        output = "==> 1 environments\n* active_env\n"
+        assert parse_spack_envs(output) == ["active_env"]
+
+    def test_empty_output_returns_empty_list(self):
+        from hpc_pilot.tools import parse_spack_envs
+
+        assert parse_spack_envs("==> 0 environments\n") == []
+
+
+class TestParseSlurmNodesExisting:
+    def test_parses_multi_node_block(self):
+        from hpc_pilot.tools import parse_slurm_nodes
+
+        output = (
+            "NodeName=node01 Arch=x86_64 CoresPerSocket=16\n"
+            "   CPUAlloc=0 CPUTot=64 NodeState=IDLE\n"
+            "\n"
+            "NodeName=node02 Arch=x86_64 CoresPerSocket=16\n"
+            "   CPUAlloc=32 CPUTot=64 NodeState=ALLOCATED\n"
+        )
+        nodes = parse_slurm_nodes(output)
+        assert "node01" in nodes
+        assert nodes["node01"]["NodeState"] == "IDLE"
+        assert nodes["node02"]["CPUAlloc"] == "32"
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])

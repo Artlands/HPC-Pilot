@@ -99,7 +99,7 @@ Set a higher role: `export HPC_PILOT_ROLE=admin`
 
 **`Gateway won't start`**
 
-The AI agent / gateway layer is not yet implemented. Use CLI commands directly.
+Ensure `HPC_PILOT_TELEGRAM_TOKEN` (Telegram) or `HPC_PILOT_DISCORD_TOKEN` (Discord) is set in `~/.hpc-pilot/.env` or the environment. Run `hpc-pilot gateway --setup` to configure tokens interactively. If neither platform token is provided the gateway exits immediately with no error message.
 
 ## Backup and restore
 

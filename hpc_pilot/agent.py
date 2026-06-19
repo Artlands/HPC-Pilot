@@ -19,7 +19,9 @@ Usage (streaming CLI):
 """
 from __future__ import annotations
 
+import json
 import os
+import time
 from typing import TYPE_CHECKING, Any, Callable, cast
 
 from hpc_pilot.paths import get_home
@@ -300,12 +302,65 @@ class HpcAgent:
     # Conversation turn
     # ------------------------------------------------------------------
 
+    def _make_api_request(
+        self,
+        messages: list[Any],
+        on_text: Callable[[str], None] | None,
+    ) -> tuple[str, Any]:
+        """Make one API call with retry on transient errors.
+
+        Returns (response_text, message_object).  Retries up to 3 times on
+        RateLimitError/APIConnectionError with 1s → 2s → 4s backoff.  Streaming
+        retries only if no chunks have been emitted yet (to avoid duplicate output).
+        """
+        import anthropic
+
+        transient = (anthropic.RateLimitError, anthropic.APIConnectionError)
+        delay = 1.0
+        for attempt in range(3):
+            try:
+                if on_text is not None:
+                    chunks: list[str] = []
+                    with self._client.messages.stream(
+                        model=self.model,
+                        max_tokens=8096,
+                        system=cast(Any, self._system_prompt_blocks()),
+                        tools=cast(Any, TOOL_SCHEMAS),
+                        messages=cast(Any, messages),
+                    ) as stream:
+                        for chunk in stream.text_stream:
+                            on_text(chunk)
+                            chunks.append(chunk)
+                        msg: Any = stream.get_final_message()
+                    return "".join(chunks), msg
+                else:
+                    msg = self._client.messages.create(
+                        model=self.model,
+                        max_tokens=8096,
+                        system=cast(Any, self._system_prompt_blocks()),
+                        tools=cast(Any, TOOL_SCHEMAS),
+                        messages=cast(Any, messages),
+                    )
+                    text = "".join(
+                        block.text
+                        for block in msg.content
+                        if getattr(block, "type", "") == "text"
+                    )
+                    return text, msg
+            except transient as exc:
+                if attempt == 2:
+                    raise
+                time.sleep(delay)
+                delay *= 2
+        raise RuntimeError("unreachable")  # mypy
+
     def run_turn(
         self,
         user_message: str,
         history: list[dict[str, Any]],
         on_text: Callable[[str], None] | None = None,
         on_tool: Callable[[str, dict[str, Any]], None] | None = None,
+        on_result: Callable[[str, str], None] | None = None,
         max_iterations: int = 25,
     ) -> tuple[str, list[dict[str, Any]]]:
         """
@@ -318,44 +373,35 @@ class HpcAgent:
                      When provided, the underlying API call uses streaming.
             on_tool: Optional callback invoked before each tool call with
                      (tool_name, args).
+            on_result: Optional callback invoked after each tool call with
+                       (tool_name, result_string).
             max_iterations: Maximum number of API calls before breaking the loop.
 
         Returns:
             (response_text, updated_history)
         """
+        from hpc_pilot.audit import log_llm_usage
+
         # The Anthropic SDK accepts list[dict] for messages; cast satisfies mypy.
         messages: list[Any] = list(history) + [{"role": "user", "content": user_message}]
         response_text = ""
         iterations = 0
 
         while iterations < max_iterations:
-            if on_text is not None:
-                # Streaming path
-                with self._client.messages.stream(
-                    model=self.model,
-                    max_tokens=8096,
-                    system=cast(Any, self._system_prompt_blocks()),
-                    tools=cast(Any, TOOL_SCHEMAS),
-                    messages=cast(Any, messages),
-                ) as stream:
-                    for chunk in stream.text_stream:
-                        on_text(chunk)
-                        response_text += chunk
-                    response: Any = stream.get_final_message()
-            else:
-                # Non-streaming path (bots / single-query)
-                response = self._client.messages.create(
-                    model=self.model,
-                    max_tokens=8096,
-                    system=cast(Any, self._system_prompt_blocks()),
-                    tools=cast(Any, TOOL_SCHEMAS),
-                    messages=cast(Any, messages),
-                )
-                response_text = "".join(
-                    block.text
-                    for block in response.content
-                    if getattr(block, "type", "") == "text"
-                )
+            response_text, response = self._make_api_request(messages, on_text)
+
+            try:
+                usage = getattr(response, "usage", None)
+                if usage is not None:
+                    log_llm_usage(
+                        actor=self.actor,
+                        role=self.role.value,
+                        model=self.model,
+                        input_tokens=int(getattr(usage, "input_tokens", 0)),
+                        output_tokens=int(getattr(usage, "output_tokens", 0)),
+                    )
+            except Exception:
+                pass  # usage logging must never block the turn
 
             iterations += 1
             messages = messages + [{"role": "assistant", "content": response.content}]
@@ -378,6 +424,8 @@ class HpcAgent:
                     result = f"[Permission denied] {exc}"
                 except Exception as exc:
                     result = f"[Unexpected error] {exc}"
+                if on_result is not None:
+                    on_result(tool_name, result)
                 tool_results.append(
                     {"type": "tool_result", "tool_use_id": block.id, "content": result}
                 )
@@ -399,49 +447,187 @@ class HpcAgent:
 
 
 # ---------------------------------------------------------------------------
+# Session persistence
+# ---------------------------------------------------------------------------
+
+
+def _session_path(session_id: str) -> str:
+    from hpc_pilot.paths import sessions_dir
+    return os.path.join(sessions_dir(), f"{session_id}.json")
+
+
+def _new_session_id() -> str:
+    """Return a timestamp-based session ID that doesn't collide with existing files."""
+    import datetime
+    base = datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
+    if not os.path.exists(_session_path(base)):
+        return base
+    for i in range(2, 100):
+        candidate = f"{base}-{i}"
+        if not os.path.exists(_session_path(candidate)):
+            return candidate
+    return base
+
+
+def _serialize_message(msg: dict[str, Any]) -> dict[str, Any]:
+    """Convert one Anthropic history message to a plain JSON-serializable dict.
+
+    Assistant messages carry SDK content-block objects; this converts them to
+    plain dicts so they survive a round-trip through json.dump / json.load.
+    """
+    content = msg.get("content")
+    if not isinstance(content, list):
+        return dict(msg)
+    blocks: list[dict[str, Any]] = []
+    for block in content:
+        if isinstance(block, dict):
+            blocks.append(block)
+        elif hasattr(block, "model_dump"):
+            blocks.append(block.model_dump())
+        elif hasattr(block, "dict"):
+            blocks.append(block.dict())
+        else:
+            d: dict[str, Any] = {"type": getattr(block, "type", "unknown")}
+            for attr in ("text", "id", "name", "input", "tool_use_id", "content"):
+                val = getattr(block, attr, None)
+                if val is not None:
+                    d[attr] = val
+            blocks.append(d)
+    return {"role": msg["role"], "content": blocks}
+
+
+def save_session(
+    history: list[dict[str, Any]],
+    agent: "HpcAgent",
+    session_id: str | None = None,
+) -> str:
+    """Persist *history* to ~/.hpc-pilot/sessions/<id>.json.
+
+    Returns the session ID so callers can print a resume hint.
+    """
+    from hpc_pilot.paths import ensure_layout
+    ensure_layout()
+    sid = session_id or _new_session_id()
+    record: dict[str, Any] = {
+        "id": sid,
+        "ts": time.time(),
+        "model": agent.model,
+        "role": agent.role.value,
+        "actor": agent.actor,
+        "messages": [_serialize_message(m) for m in history],
+    }
+    with open(_session_path(sid), "w") as f:
+        json.dump(record, f, indent=2, default=str)
+    return sid
+
+
+def load_session(session_id: str) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+    """Load a saved session; return *(messages, metadata)*.
+
+    Raises FileNotFoundError when the session does not exist.
+    """
+    path = _session_path(session_id)
+    with open(path) as f:
+        data: dict[str, Any] = json.load(f)
+    messages: list[dict[str, Any]] = data.pop("messages", [])
+    return messages, data
+
+
+def list_sessions() -> list[dict[str, Any]]:
+    """Return session summaries sorted newest-first.
+
+    Each summary has keys: id, ts, model, role, actor, turn_count.
+    """
+    from hpc_pilot.paths import sessions_dir
+    sdir = sessions_dir()
+    if not os.path.isdir(sdir):
+        return []
+    summaries: list[dict[str, Any]] = []
+    for fname in os.listdir(sdir):
+        if not fname.endswith(".json"):
+            continue
+        try:
+            with open(os.path.join(sdir, fname)) as f:
+                data = json.load(f)
+            summaries.append({
+                "id": data.get("id", fname[:-5]),
+                "ts": float(data.get("ts", 0)),
+                "model": str(data.get("model", "")),
+                "role": str(data.get("role", "")),
+                "actor": str(data.get("actor", "")),
+                "turn_count": sum(
+                    1 for m in data.get("messages", []) if m.get("role") == "user"
+                ),
+            })
+        except Exception:
+            continue
+    summaries.sort(key=lambda s: s["ts"], reverse=True)
+    return summaries
+
+
+# ---------------------------------------------------------------------------
 # Interactive CLI chat session
 # ---------------------------------------------------------------------------
 
 
-def run_chat_loop(agent: HpcAgent) -> int:
+def run_chat_loop(agent: HpcAgent, initial_history: list[dict[str, Any]] | None = None) -> int:
     """Run an interactive readline-based chat loop in the terminal."""
     try:
         import readline  # noqa: F401  — enables Ctrl-A/E, history on supported platforms
     except ImportError:
         pass
 
-    history: list[dict[str, Any]] = []
+    history: list[dict[str, Any]] = list(initial_history) if initial_history else []
+    turn_start = len(history)  # messages present before this session's turns
     print(
         f"HPC Pilot AI  [model: {agent.model} | role: {agent.role.value}]"
         "\nType 'exit' or press Ctrl-D to quit.\n"
     )
 
-    while True:
-        try:
-            user_input = input("You: ").strip()
-        except (EOFError, KeyboardInterrupt):
+    try:
+        while True:
+            try:
+                user_input = input("You: ").strip()
+            except (EOFError, KeyboardInterrupt):
+                print()
+                break
+
+            if user_input.lower() in ("exit", "quit", "q"):
+                break
+            if not user_input:
+                continue
+
+            print("Agent: ", end="", flush=True)
+            try:
+                def _on_tool(name: str, args: dict[str, Any]) -> None:
+                    arg_str = json.dumps(args, default=str)
+                    if len(arg_str) > 80:
+                        arg_str = arg_str[:77] + "..."
+                    print(f"\n  [→ {name}] {arg_str}", end=" ", flush=True)
+
+                def _on_result(_name: str, result: str) -> None:
+                    snippet = result[:150] + ("…" if len(result) > 150 else "")
+                    print(f"\n  [← {snippet}]", end=" ", flush=True)
+
+                _, history = agent.run_turn(
+                    user_input,
+                    history,
+                    on_text=lambda chunk: print(chunk, end="", flush=True),
+                    on_tool=_on_tool,
+                    on_result=_on_result,
+                )
+            except KeyboardInterrupt:
+                print("\n(interrupted)")
+            except Exception as exc:
+                print(f"\nError: {exc}")
             print()
-            break
-
-        if user_input.lower() in ("exit", "quit", "q"):
-            break
-        if not user_input:
-            continue
-
-        print("Agent: ", end="", flush=True)
-        try:
-            _, history = agent.run_turn(
-                user_input,
-                history,
-                on_text=lambda chunk: print(chunk, end="", flush=True),
-                on_tool=lambda name, args: print(
-                    f"\n  [→ {name}]", end=" ", flush=True
-                ),
-            )
-        except KeyboardInterrupt:
-            print("\n(interrupted)")
-        except Exception as exc:
-            print(f"\nError: {exc}")
-        print()
+    finally:
+        if len(history) > turn_start:
+            try:
+                sid = save_session(history, agent)
+                print(f"\nSession saved: {sid}")
+                print(f"  Resume with: hpc-pilot chat --resume {sid}")
+            except Exception as exc:
+                print(f"\n[Warning] Could not save session: {exc}")
 
     return 0

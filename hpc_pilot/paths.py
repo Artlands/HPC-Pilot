@@ -25,6 +25,10 @@ def audit_log_path() -> str:
     return os.path.join(get_home(), "logs", "audit.jsonl")
 
 
+def sessions_dir() -> str:
+    return os.path.join(get_home(), "sessions")
+
+
 def auth_path() -> str:
     return os.path.join(get_home(), "auth.json")
 

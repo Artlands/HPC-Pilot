@@ -312,6 +312,240 @@ class TestRunTurn:
 
 
 # ---------------------------------------------------------------------------
+# Session persistence (Q2)
+# ---------------------------------------------------------------------------
+
+
+class TestSessionPersistence:
+    def test_save_and_load_roundtrip(self, tmp_path):
+        """save_session → load_session returns identical messages."""
+        from hpc_pilot.agent import load_session, save_session
+
+        agent = _make_agent()
+        history = [
+            {"role": "user", "content": "hello"},
+            {"role": "assistant", "content": [{"type": "text", "text": "hi there"}]},
+        ]
+        with patch("hpc_pilot.paths.get_home", return_value=str(tmp_path)):
+            sid = save_session(history, agent)
+            loaded, meta = load_session(sid)
+
+        assert loaded == history
+        assert meta["model"] == agent.model
+        assert meta["role"] == agent.role.value
+
+    def test_new_session_id_unique(self, tmp_path):
+        """_new_session_id returns a different name if the first one exists."""
+        from hpc_pilot.agent import _new_session_id, _session_path
+
+        with patch("hpc_pilot.paths.sessions_dir", return_value=str(tmp_path)):
+            first = _new_session_id()
+            # create the file so the next call must pick something different
+            (tmp_path / f"{first}.json").write_text("{}")
+            second = _new_session_id()
+
+        assert first != second
+
+    def test_list_sessions_sorted_newest_first(self, tmp_path):
+        """list_sessions returns sessions in descending timestamp order."""
+        import time as _time
+        from hpc_pilot.agent import list_sessions, save_session
+
+        agent = _make_agent()
+        history = [{"role": "user", "content": "q"}]
+        with patch("hpc_pilot.paths.get_home", return_value=str(tmp_path)):
+            save_session(history, agent, session_id="older")
+            _time.sleep(0.01)
+            save_session(history, agent, session_id="newer")
+            sessions = list_sessions()
+
+        assert sessions[0]["id"] == "newer"
+        assert sessions[1]["id"] == "older"
+
+    def test_list_sessions_empty_when_no_dir(self, tmp_path):
+        """list_sessions returns [] when the sessions directory doesn't exist."""
+        from hpc_pilot.agent import list_sessions
+
+        with patch("hpc_pilot.paths.sessions_dir", return_value=str(tmp_path / "nonexistent")):
+            assert list_sessions() == []
+
+    def test_load_session_missing_raises(self, tmp_path):
+        """load_session raises FileNotFoundError for unknown session IDs."""
+        from hpc_pilot.agent import load_session
+
+        with patch("hpc_pilot.paths.sessions_dir", return_value=str(tmp_path)):
+            with pytest.raises(FileNotFoundError):
+                load_session("does-not-exist")
+
+    def test_serialize_sdk_blocks(self):
+        """_serialize_message converts SDK-like objects with model_dump to plain dicts."""
+        from hpc_pilot.agent import _serialize_message
+
+        block = MagicMock()
+        block.model_dump.return_value = {"type": "text", "text": "hello"}
+        msg = {"role": "assistant", "content": [block]}
+        result = _serialize_message(msg)
+        assert result["content"] == [{"type": "text", "text": "hello"}]
+
+    def test_run_chat_loop_saves_session_on_exit(self, tmp_path):
+        """run_chat_loop persists history when the user exits."""
+        from hpc_pilot.agent import run_chat_loop
+
+        agent = _make_agent()
+        agent._client.messages.create.return_value = _text_response("pong")
+
+        with (
+            patch("hpc_pilot.paths.get_home", return_value=str(tmp_path)),
+            patch("builtins.input", side_effect=["ping", "exit"]),
+            patch("builtins.print"),
+        ):
+            run_chat_loop(agent)
+
+        sessions_dir = tmp_path / "sessions"
+        saved = list(sessions_dir.glob("*.json"))
+        assert len(saved) == 1
+
+    def test_chat_list_sessions_cli(self, tmp_path, capsys):
+        """hpc-pilot chat --list-sessions prints saved sessions."""
+        import time as _time
+        from hpc_pilot.agent import save_session
+
+        agent = _make_agent()
+        history = [{"role": "user", "content": "q"}, {"role": "assistant", "content": "a"}]
+        with patch("hpc_pilot.paths.get_home", return_value=str(tmp_path)):
+            save_session(history, agent, session_id="mysession")
+
+        from hpc_pilot.cli import main
+        with patch("hpc_pilot.paths.get_home", return_value=str(tmp_path)):
+            rc = main(["chat", "--list-sessions"])
+
+        assert rc == 0
+        out = capsys.readouterr().out
+        assert "mysession" in out
+
+
+# ---------------------------------------------------------------------------
+# TOOL_SCHEMAS completeness
+# ---------------------------------------------------------------------------
+
+
+# ---------------------------------------------------------------------------
+# on_result callback (Q5)
+# ---------------------------------------------------------------------------
+
+
+class TestOnResultCallback:
+    def test_on_result_called_after_tool_execution(self):
+        """on_result callback receives (tool_name, result_string) after each tool call."""
+        agent = _make_agent()
+        tool_resp = _tool_response("hpc_cluster_health_check", "toolu_01", {})
+        text_resp = _text_response("Done.")
+        agent._client.messages.create.side_effect = [tool_resp, text_resp]
+
+        collected: list[tuple[str, str]] = []
+
+        with (
+            patch("hpc_pilot.tools.check_slurm_available", return_value=False),
+            patch("hpc_pilot.tools.check_warewulf_available", return_value=False),
+            patch("hpc_pilot.tools.check_spack_available", return_value=False),
+            patch("hpc_pilot.tools.check_ansible_available", return_value=False),
+        ):
+            agent.run_turn(
+                "health check",
+                [],
+                on_result=lambda name, result: collected.append((name, result)),
+            )
+
+        assert len(collected) == 1
+        assert collected[0][0] == "hpc_cluster_health_check"
+        assert isinstance(collected[0][1], str)
+
+
+# ---------------------------------------------------------------------------
+# Token usage logging (Q3)
+# ---------------------------------------------------------------------------
+
+
+class TestTokenUsageLogging:
+    def test_log_llm_usage_writes_audit_record(self, tmp_path):
+        """log_llm_usage appends a record with usage field to the audit log."""
+        import json as _json
+
+        from hpc_pilot.audit import log_llm_usage
+
+        log_file = tmp_path / "audit.jsonl"
+        with patch("hpc_pilot.audit.audit_log_path", return_value=str(log_file)):
+            log_llm_usage(
+                actor="test",
+                role="admin",
+                model="claude-opus-4-7",
+                input_tokens=100,
+                output_tokens=50,
+            )
+
+        line = _json.loads(log_file.read_text().strip())
+        assert line["tool"] == "llm_call"
+        assert line["usage"] == {"input_tokens": 100, "output_tokens": 50}
+
+    def test_run_turn_logs_token_usage(self, tmp_path):
+        """run_turn calls log_llm_usage after each API call."""
+        agent = _make_agent()
+        response = _text_response("hello")
+        response.usage = MagicMock(input_tokens=10, output_tokens=5)
+        agent._client.messages.create.return_value = response
+
+        with patch("hpc_pilot.audit.log_llm_usage") as mock_log:
+            agent.run_turn("hi", [])
+
+        mock_log.assert_called_once_with(
+            actor="test-actor",
+            role="admin",
+            model="claude-opus-4-7",
+            input_tokens=10,
+            output_tokens=5,
+        )
+
+
+# ---------------------------------------------------------------------------
+# Retry logic (Q4)
+# ---------------------------------------------------------------------------
+
+
+class TestRetryLogic:
+    def test_non_streaming_retries_on_rate_limit(self):
+        """run_turn retries non-streaming calls on RateLimitError (up to 3 attempts)."""
+        import anthropic
+
+        agent = _make_agent()
+        success = _text_response("ok")
+        agent._client.messages.create.side_effect = [
+            anthropic.RateLimitError("rate limited", response=MagicMock(), body={}),
+            success,
+        ]
+
+        with patch("hpc_pilot.agent.time.sleep"):  # don't actually sleep
+            text, _ = agent.run_turn("hi", [])
+
+        assert text == "ok"
+        assert agent._client.messages.create.call_count == 2
+
+    def test_non_streaming_raises_after_three_failures(self):
+        """run_turn raises after 3 consecutive transient failures."""
+        import anthropic
+
+        agent = _make_agent()
+        agent._client.messages.create.side_effect = anthropic.RateLimitError(
+            "rate limited", response=MagicMock(), body={}
+        )
+
+        with patch("hpc_pilot.agent.time.sleep"):
+            with pytest.raises(anthropic.RateLimitError):
+                agent.run_turn("hi", [])
+
+        assert agent._client.messages.create.call_count == 3
+
+
+# ---------------------------------------------------------------------------
 # TOOL_SCHEMAS completeness
 # ---------------------------------------------------------------------------
 

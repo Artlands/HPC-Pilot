@@ -29,6 +29,7 @@ class AuditEvent:
     returncode: int = 0
     duration_ms: int = 0
     error: str = ""
+    usage: dict[str, int] | None = None
 
 
 def log_audit(event: AuditEvent) -> None:
@@ -45,11 +46,32 @@ def log_audit(event: AuditEvent) -> None:
     }
     if event.error:
         record["error"] = event.error
+    if event.usage:
+        record["usage"] = event.usage
     try:
         with open(audit_log_path(), "a") as f:
             f.write(json.dumps(record) + "\n")
     except OSError:
         pass  # audit failure must never block the tool
+
+
+def log_llm_usage(
+    actor: str,
+    role: str,
+    model: str,
+    input_tokens: int,
+    output_tokens: int,
+) -> None:
+    """Append one LLM token-usage record to the audit log."""
+    event = AuditEvent(
+        tool="llm_call",
+        actor=actor,
+        role=role,
+        args={"model": model},
+        dry_run=False,
+        usage={"input_tokens": input_tokens, "output_tokens": output_tokens},
+    )
+    log_audit(event)
 
 
 @contextmanager

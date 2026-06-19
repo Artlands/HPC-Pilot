@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import json
 import os
+import pathlib
 import re
 import shlex
 import subprocess
@@ -2030,6 +2031,55 @@ def list_sessions() -> list[dict[str, Any]]:
 
 
 # ---------------------------------------------------------------------------
+# HPC Pilot skin — custom Hermes skin with HPC-themed branding
+# ---------------------------------------------------------------------------
+
+_HPC_SKIN_NAME = "hpc-pilot"
+
+
+def _skin_resource_path() -> pathlib.Path:
+    """Return the path to the skin YAML shipped with the HPC Pilot package."""
+    return pathlib.Path(__file__).parent / "hermes_plugin" / "skin.yaml"
+
+
+def _ensure_hpc_pilot_skin() -> None:
+    """Install and activate the HPC Pilot custom Hermes skin.
+
+    Copies the skin YAML from the package to ``~/.hermes/skins/hpc-pilot.yaml``
+    if it doesn't already exist, then sets ``display.skin: hpc-pilot`` in the
+    Hermes config via ``hermes config set``.
+    """
+    hermes_home = pathlib.Path.home() / ".hermes"
+    skins_dir = hermes_home / "skins"
+    skin_file = skins_dir / f"{_HPC_SKIN_NAME}.yaml"
+    skins_dir.mkdir(parents=True, exist_ok=True)
+
+    # Copy skin YAML from the package if not already installed
+    if not skin_file.exists():
+        src = _skin_resource_path()
+        if src.exists():
+            skin_file.write_bytes(src.read_bytes())
+
+    # Use hermes config set to activate the skin — this preserves the
+    # rest of the user's config (comments, ordering, etc.) unlike a
+    # yaml.safe_load + yaml.dump round-trip.
+    _activate_skin_via_hermes()
+
+
+def _activate_skin_via_hermes() -> None:
+    """Set display.skin in Hermes config using hermes config set."""
+    try:
+        hermes_bin = _find_hermes()
+        subprocess.run(
+            [hermes_bin, "config", "set", "display.skin", _HPC_SKIN_NAME],
+            capture_output=True,
+            timeout=15,
+        )
+    except Exception:
+        pass  # non-fatal — skin file is on disk, user can /skin hpc-pilot manually
+
+
+# ---------------------------------------------------------------------------
 # Interactive CLI chat loop  (unchanged from original)
 # ---------------------------------------------------------------------------
 
@@ -2040,6 +2090,8 @@ def run_chat_loop(agent: HpcAgent, initial_history: list[dict[str, Any]] | None 
     Delegates to ``hermes chat -t hpc`` for the full streaming experience
     with tool previews, session persistence, and model/provider switching.
     """
+    _ensure_hpc_pilot_skin()
+
     hermes_bin = _find_hermes()
     cmd = [hermes_bin, "chat", "-t", "hpc"]
     if agent.model:

@@ -1,0 +1,84 @@
+name: hpc-pilot
+description: "HPC Pilot — cluster management theme in deep blue and cyan"
+
+colors:
+  banner_border: "#1E3A5F"
+  banner_title: "#00BFFF"
+  banner_accent: "#00CED1"
+  banner_dim: "#2F4F6F"
+  banner_text: "#E0F7FA"
+
+  ui_accent: "#00CED1"
+  ui_label: "#4FC3F7"
+  ui_ok: "#66BB6A"
+  ui_error: "#EF5350"
+  ui_warn: "#FFA726"
+  prompt: "#00BFFF"
+  input_rule: "#1E3A5F"
+
+  response_border: "#00BFFF"
+
+  status_bar_bg: "#0D2137"
+  status_bar_text: "#B0E0E6"
+  status_bar_strong: "#00BFFF"
+  status_bar_dim: "#2F4F6F"
+  status_bar_good: "#66BB6A"
+  status_bar_warn: "#00CED1"
+  status_bar_bad: "#EF5350"
+  status_bar_critical: "#FF4444"
+
+  session_label: "#4FC3F7"
+  session_border: "#1E3A5F"
+
+  completion_menu_bg: "#0A1929"
+  completion_menu_current_bg: "#0D2137"
+  completion_menu_meta_bg: "#0F2A42"
+  completion_menu_meta_current_bg: "#1E3A5F"
+
+spinner:
+  waiting_faces: ["(⎔)", "(⚙)", "(⟐)", "(⛭)", "(◉)"]
+  thinking_faces: ["(⎔)", "(⚙)", "(⟐)", "(⌁)", "(◉)"]
+  thinking_verbs:
+    - scheduling
+    - dispatching
+    - provisioning
+    - allocating
+    - balancing load
+    - optimizing
+    - parallelizing
+    - computing
+
+branding:
+  agent_name: "HPC Pilot"
+  welcome: "HPC Pilot ready. Type your message or /help for commands."
+  goodbye: "Shutting down HPC Pilot. ⎔"
+  response_label: " ⎔ HPC "
+  prompt_symbol: "⎔"
+  help_header: "(⎔) HPC Pilot Commands"
+
+tool_prefix: "╎"
+
+banner_logo: |
+  [bold #00BFFF]██╗  ██╗ ██████╗   █████╗           ██████╗   ██╗     ██╗       ████╗   ████████╗[/]
+  [bold #00CED1]██║  ██║ ██╔══██╗ ██╔════╝          ██╔══██╗  ╚═╝     ██║      ██╔═██╗  ╚══██╔══╝[/]
+  [#00BFFF]███████║ ██████╔╝ ██║        ╔══╗   ██████╔╝   █╗     ██║      ██║ ██║     ██║[/]
+  [#00CED1]██╔══██║ ██╔═══╝  ██║        ╚══╝   ██╔═══╝    █║     ██║      ██║ ██║     ██║[/]
+  [#4FC3F7]██║  ██║ ██║      ╚██████╗          ██║        █║     ██████╗  ╚████╔╝     ██║[/]
+  [#2F4F6F]╚═╝  ╚═╝ ╚═╝       ╚═════╝          ╚═╝        █║     ╚═════╝   ╚═══╝      ╚═╝[/]
+
+banner_hero: |
+  [#1E3A5F]⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⢀⣀⡀⠀⣀⣀⠀⢀⣀⡀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀[/]
+  [#1E3A5F]⠀⠀⠀⠀⠀⢀⣠⣴⣶⣿⣿⣿⡇⠸⣿⣿⠇⣸⣿⣿⣿⣶⣦⣄⡀⠀⠀⠀⠀⠀[/]
+  [#2F4F6F]⠀⢀⣠⣴⡿⠿⠛⣉⡿⣿⡿⠻⣿⡇⢠⡄⢸⣿⠟⢿⣿⢿⣍⠛⠿⣿⣦⣄⡀⠀[/]
+  [#2F4F6F]⠀⠀⠉⠉⠁⠶⠟⠋⠀⠉⠀⢀⣈⣁⡈⢁⣈⣁⡀⠀⠉⠀⠙⠻⠶⠈⠉⠉⠀⠀[/]
+  [#00BFFF]⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⣴⣿⡿⠛⢁⡈⠛⢿⣿⣦⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀[/]
+  [#00BFFF]⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠿⣿⣦⣤⣈⠁⢠⣴⣿⠿⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀[/]
+  [#00CED1]⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠈⠉⠻⢿⣿⣦⡉⠁⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀[/]
+  [#00CED1]⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠘⢷⣦⣈⠛⠃⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀[/]
+  [#4FC3F7]⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⢠⣴⠦⠈⠙⠿⣦⡄⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀[/]
+  [#4FC3F7]⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠸⣿⣤⡈⠁⢤⣿⠇⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀[/]
+  [#2F4F6F]⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠉⠛⠷⠄⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀[/]
+  [#2F4F6F]⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⢀⣀⠑⢶⣄⡀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀[/]
+  [#1E3A5F]⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⣿⠁⢰⡆⠈⡿⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀[/]
+  [#1E3A5F]⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠈⠳⠈⣡⠞⠁⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀[/]
+  [#dim 1E3A5F]⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⎔ cluster online ⎔⠀⠀⠀⠀⠀⠀⠀⠀[/]

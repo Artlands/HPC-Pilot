@@ -1,5 +1,14 @@
 # HPC Pilot — AI Agent for HPC Cluster Management
 
+```
+██╗  ██╗ ██████╗   █████╗           ██████╗   ██╗     ██╗       ████╗   ████████╗
+██║  ██║ ██╔══██╗ ██╔════╝          ██╔══██╗  ╚═╝     ██║      ██╔═██╗  ╚══██╔══╝
+███████║ ██████╔╝ ██║        ╔══╗   ██████╔╝   █╗     ██║      ██║ ██║     ██║
+██╔══██║ ██╔═══╝  ██║        ╚══╝   ██╔═══╝    █║     ██║      ██║ ██║     ██║
+██║  ██║ ██║      ╚██████╗          ██║        █║     ██████╗  ╚████╔╝     ██║
+╚═╝  ╚═╝ ╚═╝       ╚═════╝          ╚═╝        █║     ╚═════╝   ╚═══╝      ╚═╝
+```
+
 HPC Pilot is an AI agent for HPC clusters built on **Hermes Agent**. It wraps
 Slurm, Warewulf, Ansible, and Spack with an AI chat interface, Telegram/Discord
 bots, plus direct CLI commands with safety gates (dry-run by default, RBAC,

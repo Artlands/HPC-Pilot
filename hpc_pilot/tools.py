@@ -7,21 +7,24 @@ When dry_run is True the resolved command is returned as a string prefixed with
 """
 from __future__ import annotations
 
-import json
 import os
 import re
 import shlex
 import subprocess
 from typing import Any
 
-# ---------------------------------------------------------------------------
-# Hermes tool registry (optional integration)
-# ---------------------------------------------------------------------------
+from hpc_pilot.config import Config, load_config
 
-try:
-    from tools.registry import registry
-except (ImportError, ModuleNotFoundError, TypeError):
-    registry = None
+# Module-level config — loaded once from ~/.hpc-pilot/config.yaml on first use.
+_config: Config | None = None
+
+
+def _cfg() -> Config:
+    global _config
+    if _config is None:
+        _config = load_config()
+    return _config
+
 
 # ---------------------------------------------------------------------------
 # Input validation
@@ -42,7 +45,7 @@ def _validate(value: str, field: str, pattern: re.Pattern[str] = _NAME_RE) -> No
 # ---------------------------------------------------------------------------
 
 
-def _run(cmd: list[str], *, timeout: int = 30, dry_run: bool = False) -> str:
+def _run(cmd: list[str], *, timeout: int = 60, dry_run: bool = False) -> str:
     """Run *cmd* and return stdout; raise RuntimeError on non-zero exit.
 
     When dry_run is True, return the shell-quoted command as a string without
@@ -66,7 +69,9 @@ def _run(cmd: list[str], *, timeout: int = 30, dry_run: bool = False) -> str:
 
 def check_slurm_available() -> bool:
     try:
-        subprocess.run(["scontrol", "--version"], capture_output=True, check=True, timeout=5)
+        subprocess.run(
+            [_cfg().slurm("scontrol"), "--version"], capture_output=True, check=True, timeout=5
+        )
         return True
     except (subprocess.CalledProcessError, FileNotFoundError, subprocess.TimeoutExpired):
         return False
@@ -74,7 +79,9 @@ def check_slurm_available() -> bool:
 
 def check_warewulf_available() -> bool:
     try:
-        subprocess.run(["wwctl", "--version"], capture_output=True, check=True, timeout=5)
+        subprocess.run(
+            [_cfg().warewulf("wwctl"), "--version"], capture_output=True, check=True, timeout=5
+        )
         return True
     except (subprocess.CalledProcessError, FileNotFoundError, subprocess.TimeoutExpired):
         return False
@@ -82,7 +89,9 @@ def check_warewulf_available() -> bool:
 
 def check_spack_available() -> bool:
     try:
-        subprocess.run(["spack", "--version"], capture_output=True, check=True, timeout=5)
+        subprocess.run(
+            [_cfg().spack(), "--version"], capture_output=True, check=True, timeout=5
+        )
         return True
     except (subprocess.CalledProcessError, FileNotFoundError, subprocess.TimeoutExpired):
         return False
@@ -104,10 +113,10 @@ def check_ansible_available() -> bool:
 def hpc_slurm_node_status(node: str = "") -> str:
     """Return scontrol node info for *node*, or all nodes when *node* is empty."""
     _validate(node, "node name")
-    cmd = ["scontrol", "show", "node"]
+    cmd = [_cfg().slurm("scontrol"), "show", "node"]
     if node:
         cmd.append(node)
-    return _run(cmd)
+    return _run(cmd, timeout=90)
 
 
 def hpc_slurm_queue(filters: dict[str, str] | None = None) -> str:
@@ -116,7 +125,7 @@ def hpc_slurm_queue(filters: dict[str, str] | None = None) -> str:
     Supported filter keys: ``user``, ``partition``, ``state``.
     """
     allowed_filters = {"user", "partition", "state"}
-    cmd = ["squeue"]
+    cmd = [_cfg().slurm("squeue")]
     if filters:
         for key, value in filters.items():
             if key not in allowed_filters:
@@ -137,7 +146,7 @@ def hpc_slurm_node_state(
     allowed = {"drain", "resume", "down", "undrain"}
     if target not in allowed:
         raise ValueError(f"Invalid target state: {target!r}. Must be one of {sorted(allowed)}")
-    cmd = ["scontrol", "update", f"node={node}", f"state={target}"]
+    cmd = [_cfg().slurm("scontrol"), "update", f"node={node}", f"state={target}"]
     if reason:
         cmd.append(f"reason={reason}")
     return _run(cmd, dry_run=dry_run)
@@ -155,7 +164,7 @@ def hpc_slurm_qos_modify(
     real execution.
     """
     _validate(name, "QOS name", _USER_RE)
-    cmd = ["sacctmgr", "--immediate", "modify", "qos", name, "set"]
+    cmd = [_cfg().slurm("sacctmgr"), "--immediate", "modify", "qos", name, "set"]
     if max_wall_min is not None:
         cmd.append(f"MaxWall={max_wall_min}")
     return _run(cmd, dry_run=dry_run)
@@ -168,18 +177,18 @@ def hpc_slurm_qos_modify(
 
 def hpc_warewulf_node_status() -> str:
     """Return wwctl node list output."""
-    return _run(["wwctl", "node", "list"])
+    return _run([_cfg().warewulf("wwctl"), "node", "list"])
 
 
 def hpc_warewulf_image_list() -> str:
     """Return wwctl image list output."""
-    return _run(["wwctl", "image", "list"])
+    return _run([_cfg().warewulf("wwctl"), "image", "list"])
 
 
-def hpc_warewulf_bootstrap(node: str, dry_run: bool = False) -> str:
-    """Bootstrap a Warewulf node via PXE."""
+def hpc_warewulf_power_reset(node: str, dry_run: bool = False) -> str:
+    """Power-reset a Warewulf node so it PXE-boots from its assigned image."""
     _validate(node, "node name")
-    return _run(["wwctl", "node", "bootstrap", node], timeout=300, dry_run=dry_run)
+    return _run([_cfg().warewulf("wwctl"), "power", "reset", node], timeout=120, dry_run=dry_run)
 
 
 # ---------------------------------------------------------------------------
@@ -189,18 +198,18 @@ def hpc_warewulf_bootstrap(node: str, dry_run: bool = False) -> str:
 
 def hpc_spack_env_list() -> str:
     """Return spack env list output."""
-    return _run(["spack", "env", "list"])
+    return _run([_cfg().spack(), "env", "list"])
 
 
 def hpc_spack_find(env: str) -> str:
     """Return installed specs in a Spack environment."""
     _validate(env, "environment name", _USER_RE)
-    return _run(["spack", "find", "-l", "-N", "-d", "-e", env], timeout=60)
+    return _run([_cfg().spack(), "find", "-l", "-N", "-d", "-e", env], timeout=60)
 
 
 def hpc_spack_compilers() -> str:
     """Return the list of available Spack compilers."""
-    return _run(["spack", "compilers"])
+    return _run([_cfg().spack(), "compilers"])
 
 
 # ---------------------------------------------------------------------------
@@ -226,7 +235,7 @@ def hpc_ansible_playbook_run(
         cmd.extend(["--limit", limit])
     if check:
         cmd.append("--check")
-    return _run(cmd, timeout=300, dry_run=dry_run)
+    return _run(cmd, timeout=600, dry_run=dry_run)
 
 
 def hpc_ansible_inventory_generate() -> str:
@@ -286,7 +295,7 @@ def hpc_cluster_health_check() -> dict[str, Any]:
     }
     if slurm_ok:
         try:
-            output = _run(["scontrol", "show", "nodes"])
+            output = _run([_cfg().slurm("scontrol"), "show", "nodes"], timeout=90)
             nodes_status = parse_slurm_nodes(output)
             health["components"]["slurm"]["nodes"] = len(nodes_status)
             health["components"]["slurm"]["status"] = "healthy"
@@ -312,7 +321,7 @@ def hpc_cluster_health_check() -> dict[str, Any]:
     }
     if ww_ok:
         try:
-            _run(["wwctl", "node", "list"])
+            _run([_cfg().warewulf("wwctl"), "node", "list"])
             health["components"]["warewulf"]["status"] = "healthy"
         except Exception as exc:
             health["components"]["warewulf"]["status"] = "error"
@@ -328,7 +337,7 @@ def hpc_cluster_health_check() -> dict[str, Any]:
     }
     if spack_ok:
         try:
-            _run(["spack", "env", "list"])
+            _run([_cfg().spack(), "env", "list"])
             health["components"]["spack"]["status"] = "healthy"
         except Exception as exc:
             health["components"]["spack"]["status"] = "error"
@@ -344,224 +353,3 @@ def hpc_cluster_health_check() -> dict[str, Any]:
     }
 
     return health
-
-
-# ---------------------------------------------------------------------------
-# Hermes tool registry (register if available)
-# ---------------------------------------------------------------------------
-
-if registry is not None:
-    registry.register(
-        name="hpc_slurm_node_status",
-        toolset="hpc",
-        schema={
-            "name": "hpc_slurm_node_status",
-            "description": "Get detailed status for a Slurm node (or all nodes if none specified)",
-            "parameters": {
-                "type": "object",
-                "properties": {"node": {"type": "string", "default": ""}},
-            },
-        },
-        handler=lambda args, **kw: hpc_slurm_node_status(args.get("node", "")),
-        check_fn=check_slurm_available,
-    )
-
-    registry.register(
-        name="hpc_slurm_queue",
-        toolset="hpc",
-        schema={
-            "name": "hpc_slurm_queue",
-            "description": "Get Slurm queue status with optional filters",
-            "parameters": {
-                "type": "object",
-                "properties": {"filters": {"type": "object", "default": {}}},
-            },
-        },
-        handler=lambda args, **kw: hpc_slurm_queue(args.get("filters")),
-        check_fn=check_slurm_available,
-    )
-
-    registry.register(
-        name="hpc_slurm_node_state",
-        toolset="hpc",
-        schema={
-            "name": "hpc_slurm_node_state",
-            "description": "Change Slurm node state (drain, resume, down, undrain)",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "node": {"type": "string"},
-                    "target": {"type": "string", "enum": ["drain", "resume", "down", "undrain"]},
-                    "reason": {"type": "string", "default": ""},
-                    "dry_run": {"type": "boolean", "default": False},
-                },
-                "required": ["node", "target"],
-            },
-        },
-        handler=lambda args, **kw: hpc_slurm_node_state(
-            args.get("node", ""),
-            args.get("target", ""),
-            args.get("reason") or None,
-            args.get("dry_run", False),
-        ),
-        check_fn=check_slurm_available,
-    )
-
-    registry.register(
-        name="hpc_slurm_qos_modify",
-        toolset="hpc",
-        schema={
-            "name": "hpc_slurm_qos_modify",
-            "description": "Modify Slurm QOS settings",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "name": {"type": "string"},
-                    "max_wall_min": {"type": "integer"},
-                    "dry_run": {"type": "boolean", "default": True},
-                },
-                "required": ["name"],
-            },
-        },
-        handler=lambda args, **kw: hpc_slurm_qos_modify(
-            args.get("name", ""),
-            args.get("max_wall_min"),
-            args.get("dry_run", True),
-        ),
-        check_fn=check_slurm_available,
-    )
-
-    registry.register(
-        name="hpc_warewulf_node_status",
-        toolset="hpc",
-        schema={
-            "name": "hpc_warewulf_node_status",
-            "description": "Get Warewulf node status",
-            "parameters": {"type": "object", "properties": {}},
-        },
-        handler=lambda args, **kw: hpc_warewulf_node_status(),
-        check_fn=check_warewulf_available,
-    )
-
-    registry.register(
-        name="hpc_warewulf_image_list",
-        toolset="hpc",
-        schema={
-            "name": "hpc_warewulf_image_list",
-            "description": "List Warewulf container images",
-            "parameters": {"type": "object", "properties": {}},
-        },
-        handler=lambda args, **kw: hpc_warewulf_image_list(),
-        check_fn=check_warewulf_available,
-    )
-
-    registry.register(
-        name="hpc_warewulf_bootstrap",
-        toolset="hpc",
-        schema={
-            "name": "hpc_warewulf_bootstrap",
-            "description": "Bootstrap a Warewulf node",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "node": {"type": "string"},
-                    "dry_run": {"type": "boolean", "default": True},
-                },
-                "required": ["node"],
-            },
-        },
-        handler=lambda args, **kw: hpc_warewulf_bootstrap(
-            args.get("node", ""), args.get("dry_run", True)
-        ),
-        check_fn=check_warewulf_available,
-    )
-
-    registry.register(
-        name="hpc_spack_env_list",
-        toolset="hpc",
-        schema={
-            "name": "hpc_spack_env_list",
-            "description": "List Spack environments",
-            "parameters": {"type": "object", "properties": {}},
-        },
-        handler=lambda args, **kw: hpc_spack_env_list(),
-        check_fn=check_spack_available,
-    )
-
-    registry.register(
-        name="hpc_spack_find",
-        toolset="hpc",
-        schema={
-            "name": "hpc_spack_find",
-            "description": "List installed specs in a Spack environment",
-            "parameters": {
-                "type": "object",
-                "properties": {"env": {"type": "string"}},
-                "required": ["env"],
-            },
-        },
-        handler=lambda args, **kw: hpc_spack_find(args.get("env", "")),
-        check_fn=check_spack_available,
-    )
-
-    registry.register(
-        name="hpc_spack_compilers",
-        toolset="hpc",
-        schema={
-            "name": "hpc_spack_compilers",
-            "description": "List available Spack compilers",
-            "parameters": {"type": "object", "properties": {}},
-        },
-        handler=lambda args, **kw: hpc_spack_compilers(),
-        check_fn=check_spack_available,
-    )
-
-    registry.register(
-        name="hpc_ansible_playbook_run",
-        toolset="hpc",
-        schema={
-            "name": "hpc_ansible_playbook_run",
-            "description": "Run an Ansible playbook",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "playbook": {"type": "string"},
-                    "limit": {"type": "string", "default": ""},
-                    "check": {"type": "boolean", "default": False},
-                    "dry_run": {"type": "boolean", "default": True},
-                },
-                "required": ["playbook"],
-            },
-        },
-        handler=lambda args, **kw: hpc_ansible_playbook_run(
-            args.get("playbook", ""),
-            args.get("limit") or None,
-            args.get("check", False),
-            args.get("dry_run", True),
-        ),
-        check_fn=check_ansible_available,
-    )
-
-    registry.register(
-        name="hpc_ansible_inventory_generate",
-        toolset="hpc",
-        schema={
-            "name": "hpc_ansible_inventory_generate",
-            "description": "Generate Ansible inventory from cluster state",
-            "parameters": {"type": "object", "properties": {}},
-        },
-        handler=lambda args, **kw: hpc_ansible_inventory_generate(),
-        check_fn=check_ansible_available,
-    )
-
-    registry.register(
-        name="hpc_cluster_health_check",
-        toolset="hpc",
-        schema={
-            "name": "hpc_cluster_health_check",
-            "description": "Run a comprehensive cluster health check",
-            "parameters": {"type": "object", "properties": {}},
-        },
-        handler=lambda args, **kw: json.dumps(hpc_cluster_health_check()),
-        check_fn=lambda: check_slurm_available() or check_warewulf_available(),
-    )

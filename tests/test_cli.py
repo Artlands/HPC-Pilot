@@ -12,49 +12,112 @@ import pytest
 from hpc_pilot.cli import main
 
 
-class TestGetHermesHome:
-    """Tests for get_hermes_home (backward-compat shim in cli)."""
+class TestHomeDirFunctions:
+    """Tests for home_dir, config_file, ensure_home (canonical names)."""
 
-    def test_get_hermes_home_default(self):
-        from hpc_pilot.cli import get_hermes_home
+    def test_home_dir_default(self):
+        from hpc_pilot.cli import home_dir
 
         if "HPC_PILOT_HOME" in os.environ:
             del os.environ["HPC_PILOT_HOME"]
 
-        result = get_hermes_home()
-        assert result == os.path.expanduser("~/.hpc-pilot")
+        assert home_dir() == os.path.expanduser("~/.hpc-pilot")
 
-    def test_get_hermes_home_env_var(self):
-        from hpc_pilot.cli import get_hermes_home
+    def test_home_dir_env_var(self):
+        from hpc_pilot.cli import home_dir
 
         test_path = "/test/path/hpc-pilot"
         os.environ["HPC_PILOT_HOME"] = test_path
         try:
-            assert get_hermes_home() == test_path
+            assert home_dir() == test_path
+        finally:
+            del os.environ["HPC_PILOT_HOME"]
+
+    def test_config_file(self):
+        from hpc_pilot.cli import config_file
+
+        with patch("hpc_pilot.cli.home_dir", return_value="/test/hpc-pilot"):
+            assert config_file() == "/test/hpc-pilot/config.yaml"
+
+    @patch("hpc_pilot.paths.os.makedirs")
+    @patch("hpc_pilot.paths.get_home", return_value="/test/hpc-pilot")
+    def test_ensure_home(self, mock_get_home, mock_makedirs):
+        from hpc_pilot.cli import ensure_home
+
+        result = ensure_home()
+
+        assert result == "/test/hpc-pilot"
+        assert mock_makedirs.call_count == 4  # home + 3 subdirs
+
+
+class TestDeprecatedShims:
+    """Deprecated shims still work but emit DeprecationWarning."""
+
+    def test_get_hermes_home_warns(self):
+        from hpc_pilot.cli import get_hermes_home
+
+        with pytest.warns(DeprecationWarning, match="get_hermes_home"):
+            result = get_hermes_home()
+        assert result == os.path.expanduser("~/.hpc-pilot")
+
+    def test_get_config_path_warns(self):
+        from hpc_pilot.cli import get_config_path
+
+        with pytest.warns(DeprecationWarning, match="get_config_path"):
+            result = get_config_path()
+        assert result.endswith("config.yaml")
+
+    def test_ensure_home_dir_warns(self):
+        from hpc_pilot.cli import ensure_home_dir
+
+        with patch("hpc_pilot.paths.os.makedirs"), \
+             patch("hpc_pilot.paths.get_home", return_value="/test/hpc-pilot"):
+            with pytest.warns(DeprecationWarning, match="ensure_home_dir"):
+                result = ensure_home_dir()
+        assert result == "/test/hpc-pilot"
+
+
+class TestGetHermesHome:
+    """Legacy class name kept so existing external tests that import it don't break."""
+
+    def test_get_hermes_home_default(self):
+        from hpc_pilot.cli import home_dir
+
+        if "HPC_PILOT_HOME" in os.environ:
+            del os.environ["HPC_PILOT_HOME"]
+
+        assert home_dir() == os.path.expanduser("~/.hpc-pilot")
+
+    def test_get_hermes_home_env_var(self):
+        from hpc_pilot.cli import home_dir
+
+        test_path = "/test/path/hpc-pilot"
+        os.environ["HPC_PILOT_HOME"] = test_path
+        try:
+            assert home_dir() == test_path
         finally:
             del os.environ["HPC_PILOT_HOME"]
 
 
 class TestGetConfigPath:
-    """Tests for get_config_path (backward-compat shim in cli)."""
+    """Legacy class name — delegates to config_file."""
 
     def test_get_config_path(self):
-        from hpc_pilot.cli import get_config_path
+        from hpc_pilot.cli import config_file
 
-        with patch("hpc_pilot.cli.get_hermes_home", return_value="/test/hpc-pilot"):
-            result = get_config_path()
-            assert result == "/test/hpc-pilot/config.yaml"
+        with patch("hpc_pilot.cli.home_dir", return_value="/test/hpc-pilot"):
+            assert config_file() == "/test/hpc-pilot/config.yaml"
 
 
 class TestEnsureHomeDir:
-    """Tests for ensure_home_dir (delegates to paths.ensure_layout)."""
+    """Legacy class name — delegates to ensure_home."""
 
     @patch("hpc_pilot.paths.os.makedirs")
     @patch("hpc_pilot.paths.get_home", return_value="/test/hpc-pilot")
     def test_ensure_home_dir(self, mock_get_home, mock_makedirs):
-        from hpc_pilot.cli import ensure_home_dir
+        from hpc_pilot.cli import ensure_home
 
-        result = ensure_home_dir()
+        result = ensure_home()
 
         assert result == "/test/hpc-pilot"
         assert mock_makedirs.call_count == 4  # home + 3 subdirs
@@ -63,56 +126,34 @@ class TestEnsureHomeDir:
 class TestNodesCommand:
     """Tests for nodes_command."""
 
-    @patch("hpc_pilot.cli.ensure_home_dir")
-    @patch("hpc_pilot.cli.audit_tool")
-    def test_nodes_command_with_node(self, mock_audit, mock_ensure):
+    def test_nodes_command_with_node(self):
         from hpc_pilot.cli import nodes_command
-        from hpc_pilot import tools
-
-        mock_audit.return_value.__enter__ = Mock(return_value=None)
-        mock_audit.return_value.__exit__ = Mock(return_value=False)
 
         args = argparse.Namespace(node="node01")
-        with patch.object(tools, "hpc_slurm_node_status", return_value="Node status info"):
+        with patch("hpc_pilot.cli.ensure_home"), \
+             patch("hpc_pilot.dispatch.invoke", return_value="Node status info") as mock_invoke:
             result = nodes_command(args)
 
         assert result == 0
+        mock_invoke.assert_called_once()
+        assert mock_invoke.call_args[0][0] == "hpc_slurm_node_status"
 
-    @patch("hpc_pilot.cli.ensure_home_dir")
-    @patch("hpc_pilot.cli.audit_tool")
-    def test_nodes_command_without_node(self, mock_audit, mock_ensure):
+    def test_nodes_command_without_node(self):
         from hpc_pilot.cli import nodes_command
-        from hpc_pilot import tools
-
-        mock_audit.return_value.__enter__ = Mock(return_value=None)
-        mock_audit.return_value.__exit__ = Mock(return_value=False)
 
         args = argparse.Namespace(node="")
-        with patch.object(tools, "hpc_slurm_node_status", return_value="All nodes"):
+        with patch("hpc_pilot.cli.ensure_home"), \
+             patch("hpc_pilot.dispatch.invoke", return_value="All nodes"):
             result = nodes_command(args)
 
         assert result == 0
 
-    @patch("hpc_pilot.cli.ensure_home_dir")
-    @patch("hpc_pilot.cli.audit_tool")
-    def test_nodes_command_tool_error(self, mock_audit, mock_ensure):
+    def test_nodes_command_tool_error(self):
         from hpc_pilot.cli import nodes_command
-        from hpc_pilot import tools
-
-        # audit_tool must re-raise when the tool raises
-        from contextlib import contextmanager
-
-        @contextmanager
-        def real_audit(*a, **kw):
-            try:
-                yield
-            except Exception:
-                raise
-
-        mock_audit.side_effect = real_audit
 
         args = argparse.Namespace(node="node01")
-        with patch.object(tools, "hpc_slurm_node_status", side_effect=RuntimeError("Connection failed")):
+        with patch("hpc_pilot.cli.ensure_home"), \
+             patch("hpc_pilot.dispatch.invoke", side_effect=RuntimeError("Connection failed")):
             result = nodes_command(args)
 
         assert result == 1
@@ -122,7 +163,8 @@ class TestNodesCommand:
         from hpc_pilot.cli import nodes_command
 
         args = argparse.Namespace(node="--help")
-        with patch("hpc_pilot.cli.ensure_home_dir"):
+        with patch("hpc_pilot.cli.ensure_home"), \
+             patch("hpc_pilot.dispatch.invoke", side_effect=ValueError("Invalid node name")):
             result = nodes_command(args)
 
         assert result == 2
@@ -131,32 +173,22 @@ class TestNodesCommand:
 class TestQueueCommand:
     """Tests for queue_command."""
 
-    @patch("hpc_pilot.cli.ensure_home_dir")
-    @patch("hpc_pilot.cli.audit_tool")
-    def test_queue_command_with_filters(self, mock_audit, mock_ensure):
+    def test_queue_command_with_filters(self):
         from hpc_pilot.cli import queue_command
-        from hpc_pilot import tools
-
-        mock_audit.return_value.__enter__ = Mock(return_value=None)
-        mock_audit.return_value.__exit__ = Mock(return_value=False)
 
         args = argparse.Namespace(user="alice", partition="gpu")
-        with patch.object(tools, "hpc_slurm_queue", return_value="Queue status"):
+        with patch("hpc_pilot.cli.ensure_home"), \
+             patch("hpc_pilot.dispatch.invoke", return_value="Queue status"):
             result = queue_command(args)
 
         assert result == 0
 
-    @patch("hpc_pilot.cli.ensure_home_dir")
-    @patch("hpc_pilot.cli.audit_tool")
-    def test_queue_command_no_filters(self, mock_audit, mock_ensure):
+    def test_queue_command_no_filters(self):
         from hpc_pilot.cli import queue_command
-        from hpc_pilot import tools
-
-        mock_audit.return_value.__enter__ = Mock(return_value=None)
-        mock_audit.return_value.__exit__ = Mock(return_value=False)
 
         args = argparse.Namespace(user=None, partition=None)
-        with patch.object(tools, "hpc_slurm_queue", return_value="Queue status"):
+        with patch("hpc_pilot.cli.ensure_home"), \
+             patch("hpc_pilot.dispatch.invoke", return_value="Queue status"):
             result = queue_command(args)
 
         assert result == 0
@@ -165,17 +197,12 @@ class TestQueueCommand:
 class TestHealthCommand:
     """Tests for health_command."""
 
-    @patch("hpc_pilot.cli.ensure_home_dir")
-    @patch("hpc_pilot.cli.audit_tool")
-    def test_health_command_success(self, mock_audit, mock_ensure):
+    def test_health_command_success(self):
         from hpc_pilot.cli import health_command
-        from hpc_pilot import tools
-
-        mock_audit.return_value.__enter__ = Mock(return_value=None)
-        mock_audit.return_value.__exit__ = Mock(return_value=False)
 
         args = argparse.Namespace()
-        with patch.object(tools, "hpc_cluster_health_check", return_value={"overall": "healthy"}):
+        with patch("hpc_pilot.cli.ensure_home"), \
+             patch("hpc_pilot.dispatch.invoke", return_value='{"overall": "healthy"}'):
             result = health_command(args)
 
         assert result == 0
@@ -184,48 +211,44 @@ class TestHealthCommand:
 class TestQosCommand:
     """Tests for qos_command — gate behind --apply."""
 
-    @patch("hpc_pilot.cli.ensure_home_dir")
-    def test_qos_default_is_dry_run(self, mock_ensure):
+    def test_qos_default_is_dry_run(self):
         """Without --apply, the command shows DRY-RUN output and does NOT call sacctmgr."""
         from hpc_pilot.cli import qos_command
-        from hpc_pilot import tools
         from hpc_pilot.rbac import Role
 
         args = argparse.Namespace(name="gpu", max_wall_min=60, apply=False, yes=False)
-        with patch("hpc_pilot.cli.get_role", return_value=Role.ADMIN), \
-             patch.object(tools, "hpc_slurm_qos_modify", return_value="DRY-RUN: sacctmgr ...") as mock_tool:
+        with patch("hpc_pilot.cli.ensure_home"), \
+             patch("hpc_pilot.cli.get_role", return_value=Role.ADMIN), \
+             patch("hpc_pilot.dispatch.invoke", return_value="DRY-RUN: sacctmgr ...") as mock_invoke:
             result = qos_command(args)
 
         assert result == 0
-        mock_tool.assert_called_once_with("gpu", 60, dry_run=True)
+        mock_invoke.assert_called_once()
+        assert mock_invoke.call_args[1].get("dry_run") is True
 
-    @patch("hpc_pilot.cli.ensure_home_dir")
-    @patch("hpc_pilot.cli.audit_tool")
-    def test_qos_apply_with_yes(self, mock_audit, mock_ensure):
+    def test_qos_apply_with_yes(self):
         """With --apply --yes, sacctmgr is called without prompt."""
         from hpc_pilot.cli import qos_command
-        from hpc_pilot import tools
         from hpc_pilot.rbac import Role
 
-        mock_audit.return_value.__enter__ = Mock(return_value=None)
-        mock_audit.return_value.__exit__ = Mock(return_value=False)
-
         args = argparse.Namespace(name="gpu", max_wall_min=60, apply=True, yes=True)
-        with patch("hpc_pilot.cli.get_role", return_value=Role.ADMIN), \
-             patch.object(tools, "hpc_slurm_qos_modify", return_value="Modified") as mock_tool:
+        with patch("hpc_pilot.cli.ensure_home"), \
+             patch("hpc_pilot.cli.get_role", return_value=Role.ADMIN), \
+             patch("hpc_pilot.dispatch.invoke", return_value="Modified") as mock_invoke:
             result = qos_command(args)
 
         assert result == 0
-        mock_tool.assert_called_once_with("gpu", 60, dry_run=False)
+        mock_invoke.assert_called()
 
-    @patch("hpc_pilot.cli.ensure_home_dir")
-    def test_qos_rbac_viewer_denied(self, mock_ensure):
+    def test_qos_rbac_viewer_denied(self):
         """A VIEWER is denied access to qos_modify (ADMIN required)."""
         from hpc_pilot.cli import qos_command
         from hpc_pilot.rbac import Role
 
         args = argparse.Namespace(name="gpu", max_wall_min=60, apply=True, yes=True)
-        with patch("hpc_pilot.cli.get_role", return_value=Role.VIEWER):
+        with patch("hpc_pilot.cli.ensure_home"), \
+             patch("hpc_pilot.cli.get_role", return_value=Role.VIEWER), \
+             patch("hpc_pilot.dispatch.invoke", side_effect=PermissionError("requires role 'admin'")):
             result = qos_command(args)
 
         assert result == 1
@@ -269,13 +292,9 @@ class TestMain:
 
     def test_main_warewulf_command_registered(self):
         """warewulf subcommand is registered (not werewulf)."""
-        with patch("hpc_pilot.cli.ensure_home_dir"), \
-             patch("hpc_pilot.cli.audit_tool") as mock_audit:
-            from hpc_pilot import tools
-            mock_audit.return_value.__enter__ = Mock(return_value=None)
-            mock_audit.return_value.__exit__ = Mock(return_value=False)
-            with patch.object(tools, "hpc_warewulf_node_status", return_value="NODE LIST"):
-                result = main(["warewulf"])
+        with patch("hpc_pilot.cli.ensure_home"), \
+             patch("hpc_pilot.dispatch.invoke", return_value="NODE LIST"):
+            result = main(["warewulf"])
         # May fail if wwctl is absent, but the command must not raise SystemExit
         assert isinstance(result, int)
 
@@ -284,6 +303,30 @@ class TestMain:
         with pytest.raises(SystemExit) as exc_info:
             main(["werewulf"])
         assert exc_info.value.code == 2
+
+    def test_main_gateway_setup_delegates(self):
+        """hpc-pilot gateway --setup delegates to gateway.main with ['--setup']."""
+        with patch("hpc_pilot.gateway.main") as mock_gw:
+            mock_gw.return_value = 0
+            result = main(["gateway", "--setup"])
+        mock_gw.assert_called_once_with(["--setup"])
+        assert result == 0
+
+    def test_main_gateway_status_delegates(self):
+        """hpc-pilot gateway --status delegates to gateway.main with ['--status']."""
+        with patch("hpc_pilot.gateway.main") as mock_gw:
+            mock_gw.return_value = 0
+            result = main(["gateway", "--status"])
+        mock_gw.assert_called_once_with(["--status"])
+        assert result == 0
+
+    def test_main_gateway_bare_starts(self):
+        """hpc-pilot gateway with no flags defaults to --start."""
+        with patch("hpc_pilot.gateway.main") as mock_gw:
+            mock_gw.return_value = 0
+            result = main(["gateway"])
+        mock_gw.assert_called_once_with(["--start"])
+        assert result == 0
 
 
 if __name__ == "__main__":

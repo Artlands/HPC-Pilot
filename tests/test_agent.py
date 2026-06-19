@@ -105,9 +105,9 @@ class TestCallTool:
         assert "unknown tool" in result
 
     @patch("hpc_pilot.tools.subprocess.run")
-    def test_warewulf_bootstrap_dry_run(self, mock_run):
+    def test_warewulf_power_reset_dry_run(self, mock_run):
         agent = _make_agent()
-        result = agent._call_tool("hpc_warewulf_bootstrap", {"node": "n01"})
+        result = agent._call_tool("hpc_warewulf_power_reset", {"node": "n01"})
         mock_run.assert_not_called()
         assert "DRY-RUN" in result
 
@@ -290,6 +290,25 @@ class TestRunTurn:
 
         result = agent.run_query("How many nodes?")
         assert result == "42 nodes available."
+
+    def test_max_iterations_breaks_infinite_loop(self):
+        """run_turn exits after max_iterations if the model keeps calling tools."""
+        agent = _make_agent()
+        # Always returns a tool_use response — would loop forever without the guard
+        agent._client.messages.create.return_value = _tool_response(
+            "hpc_cluster_health_check", "toolu_inf", {}
+        )
+
+        with (
+            patch("hpc_pilot.tools.check_slurm_available", return_value=False),
+            patch("hpc_pilot.tools.check_warewulf_available", return_value=False),
+            patch("hpc_pilot.tools.check_spack_available", return_value=False),
+            patch("hpc_pilot.tools.check_ansible_available", return_value=False),
+        ):
+            text, _ = agent.run_turn("loop test", [], max_iterations=3)
+
+        assert agent._client.messages.create.call_count == 3
+        assert "Stopped after 3 iterations" in text
 
 
 # ---------------------------------------------------------------------------

@@ -168,7 +168,9 @@ class TestSlurmNodeStatus:
         hpc_slurm_node_status("")
 
         call_args = mock_run.call_args[0][0]
-        assert call_args == ["scontrol", "show", "node"]
+        # argv[0] may be a full path from config; check the command stem and sub-args
+        assert call_args[0].endswith("scontrol")
+        assert call_args[1:] == ["show", "node"]
 
 
 # ---------------------------------------------------------------------------
@@ -302,14 +304,17 @@ class TestWarewulfFunctions:
         mock_run.return_value = Mock(returncode=0, stdout="IMAGE NAME  SIZE", stderr="")
         assert "IMAGE NAME" in hpc_warewulf_image_list()
 
-    def test_bootstrap_dry_run(self):
-        from hpc_pilot.tools import hpc_warewulf_bootstrap
+    def test_power_reset_dry_run(self):
+        from hpc_pilot.tools import hpc_warewulf_power_reset
 
         with patch("hpc_pilot.tools.subprocess.run") as mock_run:
-            result = hpc_warewulf_bootstrap("node01", dry_run=True)
+            result = hpc_warewulf_power_reset("node01", dry_run=True)
 
         mock_run.assert_not_called()
         assert "DRY-RUN" in result
+        assert "wwctl" in result
+        assert "power" in result
+        assert "reset" in result
 
 
 # ---------------------------------------------------------------------------

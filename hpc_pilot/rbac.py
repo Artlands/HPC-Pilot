@@ -39,7 +39,7 @@ TOOL_MIN_ROLE: dict[str, Role] = {
     # Dangerous / cluster-wide (ADMIN only)
     "hpc_slurm_qos_modify": Role.ADMIN,
     "hpc_ansible_playbook_run": Role.ADMIN,
-    "hpc_warewulf_bootstrap": Role.ADMIN,
+    "hpc_warewulf_power_reset": Role.ADMIN,
 }
 
 

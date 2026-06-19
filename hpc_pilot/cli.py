@@ -19,32 +19,48 @@ Direct cluster commands (no API key needed):
 """
 from __future__ import annotations
 
-import json
 import os
 import sys
 import argparse
-from typing import Any, Optional
+from typing import Any, Callable, Optional
 
-# ---------------------------------------------------------------------------
-# Backward-compatible shims (tests patch these names in hpc_pilot.cli)
-# ---------------------------------------------------------------------------
+import warnings
+
 from hpc_pilot.paths import get_home as _get_home
 from hpc_pilot.config import init_config  # noqa: F401 — re-exported for tests
-from hpc_pilot.rbac import Role, check_permission, get_role
-from hpc_pilot.audit import audit_tool
+from hpc_pilot.rbac import Role, get_role
 
 
-def get_hermes_home() -> str:
+def home_dir() -> str:
     return _get_home()
 
 
+def config_file() -> str:
+    return os.path.join(home_dir(), "config.yaml")
+
+
+def ensure_home() -> str:
+    from hpc_pilot.paths import ensure_layout
+    return ensure_layout()
+
+
+# ---------------------------------------------------------------------------
+# Deprecated shims — kept for backward compatibility
+# ---------------------------------------------------------------------------
+
+def get_hermes_home() -> str:
+    warnings.warn("get_hermes_home() is deprecated; use home_dir()", DeprecationWarning, stacklevel=2)
+    return home_dir()
+
+
 def get_config_path() -> str:
-    return os.path.join(get_hermes_home(), "config.yaml")
+    warnings.warn("get_config_path() is deprecated; use config_file()", DeprecationWarning, stacklevel=2)
+    return config_file()
 
 
 def ensure_home_dir() -> str:
-    from hpc_pilot.paths import ensure_layout
-    return ensure_layout()
+    warnings.warn("ensure_home_dir() is deprecated; use ensure_home()", DeprecationWarning, stacklevel=2)
+    return ensure_home()
 
 
 # ---------------------------------------------------------------------------
@@ -82,10 +98,10 @@ def _make_agent(args: argparse.Namespace) -> "Any":
 
 
 def setup_command(args: argparse.Namespace) -> int:
-    ensure_home_dir()
+    ensure_home()
     init_config()
-    print(f"Configuration directory : {get_hermes_home()}")
-    print(f"Configuration file      : {get_config_path()}")
+    print(f"Configuration directory : {home_dir()}")
+    print(f"Configuration file      : {config_file()}")
     print()
     print("Next steps:")
     print("  1. Add your Anthropic API key to ~/.hpc-pilot/.env:")
@@ -96,7 +112,7 @@ def setup_command(args: argparse.Namespace) -> int:
 
 
 def chat_command(args: argparse.Namespace) -> int:
-    ensure_home_dir()
+    ensure_home()
     init_config()
 
     try:
@@ -165,236 +181,158 @@ def tui_command(args: argparse.Namespace) -> int:
 
 
 def gateway_command(args: argparse.Namespace) -> int:
-    if getattr(args, "start", False) or not any(
-        [getattr(args, "stop", False), getattr(args, "status", False), getattr(args, "setup", False)]
-    ):
-        return _nyi("gateway --start")
-    if getattr(args, "setup", False):
-        print("Gateway setup:")
-        print("  1. Add API keys to ~/.hpc-pilot/.env")
-        print("  2. Edit ~/.hpc-pilot/config.yaml for platform settings")
-        print("  3. (Agent layer not yet implemented)")
-        return 0
-    if getattr(args, "status", False):
-        print("Gateway: not running (agent layer not yet implemented)")
-        return 0
+    from hpc_pilot.gateway import main as gateway_main
+
+    argv: list[str] = []
+    if getattr(args, "start", False):
+        argv.append("--start")
     if getattr(args, "stop", False):
-        print("Gateway: not running")
-        return 0
-    return 0
+        argv.append("--stop")
+    if getattr(args, "status", False):
+        argv.append("--status")
+    if getattr(args, "setup", False):
+        argv.append("--setup")
+    if not argv:
+        argv = ["--start"]
+    return gateway_main(argv)
+
+
+def _invoke_cli(
+    tool_name: str,
+    tool_args: dict[str, Any],
+    role: Role,
+    actor: str,
+    dry_run: bool = False,
+) -> tuple[str | None, int]:
+    """Run a tool via dispatch.invoke; return (result_text, exit_code)."""
+    from hpc_pilot.dispatch import invoke
+
+    try:
+        return invoke(tool_name, tool_args, role=role, actor=actor, dry_run=dry_run), 0
+    except PermissionError as exc:
+        print(f"Permission denied: {exc}", file=sys.stderr)
+        return None, 1
+    except ValueError as exc:
+        print(f"Input error: {exc}", file=sys.stderr)
+        return None, 2
+    except Exception as exc:
+        print(f"Error: {exc}", file=sys.stderr)
+        return None, 1
 
 
 def health_command(args: argparse.Namespace) -> int:
-    ensure_home_dir()
-    role = get_role()
-    try:
-        check_permission("hpc_cluster_health_check", role)
-    except PermissionError as exc:
-        print(f"Permission denied: {exc}", file=sys.stderr)
-        return 1
-
-    from hpc_pilot.tools import hpc_cluster_health_check
-    actor = _get_actor()
-    try:
-        with audit_tool("hpc_cluster_health_check", actor, role.value, {}, dry_run=False):
-            result = hpc_cluster_health_check()
-        print(json.dumps(result, indent=2, default=str))
-        return 0
-    except Exception as exc:
-        print(f"Health check error: {exc}", file=sys.stderr)
-        return 1
+    ensure_home()
+    result, code = _invoke_cli("hpc_cluster_health_check", {}, get_role(), _get_actor())
+    if result is not None:
+        print(result)
+    return code
 
 
 def nodes_command(args: argparse.Namespace) -> int:
-    ensure_home_dir()
-    role = get_role()
-    try:
-        check_permission("hpc_slurm_node_status", role)
-    except PermissionError as exc:
-        print(f"Permission denied: {exc}", file=sys.stderr)
-        return 1
-
-    from hpc_pilot.tools import hpc_slurm_node_status
+    ensure_home()
     node: str = getattr(args, "node", "") or ""
-    actor = _get_actor()
-    try:
-        with audit_tool("hpc_slurm_node_status", actor, role.value, {"node": node}, dry_run=False):
-            result = hpc_slurm_node_status(node)
+    result, code = _invoke_cli(
+        "hpc_slurm_node_status", {"node": node}, get_role(), _get_actor()
+    )
+    if result is not None:
         print(result)
-        return 0
-    except ValueError as exc:
-        print(f"Input error: {exc}", file=sys.stderr)
-        return 2
-    except Exception as exc:
-        print(f"Error: {exc}", file=sys.stderr)
-        return 1
+    return code
 
 
 def queue_command(args: argparse.Namespace) -> int:
-    ensure_home_dir()
-    role = get_role()
-    try:
-        check_permission("hpc_slurm_queue", role)
-    except PermissionError as exc:
-        print(f"Permission denied: {exc}", file=sys.stderr)
-        return 1
-
-    from hpc_pilot.tools import hpc_slurm_queue
-    filters: dict[str, str] = {}
+    ensure_home()
+    tool_args: dict[str, Any] = {}
     if getattr(args, "user", None):
-        filters["user"] = args.user
+        tool_args["user"] = args.user
     if getattr(args, "partition", None):
-        filters["partition"] = args.partition
-
-    actor = _get_actor()
-    try:
-        with audit_tool("hpc_slurm_queue", actor, role.value, {"filters": filters}, dry_run=False):
-            result = hpc_slurm_queue(filters or None)
+        tool_args["partition"] = args.partition
+    result, code = _invoke_cli("hpc_slurm_queue", tool_args, get_role(), _get_actor())
+    if result is not None:
         print(result)
-        return 0
-    except ValueError as exc:
-        print(f"Input error: {exc}", file=sys.stderr)
-        return 2
-    except Exception as exc:
-        print(f"Error: {exc}", file=sys.stderr)
-        return 1
+    return code
 
 
 def qos_command(args: argparse.Namespace) -> int:
-    ensure_home_dir()
+    ensure_home()
     role = get_role()
-    try:
-        check_permission("hpc_slurm_qos_modify", role)
-    except PermissionError as exc:
-        print(f"Permission denied: {exc}", file=sys.stderr)
-        return 1
-
-    from hpc_pilot.tools import hpc_slurm_qos_modify
     apply_flag: bool = getattr(args, "apply", False)
     yes_flag: bool = getattr(args, "yes", False)
     dry_run = not apply_flag
     max_wall: int | None = getattr(args, "max_wall_min", None)
-    actor = _get_actor()
+    tool_args: dict[str, Any] = {"name": args.name, "max_wall_min": max_wall, "dry_run": dry_run}
 
-    try:
-        if dry_run:
-            result = hpc_slurm_qos_modify(args.name, max_wall, dry_run=True)
+    if dry_run:
+        result, code = _invoke_cli("hpc_slurm_qos_modify", tool_args, role, _get_actor(), dry_run=True)
+        if result is not None:
             print(result)
             print("\nUse --apply to execute. Add --yes to skip confirmation.")
-            return 0
+        return code
 
-        if not yes_flag and not _confirm(f"Modify QOS '{args.name}'?"):
-            print("Aborted.")
-            return 0
-
-        audit_args = {"name": args.name, "max_wall_min": max_wall}
-        with audit_tool("hpc_slurm_qos_modify", actor, role.value, audit_args, dry_run=False):
-            result = hpc_slurm_qos_modify(args.name, max_wall, dry_run=False)
-        print(result)
+    if not yes_flag and not _confirm(f"Modify QOS '{args.name}'?"):
+        print("Aborted.")
         return 0
-    except ValueError as exc:
-        print(f"Input error: {exc}", file=sys.stderr)
-        return 2
-    except Exception as exc:
-        print(f"Error: {exc}", file=sys.stderr)
-        return 1
+
+    tool_args["dry_run"] = False
+    result, code = _invoke_cli("hpc_slurm_qos_modify", tool_args, role, _get_actor(), dry_run=False)
+    if result is not None:
+        print(result)
+    return code
 
 
 def warewulf_command(args: argparse.Namespace) -> int:
-    ensure_home_dir()
-    role = get_role()
-    try:
-        check_permission("hpc_warewulf_node_status", role)
-    except PermissionError as exc:
-        print(f"Permission denied: {exc}", file=sys.stderr)
-        return 1
-
-    from hpc_pilot.tools import hpc_warewulf_node_status
-    actor = _get_actor()
-    try:
-        with audit_tool("hpc_warewulf_node_status", actor, role.value, {}, dry_run=False):
-            result = hpc_warewulf_node_status()
+    ensure_home()
+    result, code = _invoke_cli("hpc_warewulf_node_status", {}, get_role(), _get_actor())
+    if result is not None:
         print(result)
-        return 0
-    except Exception as exc:
-        print(f"Error: {exc}", file=sys.stderr)
-        return 1
+    return code
 
 
 def spack_command(args: argparse.Namespace) -> int:
-    ensure_home_dir()
+    ensure_home()
     role = get_role()
-
-    from hpc_pilot.tools import hpc_spack_env_list, hpc_spack_find, hpc_spack_compilers
     actor = _get_actor()
     action: str = getattr(args, "action", "list") or "list"
 
-    tool_name = "hpc_spack_env_list"
-    try:
-        check_permission(tool_name, role)
-    except PermissionError as exc:
-        print(f"Permission denied: {exc}", file=sys.stderr)
-        return 1
+    if action == "find":
+        result, code = _invoke_cli("hpc_spack_find", {"env": args.env}, role, actor)
+    elif action == "compilers":
+        result, code = _invoke_cli("hpc_spack_compilers", {}, role, actor)
+    else:
+        result, code = _invoke_cli("hpc_spack_env_list", {}, role, actor)
 
-    try:
-        if action == "find":
-            with audit_tool("hpc_spack_find", actor, role.value, {"env": args.env}, dry_run=False):
-                result = hpc_spack_find(args.env)
-        elif action == "compilers":
-            with audit_tool("hpc_spack_compilers", actor, role.value, {}, dry_run=False):
-                result = hpc_spack_compilers()
-        else:
-            with audit_tool("hpc_spack_env_list", actor, role.value, {}, dry_run=False):
-                result = hpc_spack_env_list()
+    if result is not None:
         print(result)
-        return 0
-    except ValueError as exc:
-        print(f"Input error: {exc}", file=sys.stderr)
-        return 2
-    except Exception as exc:
-        print(f"Error: {exc}", file=sys.stderr)
-        return 1
+    return code
 
 
 def ansible_command(args: argparse.Namespace) -> int:
-    ensure_home_dir()
+    ensure_home()
     role = get_role()
-    try:
-        check_permission("hpc_ansible_playbook_run", role)
-    except PermissionError as exc:
-        print(f"Permission denied: {exc}", file=sys.stderr)
-        return 1
-
-    from hpc_pilot.tools import hpc_ansible_playbook_run
     apply_flag: bool = getattr(args, "apply", False)
     yes_flag: bool = getattr(args, "yes", False)
     check_flag: bool = getattr(args, "check", False)
     dry_run = not apply_flag
     limit: str | None = getattr(args, "limit", None)
-    actor = _get_actor()
+    tool_args: dict[str, Any] = {
+        "playbook": args.playbook, "limit": limit, "check": check_flag, "dry_run": dry_run,
+    }
 
-    try:
-        if dry_run:
-            result = hpc_ansible_playbook_run(args.playbook, limit, check_flag, dry_run=True)
+    if dry_run:
+        result, code = _invoke_cli("hpc_ansible_playbook_run", tool_args, role, _get_actor(), dry_run=True)
+        if result is not None:
             print(result)
             print("\nUse --apply to execute. Add --yes to skip confirmation.")
-            return 0
+        return code
 
-        if not yes_flag and not _confirm(f"Run playbook '{args.playbook}'?"):
-            print("Aborted.")
-            return 0
-
-        audit_args = {"playbook": args.playbook, "limit": limit, "check": check_flag}
-        with audit_tool("hpc_ansible_playbook_run", actor, role.value, audit_args, dry_run=False):
-            result = hpc_ansible_playbook_run(args.playbook, limit, check_flag, dry_run=False)
-        print(result)
+    if not yes_flag and not _confirm(f"Run playbook '{args.playbook}'?"):
+        print("Aborted.")
         return 0
-    except ValueError as exc:
-        print(f"Input error: {exc}", file=sys.stderr)
-        return 2
-    except Exception as exc:
-        print(f"Error: {exc}", file=sys.stderr)
-        return 1
+
+    tool_args["dry_run"] = False
+    result, code = _invoke_cli("hpc_ansible_playbook_run", tool_args, role, _get_actor(), dry_run=False)
+    if result is not None:
+        print(result)
+    return code
 
 
 def version_command(args: argparse.Namespace) -> int:
@@ -420,24 +358,24 @@ def main(argv: Optional[list[str]] = None) -> int:
     )
     subs = parser.add_subparsers(dest="command", help="Available commands")
 
-    # chat (NYI)
-    chat_p = subs.add_parser("chat", help="[planned] Start interactive AI chat")
+    # chat
+    chat_p = subs.add_parser("chat", help="Start interactive AI chat")
     chat_p.add_argument("-q", "--query", help="Single query")
     chat_p.add_argument("-m", "--model", help="Model name")
     chat_p.set_defaults(func=chat_command)
 
-    # shell (NYI)
-    shell_p = subs.add_parser("shell", help="[planned] Start shell session")
+    # shell
+    shell_p = subs.add_parser("shell", help="Start shell session (alias for chat with --role)")
     shell_p.add_argument("--actor", default="cli-user", help="Operator identity")
     shell_p.add_argument("--role", default="operator", help="RBAC role")
     shell_p.set_defaults(func=shell_command)
 
-    # tui (NYI)
+    # tui (not yet implemented)
     tui_p = subs.add_parser("tui", help="[planned] Start text-based UI")
     tui_p.set_defaults(func=tui_command)
 
-    # gateway (NYI for --start)
-    gw_p = subs.add_parser("gateway", help="[planned] Gateway service control")
+    # gateway
+    gw_p = subs.add_parser("gateway", help="Gateway service control (Telegram + Discord)")
     gw_p.add_argument("--start", action="store_true")
     gw_p.add_argument("--stop", action="store_true")
     gw_p.add_argument("--status", action="store_true")
@@ -446,8 +384,8 @@ def main(argv: Optional[list[str]] = None) -> int:
     gw_p.add_argument("--host", default="127.0.0.1")
     gw_p.set_defaults(func=gateway_command)
 
-    # setup (NYI)
-    setup_p = subs.add_parser("setup", help="[planned] Configuration wizard")
+    # setup
+    setup_p = subs.add_parser("setup", help="Initialize configuration directory")
     setup_p.set_defaults(func=setup_command)
 
     # health
@@ -506,10 +444,11 @@ def main(argv: Optional[list[str]] = None) -> int:
     args = parser.parse_args(argv)
 
     if not args.command:
-        args.func = chat_command  # type: ignore[attr-defined]
+        setattr(args, "func", chat_command)
 
-    if hasattr(args, "func"):
-        return args.func(args)
+    func: Callable[[argparse.Namespace], int] | None = getattr(args, "func", None)
+    if func is not None:
+        return func(args)
 
     parser.print_help()
     return 1

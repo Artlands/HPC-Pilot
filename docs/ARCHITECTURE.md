@@ -6,12 +6,12 @@
 ┌──────────────────────────────────────────────────────────────────────┐
 │                        USER INTERFACE                                 │
 │  ┌──────────────┐  ┌──────────────────────────────────────────────┐  │
-│  │   CLI        │  │  Gateway (planned — not yet implemented)     │  │
-│  │  (argparse)  │  │  Telegram / Discord / Slack / Web            │  │
+│  │   CLI        │  │  Gateway                                     │  │
+│  │  (argparse)  │  │  Telegram / Discord                          │  │
 │  └──────────────┘  └──────────────────────────────────────────────┘  │
 └──────────────────────────────────────────────────────────────────────┘
               │                         │
-              │                         └─ hpc_pilot/gateway.py (stub)
+              │                         └─ hpc_pilot/gateway.py
               │
               ▼
 ┌──────────────────────────────────────────────────────────────────────┐
@@ -39,8 +39,8 @@
 | File | Purpose |
 |------|---------|
 | `cli.py` | CLI entry point; command routing; RBAC check; audit context |
-| `gateway.py` | Gateway stub (planned) |
-| `_hermes.py` | Agent integration stub (planned) |
+| `agent.py` | Claude-powered tool-use loop; `TOOL_SCHEMAS`; `run_chat_loop` |
+| `gateway.py` | Telegram + Discord bot server; per-session history |
 | `tools.py` | HPC tool functions; `_run` helper; `parse_slurm_nodes` |
 | `paths.py` | Home-directory paths (`~/.hpc-pilot/…`) |
 | `config.py` | Default config generation |
@@ -137,9 +137,10 @@ the command's stderr. CLI handlers catch `RuntimeError → exit 1`,
     └── audit.jsonl  # Append-only audit log
 ```
 
-## Planned agent layer
+## Agent layer
 
-`_hermes.py` and `gateway.py` are stubs for a future integration. When
-implemented, tool functions will be registered as agent tools via the Hermes
-tool registry (or Anthropic SDK tool-use directly). RBAC and audit hooks will
-move into the tool-call layer so they apply to both CLI and agent paths.
+`agent.py` implements the Claude-powered tool-use loop. Every tool in
+`TOOL_SCHEMAS` maps 1-to-1 to a function in `tools.py`. The dispatch in
+`HpcAgent._execute_tool` applies RBAC and audit before calling the tool,
+so all agent-originated calls are subject to the same safety gates as CLI
+calls.

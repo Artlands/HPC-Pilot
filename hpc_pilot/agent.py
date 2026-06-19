@@ -19,13 +19,14 @@ Usage (streaming CLI):
 """
 from __future__ import annotations
 
-import json
 import os
-from typing import Any, Callable
+from typing import TYPE_CHECKING, Any, Callable, cast
 
-from hpc_pilot.audit import audit_tool
 from hpc_pilot.paths import get_home
-from hpc_pilot.rbac import Role, check_permission, get_role
+from hpc_pilot.rbac import Role, get_role
+
+if TYPE_CHECKING:
+    from anthropic.types import Message, MessageParam, TextBlock, ToolUseBlock
 
 # ---------------------------------------------------------------------------
 # Tool schemas (Anthropic format)
@@ -121,10 +122,10 @@ TOOL_SCHEMAS: list[dict[str, Any]] = [
         "input_schema": {"type": "object", "properties": {}},
     },
     {
-        "name": "hpc_warewulf_bootstrap",
+        "name": "hpc_warewulf_power_reset",
         "description": (
-            "Bootstrap (PXE-boot) a Warewulf node. This is destructive — "
-            "use dry_run=true to preview first."
+            "Power-reset a Warewulf node so it PXE-boots from its assigned image. "
+            "This is disruptive — use dry_run=true to preview first."
         ),
         "input_schema": {
             "type": "object",
@@ -238,7 +239,7 @@ Interaction guidelines:
 def _load_env() -> None:
     """Load ~/.hpc-pilot/.env into the environment (silent if dotenv not installed)."""
     try:
-        from dotenv import load_dotenv  # type: ignore[import]
+        from dotenv import load_dotenv
 
         env_file = os.path.join(get_home(), ".env")
         if os.path.exists(env_file):
@@ -252,14 +253,16 @@ class HpcAgent:
 
     def __init__(
         self,
-        model: str = "claude-opus-4-7",
+        model: str | None = None,
         role: Role | None = None,
         actor: str | None = None,
     ) -> None:
         _load_env()
         from anthropic import Anthropic  # imported lazily so tests can stub
+        from hpc_pilot.config import load_config
 
-        self.model = model
+        cfg = load_config()
+        self.model = model or os.environ.get("HPC_PILOT_MODEL") or cfg.model
         self.role: Role = role if role is not None else get_role()
         self.actor: str = actor or os.environ.get("HPC_PILOT_ACTOR", "agent")
         self._client = Anthropic()
@@ -277,73 +280,17 @@ class HpcAgent:
     # ------------------------------------------------------------------
 
     def _call_tool(self, name: str, args: dict[str, Any]) -> str:
-        """Map Anthropic tool name + args to the real tool function."""
-        from hpc_pilot import tools  # deferred to avoid circular imports
-
-        if name == "hpc_slurm_node_status":
-            return tools.hpc_slurm_node_status(args.get("node", ""))
-
-        if name == "hpc_slurm_queue":
-            filters = {k: v for k, v in args.items() if k in ("user", "partition", "state") and v}
-            return tools.hpc_slurm_queue(filters or None)
-
-        if name == "hpc_slurm_node_state":
-            return tools.hpc_slurm_node_state(
-                args["node"],
-                args["target"],
-                args.get("reason") or None,
-                bool(args.get("dry_run", True)),
-            )
-
-        if name == "hpc_slurm_qos_modify":
-            return tools.hpc_slurm_qos_modify(
-                args["name"],
-                args.get("max_wall_min"),
-                bool(args.get("dry_run", True)),
-            )
-
-        if name == "hpc_warewulf_node_status":
-            return tools.hpc_warewulf_node_status()
-
-        if name == "hpc_warewulf_image_list":
-            return tools.hpc_warewulf_image_list()
-
-        if name == "hpc_warewulf_bootstrap":
-            return tools.hpc_warewulf_bootstrap(args["node"], bool(args.get("dry_run", True)))
-
-        if name == "hpc_spack_env_list":
-            return tools.hpc_spack_env_list()
-
-        if name == "hpc_spack_find":
-            return tools.hpc_spack_find(args["env"])
-
-        if name == "hpc_spack_compilers":
-            return tools.hpc_spack_compilers()
-
-        if name == "hpc_ansible_playbook_run":
-            return tools.hpc_ansible_playbook_run(
-                args["playbook"],
-                args.get("limit") or None,
-                bool(args.get("check", False)),
-                bool(args.get("dry_run", True)),
-            )
-
-        if name == "hpc_ansible_inventory_generate":
-            return tools.hpc_ansible_inventory_generate()
-
-        if name == "hpc_cluster_health_check":
-            result = tools.hpc_cluster_health_check()
-            return json.dumps(result, indent=2, default=str)
-
-        return f"[unknown tool: {name}]"
+        """Dispatch to a real tool function by name (no RBAC/audit — call _execute_tool instead)."""
+        from hpc_pilot.dispatch import _dispatch
+        from hpc_pilot import tools
+        return _dispatch(name, args, tools)
 
     def _execute_tool(self, name: str, args: dict[str, Any]) -> str:
         """Execute one tool call: RBAC-check → audit → dispatch → return string result."""
-        dry_run = bool(args.get("dry_run", False))
-        check_permission(name, self.role)
+        from hpc_pilot.dispatch import invoke
+
         try:
-            with audit_tool(name, self.actor, self.role.value, args, dry_run=dry_run):
-                return self._call_tool(name, args) or "(no output)"
+            return invoke(name, args, role=self.role, actor=self.actor, dry_run=bool(args.get("dry_run", False)))
         except RuntimeError as exc:
             return f"[Tool error] {exc}"
         except ValueError as exc:
@@ -359,6 +306,7 @@ class HpcAgent:
         history: list[dict[str, Any]],
         on_text: Callable[[str], None] | None = None,
         on_tool: Callable[[str, dict[str, Any]], None] | None = None,
+        max_iterations: int = 25,
     ) -> tuple[str, list[dict[str, Any]]]:
         """
         Run one conversation turn (may invoke multiple tool calls internally).
@@ -370,35 +318,38 @@ class HpcAgent:
                      When provided, the underlying API call uses streaming.
             on_tool: Optional callback invoked before each tool call with
                      (tool_name, args).
+            max_iterations: Maximum number of API calls before breaking the loop.
 
         Returns:
             (response_text, updated_history)
         """
-        history = history + [{"role": "user", "content": user_message}]
+        # The Anthropic SDK accepts list[dict] for messages; cast satisfies mypy.
+        messages: list[Any] = list(history) + [{"role": "user", "content": user_message}]
         response_text = ""
+        iterations = 0
 
-        while True:
+        while iterations < max_iterations:
             if on_text is not None:
                 # Streaming path
                 with self._client.messages.stream(
                     model=self.model,
                     max_tokens=8096,
-                    system=self._system_prompt_blocks(),
-                    tools=TOOL_SCHEMAS,
-                    messages=history,
+                    system=cast(Any, self._system_prompt_blocks()),
+                    tools=cast(Any, TOOL_SCHEMAS),
+                    messages=cast(Any, messages),
                 ) as stream:
                     for chunk in stream.text_stream:
                         on_text(chunk)
                         response_text += chunk
-                    response = stream.get_final_message()
+                    response: Any = stream.get_final_message()
             else:
                 # Non-streaming path (bots / single-query)
                 response = self._client.messages.create(
                     model=self.model,
                     max_tokens=8096,
-                    system=self._system_prompt_blocks(),
-                    tools=TOOL_SCHEMAS,
-                    messages=history,
+                    system=cast(Any, self._system_prompt_blocks()),
+                    tools=cast(Any, TOOL_SCHEMAS),
+                    messages=cast(Any, messages),
                 )
                 response_text = "".join(
                     block.text
@@ -406,7 +357,8 @@ class HpcAgent:
                     if getattr(block, "type", "") == "text"
                 )
 
-            history = history + [{"role": "assistant", "content": response.content}]
+            iterations += 1
+            messages = messages + [{"role": "assistant", "content": response.content}]
 
             if response.stop_reason != "tool_use":
                 break
@@ -416,10 +368,12 @@ class HpcAgent:
             for block in response.content:
                 if getattr(block, "type", "") != "tool_use":
                     continue
+                tool_name: str = block.name
+                tool_input: dict[str, Any] = dict(block.input)
                 if on_tool is not None:
-                    on_tool(block.name, dict(block.input))
+                    on_tool(tool_name, tool_input)
                 try:
-                    result = self._execute_tool(block.name, dict(block.input))
+                    result = self._execute_tool(tool_name, tool_input)
                 except PermissionError as exc:
                     result = f"[Permission denied] {exc}"
                 except Exception as exc:
@@ -428,10 +382,15 @@ class HpcAgent:
                     {"type": "tool_result", "tool_use_id": block.id, "content": result}
                 )
 
-            history = history + [{"role": "user", "content": tool_results}]
+            messages = messages + [{"role": "user", "content": tool_results}]
             response_text = ""  # reset — we'll get new text in the next iteration
+        else:
+            response_text = (
+                f"[Stopped after {max_iterations} iterations — "
+                "possible infinite tool-call loop.]"
+            )
 
-        return response_text, history
+        return response_text, messages
 
     def run_query(self, query: str) -> str:
         """Single-shot query with no conversation history."""

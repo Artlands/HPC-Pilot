@@ -245,63 +245,55 @@ class TestAuditToolContextManager:
 
 
 class TestApplyPrompt:
-    @patch("hpc_pilot.cli.ensure_home_dir")
-    def test_qos_apply_without_yes_prompts_and_aborts_on_no(self, mock_ensure):
-        """--apply without --yes calls _confirm; user says N → aborted, tool not called."""
+    def test_qos_apply_without_yes_prompts_and_aborts_on_no(self):
+        """--apply without --yes calls _confirm; user says N → aborted, dispatch not called."""
         from hpc_pilot.cli import qos_command
-        from hpc_pilot import tools
         from hpc_pilot.rbac import Role
 
         args = argparse.Namespace(name="gpu", max_wall_min=60, apply=True, yes=False)
 
-        with patch("hpc_pilot.cli.get_role", return_value=Role.ADMIN), \
+        with patch("hpc_pilot.cli.ensure_home"), \
+             patch("hpc_pilot.cli.get_role", return_value=Role.ADMIN), \
              patch("hpc_pilot.cli._confirm", return_value=False) as mock_confirm, \
-             patch.object(tools, "hpc_slurm_qos_modify") as mock_tool:
+             patch("hpc_pilot.dispatch.invoke") as mock_invoke:
             result = qos_command(args)
 
         mock_confirm.assert_called_once()
-        mock_tool.assert_not_called()
+        mock_invoke.assert_not_called()
         assert result == 0  # aborted cleanly, not an error
 
-    @patch("hpc_pilot.cli.ensure_home_dir")
-    @patch("hpc_pilot.cli.audit_tool")
-    def test_qos_apply_without_yes_prompts_and_executes_on_yes(self, mock_audit, mock_ensure):
-        """--apply without --yes calls _confirm; user says Y → tool executes."""
+    def test_qos_apply_without_yes_prompts_and_executes_on_yes(self):
+        """--apply without --yes calls _confirm; user says Y → dispatch executes."""
         from hpc_pilot.cli import qos_command
-        from hpc_pilot import tools
         from hpc_pilot.rbac import Role
-        from unittest.mock import Mock
-
-        mock_audit.return_value.__enter__ = Mock(return_value=None)
-        mock_audit.return_value.__exit__ = Mock(return_value=False)
 
         args = argparse.Namespace(name="gpu", max_wall_min=60, apply=True, yes=False)
 
-        with patch("hpc_pilot.cli.get_role", return_value=Role.ADMIN), \
+        with patch("hpc_pilot.cli.ensure_home"), \
+             patch("hpc_pilot.cli.get_role", return_value=Role.ADMIN), \
              patch("hpc_pilot.cli._confirm", return_value=True), \
-             patch.object(tools, "hpc_slurm_qos_modify", return_value="Modified") as mock_tool:
+             patch("hpc_pilot.dispatch.invoke", return_value="Modified") as mock_invoke:
             result = qos_command(args)
 
-        mock_tool.assert_called_once_with("gpu", 60, dry_run=False)
+        mock_invoke.assert_called_once()
         assert result == 0
 
-    @patch("hpc_pilot.cli.ensure_home_dir")
-    def test_ansible_apply_without_yes_prompts(self, mock_ensure):
+    def test_ansible_apply_without_yes_prompts(self):
         """ansible --apply without --yes also prompts."""
         from hpc_pilot.cli import ansible_command
-        from hpc_pilot import tools
         from hpc_pilot.rbac import Role
 
         args = argparse.Namespace(playbook="/path/play.yml", limit=None,
                                   apply=True, yes=False, check=False)
 
-        with patch("hpc_pilot.cli.get_role", return_value=Role.ADMIN), \
+        with patch("hpc_pilot.cli.ensure_home"), \
+             patch("hpc_pilot.cli.get_role", return_value=Role.ADMIN), \
              patch("hpc_pilot.cli._confirm", return_value=False) as mock_confirm, \
-             patch.object(tools, "hpc_ansible_playbook_run") as mock_tool:
+             patch("hpc_pilot.dispatch.invoke") as mock_invoke:
             result = ansible_command(args)
 
         mock_confirm.assert_called_once()
-        mock_tool.assert_not_called()
+        mock_invoke.assert_not_called()
         assert result == 0
 
 

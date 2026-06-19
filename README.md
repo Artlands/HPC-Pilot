@@ -21,11 +21,19 @@ Gemini, DeepSeek, or any provider Hermes Agent supports.
 
 ## Installation
 
+HPC Pilot is not published to PyPI. Install from source:
+
 ```bash
-pip install hpc-pilot
+# Clone and install
+git clone https://github.com/Artlands/HPC-Pilot.git
+cd hpc-pilot
+pip install .
 
 # With Telegram and Discord gateway support
-pip install 'hpc-pilot[gateway]'
+pip install ".[gateway]"
+
+# With development dependencies
+pip install -e ".[dev,gateway]"
 ```
 
 ### Prerequisites

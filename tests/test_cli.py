@@ -246,6 +246,120 @@ class TestVersionCommand:
         assert "Python" in output
 
 
+class TestConfigCommand:
+    """Tests for config_command."""
+
+    @patch("subprocess.run")
+    def test_config_set_success(self, mock_run):
+        from hpc_pilot.cli import config_command
+
+        mock_run.return_value.returncode = 0
+        mock_run.return_value.stdout = "✓ Set providers.local.name = Local\n"
+
+        args = argparse.Namespace(action="set", key="providers.local.name", value="Local")
+        with patch("hpc_pilot.agent._find_hermes", return_value="/usr/local/bin/hermes"):
+            result = config_command(args)
+
+        assert result == 0
+        mock_run.assert_called_once_with(
+            ["/usr/local/bin/hermes", "config", "set", "providers.local.name", "Local"],
+            capture_output=True, text=True,
+        )
+
+    @patch("subprocess.run")
+    def test_config_set_failure(self, mock_run):
+        from hpc_pilot.cli import config_command
+
+        mock_run.return_value.returncode = 1
+        mock_run.return_value.stderr = "Unknown key"
+
+        args = argparse.Namespace(action="set", key="invalid.key", value="x")
+        with patch("hpc_pilot.agent._find_hermes", return_value="hermes"):
+            result = config_command(args)
+
+        assert result == 1
+
+    @patch("subprocess.run")
+    def test_config_list(self, mock_run):
+        from hpc_pilot.cli import config_command
+
+        mock_run.return_value.returncode = 0
+        mock_run.return_value.stdout = "Config output\n"
+
+        args = argparse.Namespace(action="list", key=None, value=None)
+        with patch("hpc_pilot.agent._find_hermes", return_value="hermes"):
+            result = config_command(args)
+
+        assert result == 0
+        mock_run.assert_called_once_with(
+            ["hermes", "config", "show"],
+            capture_output=True, text=True,
+        )
+
+    @patch("subprocess.run")
+    def test_config_show(self, mock_run):
+        from hpc_pilot.cli import config_command
+
+        mock_run.return_value.returncode = 0
+        mock_run.return_value.stdout = "Config output\n"
+
+        args = argparse.Namespace(action="show", key=None, value=None)
+        with patch("hpc_pilot.agent._find_hermes", return_value="hermes"):
+            result = config_command(args)
+
+        assert result == 0
+
+    @patch("subprocess.run")
+    def test_config_get(self, mock_run):
+        from hpc_pilot.cli import config_command
+
+        mock_run.return_value.returncode = 0
+        mock_run.return_value.stdout = "Config output\n"
+
+        args = argparse.Namespace(action="get", key="providers", value=None)
+        with patch("hpc_pilot.agent._find_hermes", return_value="hermes"):
+            result = config_command(args)
+
+        assert result == 0
+
+    def test_config_set_missing_key(self):
+        from hpc_pilot.cli import config_command
+
+        args = argparse.Namespace(action="set", key=None, value="x")
+        with patch("hpc_pilot.agent._find_hermes", return_value="hermes"):
+            result = config_command(args)
+
+        # Should print usage and return 0
+        assert result == 0
+
+    def test_config_no_action_shows_usage(self):
+        from hpc_pilot.cli import config_command
+
+        args = argparse.Namespace(action=None, key=None, value=None)
+        with patch("hpc_pilot.agent._find_hermes", return_value="hermes"):
+            result = config_command(args)
+
+        assert result == 0
+
+    def test_main_config_set(self):
+        """hpc-pilot config set ... via main()."""
+        with patch("subprocess.run") as mock_run:
+            mock_run.return_value.returncode = 0
+            mock_run.return_value.stdout = "ok\n"
+            result = main(["config", "set", "providers.test.key", "val"])
+
+        assert result == 0
+
+    def test_main_config_list(self):
+        """hpc-pilot config list via main()."""
+        with patch("subprocess.run") as mock_run:
+            mock_run.return_value.returncode = 0
+            mock_run.return_value.stdout = "Config:\n  ...\n"
+            result = main(["config", "list"])
+
+        assert result == 0
+
+
 class TestMain:
     """Tests for main entry point."""
 

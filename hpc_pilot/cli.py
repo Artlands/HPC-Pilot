@@ -10,6 +10,8 @@ AI agent commands (require ANTHROPIC_API_KEY):
 Setup commands:
     hpc-pilot setup          Create ~/.hpc-pilot/ directory and default config
     hpc-pilot setup-hermes   Install Hermes Agent plugin (symlink)
+    hpc-pilot config set     Set Hermes Agent configuration (e.g. local model provider)
+    hpc-pilot config list    Show Hermes Agent configuration
 
 Direct cluster commands (no API key needed):
     hpc-pilot health         Check cluster health
@@ -95,6 +97,7 @@ def setup_command(args: argparse.Namespace) -> int:
     print("Next steps:")
     print("  1. Add your Anthropic API key to ~/.hpc-pilot/.env:")
     print("       ANTHROPIC_API_KEY=sk-ant-...")
+    print("     (Or skip and use a local model: hpc-pilot config set providers.local ...)")
     print("  2. (Optional) Add Telegram/Discord tokens to the same file.")
     print("  3. Run:  hpc-pilot chat")
     return 0
@@ -761,6 +764,51 @@ def self_evolve_command(args: argparse.Namespace) -> int:
     return 0
 
 
+def config_command(args: argparse.Namespace) -> int:
+    """CLI handler for ``hpc-pilot config set`` — wraps ``hermes config set``."""
+    import subprocess as sp
+
+    from hpc_pilot.agent import _find_hermes
+
+    key = getattr(args, "key", None)
+    value = getattr(args, "value", None)
+
+    hermes_bin = _find_hermes()
+
+    action = getattr(args, "action", None)
+
+    if action == "set" and key and value is not None:
+        proc = sp.run([hermes_bin, "config", "set", key, value], capture_output=True, text=True)
+        if proc.returncode == 0:
+            output = proc.stdout.strip() or "ok"
+            print(output)
+        else:
+            print(proc.stderr.strip() or f"Failed to set {key}", file=sys.stderr)
+            return 1
+    elif action == "get" and key:
+        proc = sp.run([hermes_bin, "config", "show"], capture_output=True, text=True)
+        if proc.returncode == 0:
+            print(proc.stdout)
+        else:
+            print(proc.stderr.strip() or "Failed to read config", file=sys.stderr)
+            return 1
+    elif action == "list" or action == "show":
+        proc = sp.run([hermes_bin, "config", "show"], capture_output=True, text=True)
+        if proc.returncode == 0:
+            print(proc.stdout)
+        else:
+            print(proc.stderr.strip() or "Failed to read config", file=sys.stderr)
+            return 1
+    else:
+        print("Usage:")
+        print("  hpc-pilot config set <key> <value>    Set a config value")
+        print("  hpc-pilot config get <key>            Show config (full)")
+        print("  hpc-pilot config list                 Show config (full)")
+        return 0
+
+    return 0
+
+
 def self_evolve_create_pr_command(args: argparse.Namespace) -> int:
     """CLI handler for ``hpc-pilot self-evolve-create-pr``."""
     from hpc_pilot.tools.evolve import hpc_self_evolve_create_pr
@@ -985,6 +1033,22 @@ def main(argv: list[str] | None = None) -> int:
     evolve_pr_p.add_argument("--description", default="", help="Human-readable description for the PR body")
     evolve_pr_p.add_argument("--dry-run", action="store_true", dest="dry_run", help="Preview without pushing")
     evolve_pr_p.set_defaults(func=self_evolve_create_pr_command)
+
+    # config — set/get Hermes config values
+    config_p = subs.add_parser("config", help="Get or set Hermes Agent configuration values")
+    config_subs = config_p.add_subparsers(dest="action")
+    config_set_p = config_subs.add_parser("set", help="Set a config value (e.g. providers.local.base_url)")
+    config_set_p.add_argument("key", help="Config key path (e.g. providers.local.base_url)")
+    config_set_p.add_argument("value", help="Config value")
+    config_set_p.set_defaults(func=config_command)
+    config_get_p = config_subs.add_parser("get", help="Show full configuration")
+    config_get_p.add_argument("key", nargs="?", help="Config key (optional, shows all if omitted)")
+    config_get_p.set_defaults(func=config_command)
+    config_list_p = config_subs.add_parser("list", help="Show full configuration")
+    config_list_p.set_defaults(func=config_command)
+    config_show_p = config_subs.add_parser("show", help="Show full configuration")
+    config_show_p.set_defaults(func=config_command)
+    config_p.set_defaults(func=config_command)
 
     # setup-hermes
     setup_hermes_p = subs.add_parser(

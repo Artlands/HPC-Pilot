@@ -58,7 +58,7 @@ hpc-pilot setup
 # 2. Install the Hermes Agent plugin
 hpc-pilot setup-hermes
 
-# 3. Set your API key (Anthropic, OpenAI, Gemini, etc.)
+# 3. Set your API key (or skip if using a local model)
 echo 'ANTHROPIC_API_KEY=sk-ant-...' >> ~/.hpc-pilot/.env
 
 # 4. Start the AI chat
@@ -88,9 +88,30 @@ hpc-pilot chat -m gemini-2.0-flash
 # DeepSeek / OpenRouter / any OpenAI-compatible provider
 echo 'DEEPSEEK_API_KEY=...' >> ~/.hpc-pilot/.env
 hpc-pilot chat -m deepseek-chat
+
+### Local model (OpenAI-compatible endpoint)
+
+For a self-hosted model (e.g., vLLM, oLLM, LM Studio, SGLang):
+
+```bash
+# 1. Add the provider to Hermes config
+hpc-pilot config set providers.local.name "Local"
+hpc-pilot config set providers.local.base_url "http://127.0.0.1:8000/v1"
+hpc-pilot config set providers.local.api_key "not-needed"
+hpc-pilot config set providers.local.api_mode "chat_completions"
+hpc-pilot config set providers.local.default_model "local-deepseek-v4-flash"
+
+# 2. Start the AI chat with your local model
+hpc-pilot chat -m local-deepseek-v4-flash
+
+# Or set it as the default model
+echo 'HPC_PILOT_MODEL=local-deepseek-v4-flash' >> ~/.hpc-pilot/.env
 ```
 
-Set the default model and provider in `~/.hpc-pilot/.env`:
+> Local models must serve an **OpenAI-compatible `/v1/chat/completions` endpoint**.
+> Hermes discovers available models from the endpoint's `/v1/models` list.
+
+Set the default model in `~/.hpc-pilot/.env`:
 ```bash
 HPC_PILOT_MODEL=claude-sonnet-4-6
 ```

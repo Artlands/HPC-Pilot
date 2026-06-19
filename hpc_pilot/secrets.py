@@ -103,7 +103,7 @@ class SecretsManager:
             raise ImportError(
                 "hvac is required for the Vault backend. "
                 "Install with: pip install hvac"
-            )
+            ) from None
         self._vault_client = hvac.Client(url=addr, token=token)
 
     def _fetch_vault(self, key: str) -> str | None:

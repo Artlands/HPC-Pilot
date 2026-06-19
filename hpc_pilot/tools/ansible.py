@@ -7,6 +7,7 @@ import os
 import shlex
 import subprocess
 import time
+from typing import Any
 
 from hpc_pilot.tools._run import _resolve_cluster, _run
 
@@ -15,7 +16,7 @@ from hpc_pilot.tools._run import _resolve_cluster, _run
 # ---------------------------------------------------------------------------
 
 
-def _try_import_jobs():
+def _try_import_jobs() -> Any:
     """Lazy import hpc_pilot.jobs — returns None if it doesn't exist."""
     try:
         from hpc_pilot import jobs  # noqa: F401
@@ -35,7 +36,7 @@ def hpc_ansible_playbook_check(
     *,
     cluster: str = "default",
     dry_run: bool = False,
-) -> dict:
+) -> dict[str, Any]:
     """Run ansible-playbook --check --diff and return per-host structured diff."""
     cl = _resolve_cluster(cluster)
 
@@ -72,7 +73,7 @@ def hpc_ansible_playbook_check(
         return {"raw_output": result.stdout.strip(), "parsed": False}
 
     # Per-host structured diff
-    host_stats: dict = data.get("stats", {}) if isinstance(data, dict) else {}
+    host_stats: dict[str, Any] = data.get("stats", {}) if isinstance(data, dict) else {}
     return {
         "playbook": playbook,
         "limit": limit,
@@ -87,14 +88,14 @@ def hpc_ansible_playbook_check(
 # ---------------------------------------------------------------------------
 
 
-def hpc_ansible_playbook_list(*, cluster: str = "default") -> list[dict]:
+def hpc_ansible_playbook_list(*, cluster: str = "default") -> list[dict[str, Any]]:
     """Enumerate Ansible playbooks with header metadata."""
     cl = _resolve_cluster(cluster)
     playbooks_dir = os.path.join(cl.ansible_dir, "playbooks")
     if not os.path.isdir(playbooks_dir):
         return []
 
-    results: list[dict] = []
+    results: list[dict[str, Any]] = []
     for path in sorted(glob.glob(os.path.join(playbooks_dir, "*.yml"))):
         name = os.path.splitext(os.path.basename(path))[0]
         description = ""
@@ -133,7 +134,7 @@ def hpc_ansible_role_list(*, cluster: str = "default") -> list[str]:
 # ---------------------------------------------------------------------------
 
 
-def hpc_ansible_inventory_from_truth(*, cluster: str = "default") -> dict:
+def hpc_ansible_inventory_from_truth(*, cluster: str = "default") -> dict[str, Any]:
     """Build Ansible inventory from Warewulf + Slurm source of truth."""
 
     cl = _resolve_cluster(cluster)
@@ -141,7 +142,6 @@ def hpc_ansible_inventory_from_truth(*, cluster: str = "default") -> dict:
     ts = time.strftime("%Y-%m-%d %H:%M:%S %Z")
 
     # Query Warewulf nodes via subprocess (simulating hpc_warewulf_node_status)
-    env = os.environ.copy()
     ww_output = ""
     scontrol_output = ""
 
@@ -299,7 +299,7 @@ def hpc_ansible_drift_check(
     which: str = "all",
     *,
     cluster: str = "default",
-) -> dict:
+) -> dict[str, Any]:
     """Run curated drift-check playbooks and return per-host results."""
     cl = _resolve_cluster(cluster)
 
@@ -338,7 +338,7 @@ def hpc_ansible_drift_check(
     env = os.environ.copy()
     env["ANSIBLE_STDOUT_CALLBACK"] = "json"
 
-    results: list[dict] = []
+    results: list[dict[str, Any]] = []
     for key in keys_to_run:
         pb_path = playbook_map.get(key)
         if not pb_path:
@@ -355,7 +355,7 @@ def hpc_ansible_drift_check(
                 env=env,
                 timeout=300,
             )
-            pb_data: dict = {"check": key, "playbook": pb_path}
+            pb_data: dict[str, Any] = {"check": key, "playbook": pb_path}
             if r.returncode != 0:
                 # Even with non-zero, JSON callback may have useful output
                 pb_data["returncode"] = r.returncode
@@ -407,7 +407,7 @@ def hpc_ansible_vault_decrypt(
 # ---------------------------------------------------------------------------
 
 
-def hpc_ansible_run_history(*, cluster: str = "default") -> list[dict]:
+def hpc_ansible_run_history(*, cluster: str = "default") -> list[dict[str, Any]]:
     """Read past Ansible run records from ~/.hpc-pilot/logs/ansible/.json."""
     from hpc_pilot.paths import get_home
 
@@ -415,7 +415,7 @@ def hpc_ansible_run_history(*, cluster: str = "default") -> list[dict]:
     if not os.path.isdir(logs_dir):
         return []
 
-    records: list[dict] = []
+    records: list[dict[str, Any]] = []
     for fname in sorted(os.listdir(logs_dir)):
         if not fname.endswith(".json"):
             continue
@@ -443,7 +443,7 @@ def hpc_ansible_playbook_run(
     dry_run: bool = False,
     *,
     cluster: str = "default",
-) -> str | dict:
+) -> str | dict[str, Any]:
     """Run an Ansible playbook (async via jobs if available, sync otherwise)."""
     import shlex
 

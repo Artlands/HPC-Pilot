@@ -71,7 +71,7 @@ class TestCallTool:
     def test_queue_filters_mapped(self, mock_run):
         mock_run.return_value = MagicMock(returncode=0, stdout="JOBID ...", stderr="")
         agent = _make_agent()
-        result = agent._call_tool("hpc_slurm_queue", {"user": "alice", "partition": "gpu"})
+        agent._call_tool("hpc_slurm_queue", {"user": "alice", "partition": "gpu"})
         argv = mock_run.call_args[0][0]
         assert "--user" in argv and "alice" in argv
         assert "--partition" in argv and "gpu" in argv
@@ -372,9 +372,8 @@ class TestSessionPersistence:
         """load_session raises FileNotFoundError for unknown session IDs."""
         from hpc_pilot.agent import load_session
 
-        with patch("hpc_pilot.paths.sessions_dir", return_value=str(tmp_path)):
-            with pytest.raises(FileNotFoundError):
-                load_session("does-not-exist")
+        with patch("hpc_pilot.paths.sessions_dir", return_value=str(tmp_path)), pytest.raises(FileNotFoundError):
+            load_session("does-not-exist")
 
     def test_serialize_sdk_blocks(self):
         """_serialize_message converts SDK-like objects with model_dump to plain dicts."""

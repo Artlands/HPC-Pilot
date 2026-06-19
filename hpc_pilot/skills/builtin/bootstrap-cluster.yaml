@@ -1,0 +1,102 @@
+name: bootstrap-cluster
+description: >
+  Day-0 bootstrap of a new HPC cluster.  Configures Warewulf networking
+  (TFTP, NFS, DHCP), imports and builds a container image, applies the
+  image to a profile, adds compute nodes, builds the init overlay, and
+  verifies the server is ready.  10 steps (CPU) / 12 steps (GPU).
+required_role: superadmin
+inputs:
+  - name: cidr
+    type: string
+    required: true
+  - name: image_base
+    type: string
+    default: "rockylinux:9"
+  - name: gpu
+    type: boolean
+    default: false
+  - name: node_count
+    type: integer
+    required: true
+  - name: node_prefix
+    type: string
+    default: "node"
+  - name: gateway
+    type: string
+    default: ""
+  - name: range_start
+    type: string
+    default: ""
+  - name: range_end
+    type: string
+    default: ""
+steps:
+  # 1–3: Configure Warewulf infrastructure services
+  - id: configure_tftp
+    tool: hpc_warewulf_configure_tftp
+    args: {}
+  - id: configure_nfs
+    tool: hpc_warewulf_configure_nfs
+    args: {}
+  - id: configure_dhcp
+    tool: hpc_warewulf_configure_dhcp
+    args:
+      range_start: "{{ range_start }}"
+      range_end: "{{ range_end }}"
+      template: "default"
+  # 4: Import base image
+  - id: import_base
+    tool: hpc_warewulf_image_import
+    args:
+      name: base
+      source: "{{ image_base }}"
+  # 5: Build compute image with exec steps
+  - id: build_image
+    tool: hpc_warewulf_image_build
+    args:
+      name: compute
+      base: base
+      exec_steps:
+        - "dnf -y update"
+        - "dnf -y install openssh-server nfs-utils chrony"
+      gpu: "{{ gpu }}"
+  # 6 (GPU only): Additional GPU image build steps
+  - id: gpu_build_steps
+    tool: hpc_warewulf_image_build
+    args:
+      name: compute-gpu
+      base: compute
+      exec_steps:
+        - "dnf -y install nvidia-driver nvidia-smi"
+        - "systemctl enable nvidia-persistenced"
+      gpu: true
+    run_when: "{{ gpu }}"
+  # 7: Set profile to use the built image
+  - id: set_profile
+    tool: hpc_warewulf_profile_set
+    args:
+      name: default
+      image: "compute{% if gpu %}-gpu{% endif %}"
+  # 8: Add compute nodes (repeated via builtin for_each)
+  - id: add_nodes
+    builtin: for_each
+    args:
+      var: i
+      range: [1, "{{ node_count }}"]
+      do:
+        - tool: hpc_warewulf_node_add
+          args:
+            name: "{{ node_prefix }}{{ i }}"
+            mac: ""
+            ipaddr: ""
+            profile: default
+  # 9: Build the init overlay
+  - id: build_init_overlay
+    tool: hpc_warewulf_overlay_build
+    args:
+      overlay: wwinit
+  # 10: Final server status verification
+  - id: verify_server
+    tool: hpc_warewulf_server_status
+    args: {}
+on_failure: pause

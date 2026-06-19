@@ -153,9 +153,8 @@ class TestSlurmNodeStatus:
         """Node names with shell-special chars are rejected before subprocess is called."""
         from hpc_pilot.tools import hpc_slurm_node_status
 
-        with patch("hpc_pilot.tools.subprocess.run") as mock_run:
-            with pytest.raises(ValueError, match="Invalid node name"):
-                hpc_slurm_node_status("--help")
+        with patch("hpc_pilot.tools.subprocess.run") as mock_run, pytest.raises(ValueError, match="Invalid node name"):
+            hpc_slurm_node_status("--help")
         mock_run.assert_not_called()
 
     @patch("hpc_pilot.tools.subprocess.run")

@@ -20,6 +20,7 @@ Direct cluster commands (no API key needed):
 from __future__ import annotations
 
 import argparse
+import contextlib
 import json
 import os
 import signal
@@ -134,7 +135,7 @@ def chat_command(args: argparse.Namespace) -> int:
         return 0
 
     try:
-        from hpc_pilot.agent import HpcAgent, load_session, run_chat_loop
+        from hpc_pilot.agent import load_session, run_chat_loop
     except ImportError as exc:
         print(f"Missing dependency: {exc}", file=sys.stderr)
         print("Install with: pip install 'hpc-pilot[agent]'", file=sys.stderr)
@@ -261,10 +262,8 @@ def _gateway_start(args: argparse.Namespace, pid_path: str) -> int:
             print(f"Gateway is already running (PID {old_pid}).", file=sys.stderr)
             return 1
         except (OSError, ValueError):
-            try:
+            with contextlib.suppress(OSError):
                 os.remove(pid_path)
-            except OSError:
-                pass
 
     # Write PID file
     pid = os.getpid()
@@ -272,7 +271,7 @@ def _gateway_start(args: argparse.Namespace, pid_path: str) -> int:
     with open(pid_path, "w") as f:
         f.write(str(pid))
 
-    def _cleanup(signum=None, frame=None) -> None:
+    def _cleanup(signum: Any | None = None, frame: Any | None = None) -> None:
         try:
             if os.path.exists(pid_path):
                 os.remove(pid_path)
@@ -309,10 +308,8 @@ def _gateway_stop(pid_path: str) -> int:
         return 1
     except ProcessLookupError:
         print(f"Gateway process (PID {pid}) not found; removing stale PID file.")
-        try:
+        with contextlib.suppress(OSError):
             os.remove(pid_path)
-        except OSError:
-            pass
         return 1
 
     # Wait up to 10s for graceful shutdown
@@ -321,24 +318,18 @@ def _gateway_stop(pid_path: str) -> int:
             os.kill(pid, 0)
             time.sleep(0.1)
         except OSError:
-            try:
+            with contextlib.suppress(OSError):
                 os.remove(pid_path)
-            except OSError:
-                pass
             print("Gateway stopped.")
             return 0
 
     # Escalate to SIGKILL
     print("Gateway did not stop gracefully; sending SIGKILL.", file=sys.stderr)
-    try:
+    with contextlib.suppress(OSError):
         os.kill(pid, signal.SIGKILL)
         time.sleep(0.5)
-        try:
+        with contextlib.suppress(OSError):
             os.remove(pid_path)
-        except OSError:
-            pass
-    except OSError:
-        pass
     print("Gateway killed.")
     return 0
 
@@ -472,7 +463,7 @@ def nodes_command(args: argparse.Namespace) -> int:
     )
     if result is not None:
         if getattr(args, "json", False):
-            from hpc_pilot.tools import parse_slurm_nodes
+            from hpc_pilot.tools.slurm import parse_slurm_nodes
             print(json.dumps(parse_slurm_nodes(result), indent=2))
         else:
             print(result)
@@ -489,7 +480,7 @@ def queue_command(args: argparse.Namespace) -> int:
     result, code = _invoke_cli("hpc_slurm_queue", tool_args, get_role(), _get_actor(), cli_args=args)
     if result is not None:
         if getattr(args, "json", False):
-            from hpc_pilot.tools import parse_slurm_queue
+            from hpc_pilot.tools.slurm import parse_slurm_queue
             print(json.dumps(parse_slurm_queue(result), indent=2))
         else:
             print(result)
@@ -528,7 +519,7 @@ def warewulf_command(args: argparse.Namespace) -> int:
     result, code = _invoke_cli("hpc_warewulf_node_status", {}, get_role(), _get_actor(), cli_args=args)
     if result is not None:
         if getattr(args, "json", False):
-            from hpc_pilot.tools import parse_warewulf_nodes
+            from hpc_pilot.tools.warewulf import parse_warewulf_nodes
             print(json.dumps(parse_warewulf_nodes(result), indent=2))
         else:
             print(result)
@@ -551,7 +542,7 @@ def spack_command(args: argparse.Namespace) -> int:
 
     if result is not None:
         if emit_json and action not in ("find", "compilers"):
-            from hpc_pilot.tools import parse_spack_envs
+            from hpc_pilot.tools.spack import parse_spack_envs
             print(json.dumps(parse_spack_envs(result), indent=2))
         else:
             print(result)
@@ -712,7 +703,7 @@ def accounting_command(args: argparse.Namespace) -> int:
     result, code = _invoke_cli("hpc_slurm_accounting", tool_args, get_role(), _get_actor(), cli_args=args)
     if result is not None:
         if getattr(args, "json", False):
-            from hpc_pilot.tools import parse_sacct
+            from hpc_pilot.tools.slurm_parsers import parse_sacct
             print(json.dumps(parse_sacct(result), indent=2))
         else:
             print(result)

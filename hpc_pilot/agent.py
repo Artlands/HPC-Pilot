@@ -1743,6 +1743,8 @@ class HpcAgent:
         if estimated < int(limit * _SUMMARIZE_THRESHOLD):
             return messages
 
+        from anthropic.types import TextBlock
+
         from hpc_pilot.audit import AuditEvent, log_audit
 
         half = len(messages) // 2
@@ -1768,7 +1770,7 @@ class HpcAgent:
             summary_text = "".join(
                 block.text
                 for block in resp.content
-                if getattr(block, "type", "") == "text"
+                if isinstance(block, TextBlock)
             )
             summary_msg: dict[str, Any] = {
                 "role": "user",

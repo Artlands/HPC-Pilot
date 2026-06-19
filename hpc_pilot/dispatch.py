@@ -4,7 +4,7 @@ from __future__ import annotations
 import json
 import time
 from collections.abc import Callable
-from typing import Any
+from typing import Any, cast
 
 from hpc_pilot.audit import AuditEvent, audit_tool, log_audit
 from hpc_pilot.rbac import Role, check_permission
@@ -69,7 +69,8 @@ def _mk(
 
 
 def _cl(args: dict[str, Any]) -> str:
-    return args.get("cluster", "default")
+    val: str | None = args.get("cluster", "default")
+    return val or "default"
 
 
 def _dr(args: dict[str, Any], default: bool = False) -> bool:
@@ -503,7 +504,7 @@ def _dispatch_job_cancel(
         cluster=args.get("cluster", "default"),
         dry_run=bool(args.get("dry_run", False)),
     )
-    return result
+    return cast(str, result)
 
 
 def _dispatch_skill(name: str, args: dict[str, Any], role: Role, actor: str) -> str:

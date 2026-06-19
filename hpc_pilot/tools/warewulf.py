@@ -1,12 +1,13 @@
 """Warewulf tools and output parsers."""
 from __future__ import annotations
 
+import contextlib
 import hashlib
 import json
 import os
 import shutil
 import subprocess
-from typing import Any
+from typing import Any, cast
 
 from hpc_pilot.paths import get_home
 from hpc_pilot.tools._run import _resolve_cluster, _run
@@ -103,10 +104,10 @@ def hpc_warewulf_image_build(
             if result.stderr:
                 f.write("\n--- stderr ---\n")
                 f.write(result.stderr)
-    except subprocess.TimeoutExpired:
+    except subprocess.TimeoutExpired as exc:
         with open(log_path, "a") as f:
             f.write("\n--- TIMEOUT after 600s ---\n")
-        raise RuntimeError(f"wwctl image build {name} timed out after 600s")
+        raise RuntimeError(f"wwctl image build {name} timed out after 600s") from exc
 
     if result.returncode != 0:
         raise RuntimeError(
@@ -122,10 +123,8 @@ def hpc_warewulf_image_build(
         for dirpath, _dirnames, filenames in os.walk(image_path):
             for fn in filenames:
                 fp = os.path.join(dirpath, fn)
-                try:
+                with contextlib.suppress(OSError):
                     total_bytes += os.path.getsize(fp)
-                except OSError:
-                    pass
         size_mb = total_bytes // (1024 * 1024)
 
     meta = {
@@ -447,7 +446,7 @@ def hpc_warewulf_overlay_edit(
                 commit_hash = "(unknown)"
 
     except subprocess.CalledProcessError as exc:
-        raise RuntimeError(f"Git operation in overlay {overlay} failed: {exc}")
+        raise RuntimeError(f"Git operation in overlay {overlay} failed: {exc}") from exc
 
     # Rebuild the overlay
     cl = _resolve_cluster(cluster)
@@ -538,7 +537,7 @@ def hpc_warewulf_overlay_revert(
         raise RuntimeError(
             f"git checkout {commit} in overlay {overlay} failed: "
             f"{exc.stderr.strip() or exc}"
-        )
+        ) from exc
 
     cl = _resolve_cluster(cluster)
     rebuild_returncode = 0
@@ -571,9 +570,40 @@ def _read_managed_conf() -> dict[str, Any] | None:
         return None
     try:
         with open(path) as f:
-            return json.load(f)
+            return cast(dict[str, Any] | None, json.load(f))
     except (json.JSONDecodeError, OSError):
         return None
+
+
+def _detect_external_edit() -> str:
+    """Check if /etc/warewulf/warewulf.conf was modified outside HPC Pilot.
+
+    Returns a warning string if external edits are detected, empty string otherwise.
+    """
+    managed_path = _warewulf_conf_path()
+    etc_path = "/etc/warewulf/warewulf.conf"
+
+    if not os.path.exists(managed_path) or not os.path.exists(etc_path):
+        return ""
+
+    try:
+        with open(managed_path, "rb") as f:
+            managed_sha = hashlib.sha256(f.read()).hexdigest()
+        with open(etc_path, "rb") as f:
+            etc_sha = hashlib.sha256(f.read()).hexdigest()
+
+        if managed_sha != etc_sha:
+            managed_mtime = os.path.getmtime(managed_path)
+            etc_mtime = os.path.getmtime(etc_path)
+            if etc_mtime > managed_mtime:
+                return (
+                    f"WARNING: /etc/warewulf/warewulf.conf was modified outside HPC Pilot "
+                    f"(last modified {etc_mtime:.0f}) vs managed copy ({managed_mtime:.0f}). "
+                    f"External changes will be overwritten."
+                )
+    except OSError:
+        pass
+    return ""
 
 
 def _apply_typed_updates(
@@ -591,7 +621,7 @@ def _apply_typed_updates(
                 except (ValueError, TypeError):
                     raise ValueError(
                         f"Cannot convert {key}={value!r} to {type(existing).__name__}"
-                    )
+                    ) from None
             if existing != value:
                 config[key] = value
                 changed = True
@@ -616,9 +646,13 @@ def hpc_warewulf_configure_dhcp(
     ``/etc/warewulf/warewulf.conf`` if changed (atomic write), then runs
     ``wwctl configure dhcp``.
 
-    Returns dict with ``changed`` (bool) and ``sha256`` of the conf file.
+    Returns dict with ``changed`` (bool), ``sha256``, and an optional
+    ``external_edit_warning`` field if warewulf.conf was modified outside HPC Pilot.
     """
     cl = _resolve_cluster(cluster)
+
+    # External-edit detection
+    ext_warning = _detect_external_edit()
 
     # Read or create managed config
     config = _read_managed_conf()
@@ -680,7 +714,7 @@ def hpc_warewulf_configure_dhcp(
         raise RuntimeError(
             f"Failed to write {etc_path}: {exc}. "
             "You may need superuser privileges."
-        )
+        ) from exc
 
     # Run wwctl configure dhcp
     _run(
@@ -689,10 +723,13 @@ def hpc_warewulf_configure_dhcp(
         timeout=120,
     )
 
-    return {
+    result: dict[str, Any] = {
         "changed": changed or etc_changed,
         "sha256": sha256,
     }
+    if ext_warning:
+        result["external_edit_warning"] = ext_warning
+    return result
 
 
 def hpc_warewulf_configure_tftp(

@@ -71,9 +71,9 @@ class TestDeprecatedShims:
         from hpc_pilot.cli import ensure_home_dir
 
         with patch("hpc_pilot.paths.os.makedirs"), \
-             patch("hpc_pilot.paths.get_home", return_value="/test/hpc-pilot"):
-            with pytest.warns(DeprecationWarning, match="ensure_home_dir"):
-                result = ensure_home_dir()
+             patch("hpc_pilot.paths.get_home", return_value="/test/hpc-pilot"), \
+             pytest.warns(DeprecationWarning, match="ensure_home_dir"):
+            result = ensure_home_dir()
         assert result == "/test/hpc-pilot"
 
 

@@ -4,7 +4,7 @@ from __future__ import annotations
 import json
 import os
 from collections.abc import AsyncGenerator
-from typing import Any
+from typing import Any, cast
 
 # FastAPI is an optional dependency -- ImportError is caught at use sites.
 # This module is importable without it; runtime checks raise at the call site.
@@ -13,14 +13,14 @@ try:
     from fastapi import FastAPI, HTTPException, Query, Request
     from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, StreamingResponse
 except ImportError:
-    FastAPI = None  # type: ignore[assignment,misc]
-    HTMLResponse = None  # type: ignore[assignment,misc]
-    RedirectResponse = None  # type: ignore[assignment,misc]
-    JSONResponse = None  # type: ignore[assignment,misc]
-    StreamingResponse = None  # type: ignore[assignment,misc]
-    Query = None  # type: ignore[assignment,misc]
-    Request = None  # type: ignore[assignment,misc]
-    HTTPException = None  # type: ignore[assignment,misc]
+    FastAPI = None
+    HTMLResponse = None
+    RedirectResponse = None
+    JSONResponse = None
+    StreamingResponse = None
+    Query = None
+    Request = None
+    HTTPException = None
 
 
 # ---------------------------------------------------------------------------
@@ -36,7 +36,7 @@ def create_app() -> Any:
         raise ImportError(
             "FastAPI is required to use the web UI. "
             "Install with: pip install 'hpc-pilot[webui]'"
-        )
+        ) from None
 
     from fastapi.middleware.cors import CORSMiddleware
 
@@ -221,21 +221,21 @@ def create_app() -> Any:
     # Routes
     # ------------------------------------------------------------------
 
-    @app.get("/")
-    async def root_redirect():
+    @app.get("/")  # type: ignore[untyped-decorator]
+    async def root_redirect() -> RedirectResponse:
         return RedirectResponse(url="/chat")
 
-    @app.get("/chat", response_class=HTMLResponse)
-    async def chat_page():
+    @app.get("/chat", response_class=HTMLResponse)  # type: ignore[untyped-decorator]
+    async def chat_page() -> HTMLResponse:
         return HTMLResponse(content=_CHAT_HTML)
 
-    @app.post("/chat")
-    async def chat_endpoint(request: Request):
+    @app.post("/chat")  # type: ignore[untyped-decorator]
+    async def chat_endpoint(request: Request) -> StreamingResponse:
         """Accept a user message and return a streaming SSE response."""
         try:
             body = await request.json()
         except Exception:
-            raise HTTPException(status_code=400, detail="Invalid JSON body")
+            raise HTTPException(status_code=400, detail="Invalid JSON body") from None
 
         message: str = body.get("message", "").strip()
         if not message:
@@ -287,7 +287,7 @@ def create_app() -> Any:
             },
         )
 
-    @app.get("/audit")
+    @app.get("/audit")  # type: ignore[untyped-decorator]
     async def audit_log(
         actor: str | None = Query(None),
         tool: str | None = Query(None),
@@ -296,9 +296,9 @@ def create_app() -> Any:
         end: float | None = Query(None, alias="end_ts"),
         limit: int = Query(50, ge=1, le=500),
         offset: int = Query(0, ge=0),
-    ):
+    ) -> dict[str, Any]:
         """Paginated audit log viewer with optional filters."""
-        from hpc_pilot.audit import audit_log_path as _audit_log_path
+        from hpc_pilot.paths import audit_log_path as _audit_log_path
 
         records: list[dict[str, Any]] = []
         path = _audit_log_path()
@@ -337,15 +337,15 @@ def create_app() -> Any:
             "records": page,
         }
 
-    @app.get("/skills")
-    async def list_skills():
+    @app.get("/skills")  # type: ignore[untyped-decorator]
+    async def list_skills() -> dict[str, Any]:
         """List available skills."""
         from hpc_pilot.skills.runner import list_skills as _list_skills
 
         return {"skills": _list_skills()}
 
-    @app.get("/skills/{name}")
-    async def skill_detail(name: str):
+    @app.get("/skills/{name}")  # type: ignore[untyped-decorator]
+    async def skill_detail(name: str) -> JSONResponse:
         """View a skill's YAML definition."""
         from hpc_pilot.skills.runner import hpc_skill_describe
 
@@ -353,10 +353,10 @@ def create_app() -> Any:
             definition = hpc_skill_describe(name)
             return JSONResponse(content={"name": name, "definition": definition})
         except FileNotFoundError:
-            raise HTTPException(status_code=404, detail=f"Skill not found: {name!r}")
+            raise HTTPException(status_code=404, detail=f"Skill not found: {name!r}") from None
 
-    @app.get("/approvals")
-    async def list_approvals():
+    @app.get("/approvals")  # type: ignore[untyped-decorator]
+    async def list_approvals() -> dict[str, Any]:
         """List pending approvals."""
         from hpc_pilot.approvals import list_pending
 
@@ -379,8 +379,8 @@ def create_app() -> Any:
             ]
         }
 
-    @app.post("/approvals/{approval_id}/approve")
-    async def approve_approval(approval_id: str):
+    @app.post("/approvals/{approval_id}/approve")  # type: ignore[untyped-decorator]
+    async def approve_approval(approval_id: str) -> dict[str, Any]:
         """Approve a pending approval request."""
         from hpc_pilot.approvals import approve_request
 
@@ -388,10 +388,10 @@ def create_app() -> Any:
             req = approve_request(approval_id, approver="webui")
             return {"status": "approved", "id": req.id}
         except ValueError as exc:
-            raise HTTPException(status_code=400, detail=str(exc))
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
 
-    @app.post("/approvals/{approval_id}/reject")
-    async def reject_approval(approval_id: str):
+    @app.post("/approvals/{approval_id}/reject")  # type: ignore[untyped-decorator]
+    async def reject_approval(approval_id: str) -> dict[str, Any]:
         """Reject a pending approval request."""
         from hpc_pilot.approvals import reject_request
 
@@ -399,17 +399,17 @@ def create_app() -> Any:
             req = reject_request(approval_id, approver="webui")
             return {"status": "rejected", "id": req.id}
         except ValueError as exc:
-            raise HTTPException(status_code=400, detail=str(exc))
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
 
-    @app.get("/clusters")
-    async def clusters_list():
+    @app.get("/clusters")  # type: ignore[untyped-decorator]
+    async def clusters_list() -> dict[str, Any]:
         """List configured clusters."""
         from hpc_pilot.clusters import list_clusters as _list_clusters
 
         return {"clusters": _list_clusters()}
 
-    @app.get("/clusters/{name}/health")
-    async def cluster_health(name: str):
+    @app.get("/clusters/{name}/health")  # type: ignore[untyped-decorator]
+    async def cluster_health(name: str) -> dict[str, Any]:
         """Run a comprehensive health check on a cluster."""
         from hpc_pilot.dispatch import invoke
         from hpc_pilot.rbac import get_role
@@ -425,12 +425,12 @@ def create_app() -> Any:
             )
             # Parse the JSON result if possible
             try:
-                data = json.loads(result)
+                data = cast(dict[str, Any], json.loads(result))
                 return data
             except (json.JSONDecodeError, TypeError):
                 return {"raw": result}
         except Exception as exc:
-            raise HTTPException(status_code=500, detail=str(exc))
+            raise HTTPException(status_code=500, detail=str(exc)) from exc
 
     return app
 
@@ -450,7 +450,7 @@ def run_webui(host: str = "127.0.0.1", port: int = 8000) -> None:
         raise ImportError(
             "uvicorn is required to serve the web UI. "
             "Install with: pip install 'hpc-pilot[webui]'"
-        )
+        ) from None
 
     # Ensure layout exists before starting
     from hpc_pilot.paths import ensure_layout

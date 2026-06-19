@@ -211,9 +211,8 @@ class TestAuditToolContextManager:
         from hpc_pilot.audit import audit_tool
 
         audit_file = tmp_path / "audit.jsonl"
-        with patch("hpc_pilot.audit.audit_log_path", return_value=str(audit_file)):
-            with audit_tool("hpc_slurm_queue", "user1", "viewer", {}, dry_run=True):
-                pass
+        with patch("hpc_pilot.audit.audit_log_path", return_value=str(audit_file)), audit_tool("hpc_slurm_queue", "user1", "viewer", {}, dry_run=True):
+            pass
 
         lines = audit_file.read_text().strip().splitlines()
         assert len(lines) == 1
@@ -226,9 +225,9 @@ class TestAuditToolContextManager:
         from hpc_pilot.audit import audit_tool
 
         audit_file = tmp_path / "audit.jsonl"
-        with patch("hpc_pilot.audit.audit_log_path", return_value=str(audit_file)):
-            with pytest.raises(RuntimeError, match="sacctmgr exited 1"):
-                with audit_tool("hpc_slurm_qos_modify", "admin1", "admin", {}, dry_run=False):
+        with patch("hpc_pilot.audit.audit_log_path", return_value=str(audit_file)), \
+             pytest.raises(RuntimeError, match="sacctmgr exited 1"), \
+             audit_tool("hpc_slurm_qos_modify", "admin1", "admin", {}, dry_run=False):
                     raise RuntimeError("sacctmgr exited 1: permission denied")
 
         lines = audit_file.read_text().strip().splitlines()
@@ -243,9 +242,8 @@ class TestAuditToolContextManager:
         from hpc_pilot.rbac import Role
 
         audit_file = tmp_path / "audit.jsonl"
-        with patch("hpc_pilot.audit.audit_log_path", return_value=str(audit_file)):
-            with pytest.raises(PermissionError):
-                invoke(
+        with patch("hpc_pilot.audit.audit_log_path", return_value=str(audit_file)), pytest.raises(PermissionError):
+            invoke(
                     "hpc_slurm_qos_modify",
                     {"name": "gpu"},
                     role=Role.VIEWER,

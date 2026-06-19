@@ -10,7 +10,7 @@ import subprocess
 import threading
 import uuid
 from dataclasses import dataclass, field
-from typing import Any
+from typing import IO, Any
 
 from hpc_pilot.paths import jobs_dir
 
@@ -69,7 +69,7 @@ def start_job(cmd: list[str], log_path: str | None = None, meta: dict[str, Any] 
         log_path = os.path.join(jobs_dir(), f"{run_id}.log")
 
     os.makedirs(os.path.dirname(log_path), exist_ok=True)
-    log_file = open(log_path, "w")
+    log_file = open(log_path, "w")  # noqa: SIM115 — file handle passed to Popen + polling thread
 
     process = subprocess.Popen(
         cmd,
@@ -89,7 +89,7 @@ def start_job(cmd: list[str], log_path: str | None = None, meta: dict[str, Any] 
     )
     _save_record(record)
 
-    def _poll(proc: subprocess.Popen[str], rec: JobRecord, lf) -> None:
+    def _poll(proc: subprocess.Popen[str], rec: JobRecord, lf: IO[str]) -> None:
         proc.wait()
         lf.close()
         rec.returncode = proc.returncode

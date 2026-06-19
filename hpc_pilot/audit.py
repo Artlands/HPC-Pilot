@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
 import re
 import time
@@ -67,7 +68,7 @@ class SyslogSink:
 
     def __init__(self, facility: str = "local5") -> None:
         self.facility = facility
-        self._handler = None
+        self._handler: logging.Handler | None = None
 
     def _ensure_handler(self) -> None:
         if self._handler is not None:
@@ -84,7 +85,7 @@ class SyslogSink:
             "daemon": logging.handlers.SysLogHandler.LOG_DAEMON,
             "auth": logging.handlers.SysLogHandler.LOG_AUTH,
             "syslog": logging.handlers.SysLogHandler.LOG_SYSLOG,
-            "lpr": logging.handlers.SysLogHandler.LPR,
+            "lpr": logging.handlers.SysLogHandler.LOG_LPR,
             "news": logging.handlers.SysLogHandler.LOG_NEWS,
             "uucp": logging.handlers.SysLogHandler.LOG_UUCP,
             "cron": logging.handlers.SysLogHandler.LOG_CRON,
@@ -114,13 +115,12 @@ class SyslogSink:
         except Exception:
             # If SysLogHandler cannot be created (e.g. on macOS without syslogd),
             # fall back to a no-op
-            self._handler = object()  # sentinel
+            self._handler = None  # sentinel — skip logging
 
     def write(self, record: dict[str, Any]) -> None:
         try:
             self._ensure_handler()
-            if isinstance(self._handler, logging.Handler):
-                import logging
+            if self._handler is not None:
                 logger = logging.getLogger("hpc_pilot_audit")
                 msg = json.dumps(record, default=str)
                 logger.info(msg)
@@ -242,12 +242,18 @@ def log_audit(event: AuditEvent) -> None:
         record["usage"] = event.usage
 
     # Always write to the primary file sink
-    sink = FileSink(audit_log_path())
-    sink.write(record)
+    try:
+        primary_sink = FileSink(audit_log_path())
+        primary_sink.write(record)
+    except Exception:
+        pass  # primary sink must not interrupt
 
     # Write to all configured sinks
     for configured_sink in _get_sinks():
-        configured_sink.write(record)
+        try:
+            configured_sink.write(record)
+        except Exception:
+            pass  # one-sink-fails-others-succeed contract
 
 
 def log_llm_usage(

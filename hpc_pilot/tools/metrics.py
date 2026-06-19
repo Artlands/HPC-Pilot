@@ -1,6 +1,7 @@
 """Observability & metrics tools: Prometheus, GPU, storage, fabric, and log inspection."""
 from __future__ import annotations
 
+import contextlib
 import json
 import re
 import shlex
@@ -9,7 +10,7 @@ import urllib.parse
 import urllib.request
 import xml.etree.ElementTree as ET
 from collections import Counter
-from typing import Any
+from typing import Any, cast
 
 from hpc_pilot.paths import config_path
 from hpc_pilot.tools._run import (
@@ -28,7 +29,7 @@ def _cluster_prometheus_url(cluster_name: str) -> str:
     try:
         import yaml
     except ImportError:
-        raise RuntimeError("PyYAML is required to read config for Prometheus URL")
+        raise RuntimeError("PyYAML is required to read config for Prometheus URL") from None
     path = config_path()
     if not os.path.exists(path):
         raise RuntimeError("config.yaml not found — cannot determine Prometheus URL")
@@ -99,9 +100,9 @@ def _redact_output(output: str) -> str:
         return _redact_log_line(output)
 
     lines = output.splitlines(keepends=True)
-    redacted = [_redact_log_line(l) for l in lines]
+    redacted = [_redact_log_line(ln) for ln in lines]
     # Count line frequencies (strip whitespace for grouping)
-    stripped = [l.strip() for l in redacted]
+    stripped = [ln.strip() for ln in redacted]
     top_n = Counter(stripped).most_common(5)
     summary_parts = [
         f"<output truncated: {len(lines)} lines, showing top-5 patterns>",
@@ -133,23 +134,20 @@ def hpc_metrics_prometheus_query(
     if step:
         params["step"] = step
 
-    if start or end or step:
-        api_path = "/api/v1/query_range"
-    else:
-        api_path = "/api/v1/query"
+    api_path = "/api/v1/query_range" if start or end or step else "/api/v1/query"
 
     url = f"{base_url.rstrip('/')}{api_path}?{urllib.parse.urlencode(params)}"
     try:
         resp = urllib.request.urlopen(url, timeout=30)
         body = resp.read().decode("utf-8")
-        return json.loads(body)
+        return cast(dict[str, Any], json.loads(body))
     except urllib.error.HTTPError as exc:
         body = exc.read().decode("utf-8", errors="replace")
-        raise RuntimeError(f"Prometheus HTTP {exc.code}: {body[:500]}")
+        raise RuntimeError(f"Prometheus HTTP {exc.code}: {body[:500]}") from exc
     except urllib.error.URLError as exc:
-        raise RuntimeError(f"Prometheus unreachable: {exc.reason}")
+        raise RuntimeError(f"Prometheus unreachable: {exc.reason}") from exc
     except json.JSONDecodeError as exc:
-        raise RuntimeError(f"Prometheus returned invalid JSON: {exc}")
+        raise RuntimeError(f"Prometheus returned invalid JSON: {exc}") from exc
 
 
 # ---------------------------------------------------------------------------
@@ -163,13 +161,14 @@ def hpc_metrics_prometheus_alerts(*, cluster: str = "default") -> list[dict[str,
     try:
         resp = urllib.request.urlopen(url, timeout=30)
         body = resp.read().decode("utf-8")
-        data: dict[str, Any] = json.loads(body)
-        return data.get("data", {}).get("alerts", [])
+        data: dict[str, Any] = cast(dict[str, Any], json.loads(body))
+        alerts: list[dict[str, Any]] = cast(list[dict[str, Any]], data.get("data", {}).get("alerts", []))
+        return alerts
     except urllib.error.HTTPError as exc:
         body = exc.read().decode("utf-8", errors="replace")
-        raise RuntimeError(f"Prometheus alerts HTTP {exc.code}: {body[:500]}")
+        raise RuntimeError(f"Prometheus alerts HTTP {exc.code}: {body[:500]}") from exc
     except urllib.error.URLError as exc:
-        raise RuntimeError(f"Prometheus alerts unreachable: {exc.reason}")
+        raise RuntimeError(f"Prometheus alerts unreachable: {exc.reason}") from exc
 
 
 # ---------------------------------------------------------------------------
@@ -414,7 +413,8 @@ def hpc_fabric_ib_link_status(
         return result
 
     current_iface: dict[str, Any] = {}
-    for line in output.splitlines():
+    for raw_line in output.splitlines():
+        line = raw_line.strip()
         # e.g. "Infiniband device 'mlx5_0' port 1 status:"
         m = re.match(
             r"Infiniband device '(\S+)' port (\d+)", line
@@ -426,13 +426,13 @@ def hpc_fabric_ib_link_status(
             continue
 
         if current_iface:
-            lm = re.match(r"rate\s+(\S.*)", line, re.IGNORECASE)
+            lm = re.match(r"rate[\s:]+(.*)", line, re.IGNORECASE)
             if lm:
                 current_iface["rate"] = lm.group(1).strip()
-            sm = re.match(r"state\s+(\S.*)", line, re.IGNORECASE)
+            sm = re.match(r"state[\s:]+(.*)", line, re.IGNORECASE)
             if sm:
                 current_iface["state"] = sm.group(1).strip()
-            lm2 = re.match(r"phys_state\s+(\S.*)", line, re.IGNORECASE)
+            lm2 = re.match(r"phys_state[\s:]+(.*)", line, re.IGNORECASE)
             if lm2:
                 current_iface["phys_state"] = lm2.group(1).strip()
 
@@ -440,7 +440,7 @@ def hpc_fabric_ib_link_status(
         result["links"].append(current_iface)
 
     # Determine overall status
-    states = {l.get("state", "").lower() for l in result["links"]}
+    states = {link.get("state", "").lower() for link in result["links"]}
     if not result["links"]:
         result["status"] = "no_interfaces"
     elif "active" in states or "up" in states:
@@ -614,9 +614,7 @@ def hpc_metrics_node_summary(
         summary["fabric"]["error"] = "unreachable"
 
     # XID errors
-    try:
+    with contextlib.suppress(Exception):
         summary["xid_errors"] = hpc_logs_dmesg_xid(node, cluster=cluster)
-    except Exception:
-        pass
 
     return summary

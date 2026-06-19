@@ -1,0 +1,33 @@
+# Warewulf policy — auto-approve and always-require rules for provisioning tools.
+# The dispatch layer consults this file before invoking tools; if approval is
+# required, it triggers the out-of-band approval workflow (Phase 8.1).
+#
+# Location: shipped as hpc_pilot/policy/warewulf.yaml and copied to
+#           ~/.hpc-pilot/policy/warewulf.yaml on first use.
+
+hpc_warewulf_image_build:
+  auto_approve_when:
+    blast_radius: "<= 1 node"  # image not yet assigned to production nodes
+
+hpc_warewulf_configure_dhcp:
+  approval: always_required
+
+hpc_warewulf_configure_tftp:
+  approval: always_required
+
+hpc_warewulf_configure_nfs:
+  approval: always_required
+
+hpc_warewulf_node_add:
+  auto_approve_when:
+    cluster: staging
+
+hpc_warewulf_node_delete:
+  approval: always_required
+
+hpc_warewulf_power_reset:
+  auto_approve_when:
+    cluster: staging
+
+hpc_warewulf_power_off:
+  approval: always_required

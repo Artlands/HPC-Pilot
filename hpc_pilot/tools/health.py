@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import datetime
+from contextlib import suppress
 from typing import Any
 
 from hpc_pilot.tools._run import (
@@ -150,8 +151,7 @@ def hpc_cluster_health_check(*, cluster: str = "default") -> dict[str, Any]:
             )
             if m:
                 current_dev = f"{m.group(1)}:{m.group(2)}"
-            if current_dev and "state" in line.lower():
-                if "active" not in line.lower() and "up" not in line.lower():
+            if current_dev and "state" in line.lower() and "active" not in line.lower() and "up" not in line.lower():
                     links_down.append(current_dev)
         if links_down:
             fabric_info["status"] = "degraded"
@@ -172,11 +172,9 @@ def hpc_cluster_health_check(*, cluster: str = "default") -> dict[str, Any]:
     }
     try:
         _run(["mount"], cluster=cl, timeout=15)
-        try:
+        with suppress(Exception):
             _run([cl.slurm("lctl"), "get_param", "obdfilter.*.state"],
                  cluster=cl, timeout=15)
-        except Exception:
-            pass  # non-Lustre filesystems are fine
         storage_info["status"] = "healthy"
     except Exception as exc:
         storage_info["status"] = "error"
@@ -193,14 +191,13 @@ def hpc_cluster_health_check(*, cluster: str = "default") -> dict[str, Any]:
     try:
         dmesg_out = _run(["dmesg"], cluster=cl, timeout=30)
         xid_lines = [
-            l for l in dmesg_out.splitlines()
-            if "xid" in l.lower()
+            ln for ln in dmesg_out.splitlines()
+            if "xid" in ln.lower()
         ]
         xid_count = 0
         for line in xid_lines:
             ts_match = __import__("re").match(r"\[(\d+\.\d+)\]", line)
             if ts_match:
-                ts = float(ts_match.group(1))
                 # count all XID errors (no boot-time anchor available here)
                 xid_count += 1
         gpu_info["xid_errors_last_hour"] = xid_count

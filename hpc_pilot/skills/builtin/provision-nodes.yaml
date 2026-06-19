@@ -1,0 +1,66 @@
+name: provision-nodes
+description: >
+  Provision bare-metal compute nodes into a Warewulf + Slurm cluster.
+  Configures server, imports image, builds compute image, adds nodes via
+  bulk-add, builds overlay, powers on, and verifies nodes join Slurm.
+  Requires superadmin.
+required_role: superadmin
+inputs:
+  - name: nodes
+    type: string
+    required: true
+    description: >
+      JSON array of node definitions, e.g.
+      '[{"name":"compute09","mac":"00:11:22:aa:bb:01","ipaddr":"10.0.0.9","profile":"default"},
+        {"name":"compute10","mac":"00:11:22:aa:bb:02","ipaddr":"10.0.0.10","profile":"default"}]'
+  - name: image_base
+    type: string
+    default: rockylinux:9
+    description: Container image to import (e.g. rockylinux:9 or docker://rockylinux:9)
+  - name: gpu
+    type: boolean
+    default: false
+steps:
+  - id: configure_tftp
+    tool: hpc_warewulf_configure_tftp
+    args: {}
+  - id: configure_nfs
+    tool: hpc_warewulf_configure_nfs
+    args: {}
+  - id: configure_dhcp
+    tool: hpc_warewulf_configure_dhcp
+    args:
+      template: default
+  - id: import_image
+    tool: hpc_warewulf_image_import
+    args:
+      name: base
+      source: "{{ image_base }}"
+  - id: build_image
+    tool: hpc_warewulf_image_build
+    args:
+      name: compute
+      base: base
+      exec_steps:
+        - "dnf -y update"
+        - "dnf -y install openssh-server nfs-utils chrony"
+      gpu: "{{ gpu }}"
+  - id: set_profile
+    tool: hpc_warewulf_profile_set
+    args:
+      name: default
+      image: compute
+  - id: add_nodes
+    tool: hpc_warewulf_node_add_bulk
+    args:
+      nodes:
+        raw_json: "{{ nodes }}"
+  - id: build_overlay
+    tool: hpc_warewulf_overlay_build
+    args:
+      overlay: wwinit
+  - id: power_on
+    tool: hpc_warewulf_power_on
+    args:
+      node: all
+on_failure: pause

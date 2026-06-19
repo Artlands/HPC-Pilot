@@ -144,13 +144,17 @@ _DISPATCH: dict[str, Callable[[dict[str, Any], Any], str]] = {
     # ---- Slurm mutation (admin) ----
     "hpc_slurm_qos_modify": lambda args, t: t.hpc_slurm_qos_modify(
         args["name"],
-        args.get("max_wall_min"),
-        _dr(args, default=True),
+        max_wall_min=args.get("max_wall_min"),
+        grp_tres=args.get("grp_tres"),
+        max_tres_per_user=args.get("max_tres_per_user"),
+        dry_run=_dr(args, default=True),
         cluster=_cl(args),
     ),
     "hpc_slurm_qos_create": lambda args, t: t.hpc_slurm_qos_create(
         args["name"],
-        args.get("max_wall_min"),
+        max_wall_min=args.get("max_wall_min"),
+        grp_tres=args.get("grp_tres"),
+        max_tres_per_user=args.get("max_tres_per_user"),
         cluster=_cl(args),
         dry_run=_dr(args),
     ),
@@ -234,6 +238,9 @@ _DISPATCH: dict[str, Callable[[dict[str, Any], Any], str]] = {
     "hpc_warewulf_node_add": lambda args, t: t.hpc_warewulf_node_add(
         args["name"], args["mac"], args["ipaddr"],
         profile=args.get("profile"), cluster=_cl(args), dry_run=_dr(args)
+    ),
+    "hpc_warewulf_node_add_bulk": lambda args, t: t.hpc_warewulf_node_add_bulk(
+        args["nodes"], cluster=_cl(args), dry_run=_dr(args)
     ),
     "hpc_warewulf_node_set": lambda args, t: t.hpc_warewulf_node_set(
         args["name"],
@@ -489,6 +496,119 @@ _DISPATCH: dict[str, Callable[[dict[str, Any], Any], str]] = {
         ),
         indent=2,
         default=str,
+    ),
+    # ---- System & admin tools ----
+    "hpc_audit_query": lambda args, t: t.hpc_audit_query(
+        tool=args.get("tool", ""),
+        actor=args.get("actor", ""),
+        role=args.get("role", ""),
+        error_only=bool(args.get("error_only", False)),
+        since_ts=args.get("since_ts"),
+        limit=int(args.get("limit", 50)),
+        cluster=_cl(args),
+    ),
+    "hpc_slurm_service": lambda args, t: t.hpc_slurm_service(
+        args["service"],
+        args["action"],
+        cluster=_cl(args),
+        dry_run=_dr(args),
+    ),
+    "hpc_system_user_add": lambda args, t: t.hpc_system_user_add(
+        args["username"],
+        uid=args.get("uid"),
+        groups=args.get("groups", ""),
+        shell=args.get("shell", "/bin/bash"),
+        home=args.get("home", ""),
+        cluster=_cl(args),
+        dry_run=_dr(args),
+    ),
+    "hpc_system_user_delete": lambda args, t: t.hpc_system_user_delete(
+        args["username"],
+        remove_home=bool(args.get("remove_home", False)),
+        cluster=_cl(args),
+        dry_run=_dr(args),
+    ),
+    "hpc_system_user_group_add": lambda args, t: t.hpc_system_user_group_add(
+        args["username"],
+        args["group"],
+        cluster=_cl(args),
+        dry_run=_dr(args),
+    ),
+    "hpc_system_ssh_key_deploy": lambda args, t: t.hpc_system_ssh_key_deploy(
+        args["username"],
+        args["public_key"],
+        cluster=_cl(args),
+        dry_run=_dr(args),
+    ),
+    "hpc_login_node_processes": lambda args, t: t.hpc_login_node_processes(
+        sort_by=args.get("sort_by", "cpu"),
+        limit=int(args.get("limit", 20)),
+        cluster=_cl(args),
+    ),
+    "hpc_storage_large_files": lambda args, t: t.hpc_storage_large_files(
+        args["path"],
+        min_size_mb=int(args.get("min_size_mb", 100)),
+        limit=int(args.get("limit", 50)),
+        cluster=_cl(args),
+    ),
+    "hpc_storage_quota_check": lambda args, t: t.hpc_storage_quota_check(
+        cluster=_cl(args),
+    ),
+    "hpc_config_backup": lambda args, t: t.hpc_config_backup(
+        cluster=_cl(args),
+        dry_run=_dr(args),
+    ),
+    # Additional system tools (Phase 3.6)
+    "hpc_usage_vs_budget": lambda args, t: t.hpc_usage_vs_budget(
+        args["account"],
+        args["qos_name"],
+        start=args.get("start", ""),
+        end=args.get("end", ""),
+        cluster=_cl(args),
+    ),
+    "hpc_notify": lambda args, t: t.hpc_notify(
+        args["message"],
+        platform=args.get("platform", "telegram"),
+        target=args.get("target", ""),
+        cluster=_cl(args),
+        dry_run=_dr(args),
+    ),
+    "hpc_warewulf_image_build_from_env": lambda args, t: t.hpc_warewulf_image_build_from_env(
+        args["name"],
+        base=args.get("base", "rockylinux:9"),
+        spack_env=args.get("spack_env", ""),
+        exec_steps=args.get("exec_steps"),
+        gpu=bool(args.get("gpu", False)),
+        cluster=_cl(args),
+        dry_run=_dr(args),
+    ),
+    "hpc_job_submit_test": lambda args, t: t.hpc_job_submit_test(
+        partition=args.get("partition", ""),
+        num_nodes=int(args.get("num_nodes", 1)),
+        ntasks=int(args.get("ntasks", 1)),
+        cluster=_cl(args),
+        dry_run=_dr(args),
+    ),
+    "hpc_storage_lustre_balance": lambda args, t: t.hpc_storage_lustre_balance(
+        fs_name=args.get("fs_name", "/scratch"),
+        min_migrate_size_mb=int(args.get("min_migrate_size_mb", 10240)),
+        cluster=_cl(args),
+        dry_run=_dr(args),
+    ),
+    "hpc_storage_scrub_orphans": lambda args, t: t.hpc_storage_scrub_orphans(
+        work_dir=args.get("work_dir", "/scratch"),
+        max_age_days=int(args.get("max_age_days", 30)),
+        cluster=_cl(args),
+        dry_run=_dr(args),
+    ),
+    "hpc_slurm_job_step_metrics": lambda args, t: t.hpc_slurm_job_step_metrics(
+        args["job_id"],
+        cluster=_cl(args),
+    ),
+    "hpc_multi_migration_plan": lambda args, t: t.hpc_multi_migration_plan(
+        args["source_cluster"],
+        args["target_cluster"],
+        dry_run=_dr(args, default=True),
     ),
 }
 

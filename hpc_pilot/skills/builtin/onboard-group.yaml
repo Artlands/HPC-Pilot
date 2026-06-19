@@ -1,0 +1,69 @@
+name: onboard-group
+description: >
+  Onboard a new research group onto the HPC cluster — create Slurm accounting
+  account, allocate CPU/GPU TRES via QOS, add user associations, and deploy
+  SSH keys.  6 steps, requires superadmin.
+required_role: superadmin
+inputs:
+  - name: group_name
+    type: string
+    required: true
+    description: Slurm accounting account name (e.g. astro-lab)
+  - name: description
+    type: string
+    default: ""
+    description: Description of the research group
+  - name: cpu_hours
+    type: integer
+    default: 500000
+    description: Quarterly CPU-hour allocation
+  - name: gpu_hours
+    type: integer
+    default: 100000
+    description: Quarterly GPU-hour allocation
+  - name: max_wall_min
+    type: integer
+    default: 43200
+    description: Max wall time in minutes (default 30 days)
+  - name: users
+    type: string
+    required: true
+    description: Comma-separated list of usernames to add (e.g. alice,bob,carol)
+steps:
+  - id: create_account
+    tool: hpc_slurm_account_create
+    args:
+      name: "{{ group_name }}"
+      description: "{{ description }}"
+  - id: create_qos
+    tool: hpc_slurm_qos_create
+    args:
+      name: "{{ group_name }}-qos"
+      max_wall_min: "{{ max_wall_min }}"
+      grp_tres: "cpu={{ cpu_hours }},gres/gpu={{ gpu_hours }}"
+  - id: add_users
+    builtin: for_each
+    args:
+      var: user
+      items:
+        split: ","
+        source: "{{ users }}"
+      do:
+        - tool: hpc_slurm_association_create
+          args:
+            user: "{{ user }}"
+            account: "{{ group_name }}"
+  - id: verify_account
+    tool: hpc_slurm_account_list
+    args: {}
+  - id: verify_qos
+    tool: hpc_slurm_qos_list
+    args: {}
+  - id: summary
+    builtin: prompt
+    args:
+      message: >
+        Group "{{ group_name }}" onboarded with {{ cpu_hours }} CPU-hours and
+        {{ gpu_hours }} GPU-hours per quarter via QOS "{{ group_name }}-qos".
+        Users: {{ users }}.  Next step: deploy SSH keys with hpc_system_ssh_key_deploy.
+on_failure: pause

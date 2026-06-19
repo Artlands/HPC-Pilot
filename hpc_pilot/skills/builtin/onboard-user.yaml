@@ -1,0 +1,49 @@
+name: onboard-user
+description: >
+  Onboard a single new HPC user — create UNIX account, deploy SSH key,
+  add to Slurm association, add to supplementary groups, set up home
+  directory with skel.  4 steps, requires admin.
+required_role: admin
+inputs:
+  - name: username
+    type: string
+    required: true
+  - name: account
+    type: string
+    required: true
+    description: Slurm accounting account name
+  - name: ssh_public_key
+    type: string
+    required: true
+    description: SSH public key line to deploy
+  - name: groups
+    type: string
+    default: ""
+    description: Comma-separated supplementary groups
+  - name: shell
+    type: string
+    default: /bin/bash
+steps:
+  - id: create_unix_user
+    tool: hpc_system_user_add
+    args:
+      username: "{{ username }}"
+      groups: "{{ groups }}"
+      shell: "{{ shell }}"
+  - id: deploy_ssh_key
+    tool: hpc_system_ssh_key_deploy
+    args:
+      username: "{{ username }}"
+      public_key: "{{ ssh_public_key }}"
+  - id: add_slurm_association
+    tool: hpc_slurm_association_create
+    args:
+      user: "{{ username }}"
+      account: "{{ account }}"
+  - id: add_to_groups
+    tool: hpc_system_user_group_add
+    args:
+      username: "{{ username }}"
+      group: "{{ groups.split(',')[0] }}"
+    run_when: "{{ groups != '' }}"
+on_failure: pause

@@ -110,6 +110,7 @@ TOOL_MIN_ROLE: dict[str, Role] = {
     "hpc_warewulf_image_build": Role.ADMIN,
     "hpc_warewulf_image_delete": Role.ADMIN,
     "hpc_warewulf_node_add": Role.ADMIN,
+    "hpc_warewulf_node_add_bulk": Role.ADMIN,
     "hpc_warewulf_node_set": Role.ADMIN,
     "hpc_warewulf_node_delete": Role.ADMIN,
     "hpc_warewulf_profile_set": Role.ADMIN,
@@ -136,6 +137,26 @@ TOOL_MIN_ROLE: dict[str, Role] = {
     "hpc_warewulf_configure_dhcp": Role.SUPERADMIN,
     "hpc_warewulf_configure_tftp": Role.SUPERADMIN,
     "hpc_warewulf_configure_nfs": Role.SUPERADMIN,
+    # System & admin tools
+    "hpc_audit_query": Role.VIEWER,
+    "hpc_slurm_service": Role.ADMIN,
+    "hpc_system_user_add": Role.ADMIN,
+    "hpc_system_user_delete": Role.ADMIN,
+    "hpc_system_user_group_add": Role.ADMIN,
+    "hpc_system_ssh_key_deploy": Role.ADMIN,
+    "hpc_login_node_processes": Role.OPERATOR,
+    "hpc_storage_large_files": Role.VIEWER,
+    "hpc_storage_quota_check": Role.VIEWER,
+    "hpc_config_backup": Role.ADMIN,
+    # Additional system tools (Phase 3.6)
+    "hpc_usage_vs_budget": Role.VIEWER,
+    "hpc_notify": Role.OPERATOR,
+    "hpc_warewulf_image_build_from_env": Role.ADMIN,
+    "hpc_job_submit_test": Role.OPERATOR,
+    "hpc_storage_lustre_balance": Role.VIEWER,
+    "hpc_storage_scrub_orphans": Role.ADMIN,
+    "hpc_slurm_job_step_metrics": Role.VIEWER,
+    "hpc_multi_migration_plan": Role.VIEWER,
 }
 
 

@@ -231,6 +231,53 @@ def hpc_warewulf_node_set(
     return _run(cmd, cluster=cl, dry_run=dry_run)
 
 
+def hpc_warewulf_node_add_bulk(
+    nodes: list[dict[str, str]],
+    *,
+    cluster: str = "default",
+    dry_run: bool = False,
+) -> str:
+    """Add multiple Warewulf node definitions in a single invocation.
+
+    Each dict in *nodes* must have ``name``, ``mac``, ``ipaddr`` keys and may
+    optionally have ``profile``.  Example::
+
+        nodes=[
+            {"name": "compute09", "mac": "00:11:22:aa:bb:01", "ipaddr": "10.0.0.9", "profile": "compute"},
+            {"name": "compute10", "mac": "00:11:22:aa:bb:02", "ipaddr": "10.0.0.10", "profile": "compute"},
+        ]
+
+    Returns a header line per node followed by any failures.
+    """
+    if not nodes:
+        raise ValueError("At least one node definition is required")
+
+    lines: list[str] = []
+    for ndef in nodes:
+        name = ndef.get("name", "")
+        mac = ndef.get("mac", "")
+        ipaddr = ndef.get("ipaddr", "")
+        _validate(name, "node name")
+        _validate(mac, "MAC address")
+        _validate(ipaddr, "IP address")
+
+        cl = _resolve_cluster(cluster)
+        cmd = [
+            cl.warewulf("wwctl"), "node", "add", name,
+            f"--mac={mac}",
+            f"--ipaddr={ipaddr}",
+        ]
+        profile = ndef.get("profile")
+        if profile:
+            _validate(profile, "profile name")
+            cmd.append(f"--profile={profile}")
+
+        result = _run(cmd, cluster=cl, dry_run=dry_run)
+        lines.append(f"{name}: {result.strip() or 'OK'}")
+
+    return "\n".join(lines)
+
+
 def hpc_warewulf_node_delete(
     name: str, *, cluster: str = "default", dry_run: bool = False
 ) -> str:

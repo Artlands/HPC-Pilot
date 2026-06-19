@@ -251,6 +251,51 @@ class TestWarewulfNodeAdd:
             hpc_warewulf_node_add("node01", "not a mac!", "10.0.0.1")
 
 
+class TestWarewulfNodeAddBulk:
+    @patch("hpc_pilot.tools.warewulf._run")
+    @patch("hpc_pilot.tools.warewulf._resolve_cluster")
+    def test_bulk_two_nodes(self, mock_cl, mock_run):
+        from hpc_pilot.tools.warewulf import hpc_warewulf_node_add_bulk
+
+        mock_cl.return_value = _mock_cluster()
+        mock_run.return_value = ""
+        nodes = [
+            {"name": "compute09", "mac": "0011.22aa.bb01", "ipaddr": "10.0.0.9", "profile": "compute"},
+            {"name": "compute10", "mac": "0011.22aa.bb02", "ipaddr": "10.0.0.10"},
+        ]
+        result = hpc_warewulf_node_add_bulk(nodes)
+        assert "compute09: OK" in result
+        assert "compute10: OK" in result
+        assert mock_run.call_count == 2
+
+    @patch("hpc_pilot.tools.warewulf._run")
+    @patch("hpc_pilot.tools.warewulf._resolve_cluster")
+    def test_bulk_empty_raises(self, mock_cl, mock_run):
+        from hpc_pilot.tools.warewulf import hpc_warewulf_node_add_bulk
+
+        mock_cl.return_value = _mock_cluster()
+        with pytest.raises(ValueError, match="At least one"):
+            hpc_warewulf_node_add_bulk([])
+
+    @patch("hpc_pilot.tools.warewulf._resolve_cluster")
+    def test_bulk_dry_run(self, mock_cl):
+        from hpc_pilot.tools.warewulf import hpc_warewulf_node_add_bulk
+
+        mock_cl.return_value = _mock_cluster()
+        with patch("hpc_pilot.tools.warewulf._run", return_value="DRY-RUN: ...") as mr:
+            nodes = [{"name": "c1", "mac": "0011.22aa.bb01", "ipaddr": "10.0.0.1"}]
+            hpc_warewulf_node_add_bulk(nodes, dry_run=True)
+        assert mr.call_args.kwargs.get("dry_run") is True
+
+    @patch("hpc_pilot.tools.warewulf._resolve_cluster")
+    def test_bulk_invalid_node(self, mock_cl):
+        from hpc_pilot.tools.warewulf import hpc_warewulf_node_add_bulk
+
+        mock_cl.return_value = _mock_cluster()
+        with pytest.raises(ValueError):
+            hpc_warewulf_node_add_bulk([{"name": "n1", "mac": "bad!mac", "ipaddr": "10.0.0.1"}])
+
+
 class TestWarewulfNodeSet:
     @patch("hpc_pilot.tools.warewulf._run")
     @patch("hpc_pilot.tools.warewulf._resolve_cluster")

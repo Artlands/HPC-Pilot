@@ -101,6 +101,8 @@ TOOL_SCHEMAS: list[dict[str, Any]] = [
         "name": "hpc_slurm_qos_modify",
         "description": (
             "Modify a Slurm QOS (Quality of Service) setting. "
+            "Supports MaxWall, GrpTRES (group-level TRES limits), "
+            "and MaxTRESPU (per-user TRES limits). "
             "Use dry_run=true first to preview the sacctmgr command before applying."
         ),
         "input_schema": {
@@ -110,6 +112,14 @@ TOOL_SCHEMAS: list[dict[str, Any]] = [
                 "max_wall_min": {
                     "type": "integer",
                     "description": "Maximum wall-clock time in minutes",
+                },
+                "grp_tres": {
+                    "type": "string",
+                    "description": "Group TRES limits, e.g. 'cpu=500000,gres/gpu=100000'",
+                },
+                "max_tres_per_user": {
+                    "type": "string",
+                    "description": "Per-user TRES limits, e.g. 'cpu=1000,gres/gpu=50'",
                 },
                 "dry_run": {
                     "type": "boolean",
@@ -227,6 +237,36 @@ TOOL_SCHEMAS: list[dict[str, Any]] = [
                 "cluster": {"type": "string"},
             },
             "required": ["name", "mac", "ipaddr"],
+        },
+    },
+    {
+        "name": "hpc_warewulf_node_add_bulk",
+        "description": (
+            "Add multiple Warewulf node definitions at once. "
+            "Each node requires name, mac, ipaddr; profile is optional. "
+            "Use this instead of repeated single node_add calls when provisioning many nodes."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "nodes": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "name": {"type": "string", "description": "Node name"},
+                            "mac": {"type": "string", "description": "MAC address"},
+                            "ipaddr": {"type": "string", "description": "IP address"},
+                            "profile": {"type": "string", "description": "Optional profile name"},
+                        },
+                        "required": ["name", "mac", "ipaddr"],
+                    },
+                    "description": "List of node definitions to add",
+                },
+                "dry_run": {"type": "boolean"},
+                "cluster": {"type": "string"},
+            },
+            "required": ["nodes"],
         },
     },
     {
@@ -856,12 +896,20 @@ TOOL_SCHEMAS: list[dict[str, Any]] = [
     },
     {
         "name": "hpc_slurm_qos_create",
-        "description": "Create a new Slurm QOS entry (sacctmgr add qos). Requires admin.",
+        "description": "Create a new Slurm QOS entry (sacctmgr add qos). Supports GrpTRES for group allocation limits. Requires admin.",
         "input_schema": {
             "type": "object",
             "properties": {
                 "name": {"type": "string"},
                 "max_wall_min": {"type": "integer", "description": "Max wall time in minutes"},
+                "grp_tres": {
+                    "type": "string",
+                    "description": "Group TRES limits, e.g. 'cpu=500000,gres/gpu=100000'",
+                },
+                "max_tres_per_user": {
+                    "type": "string",
+                    "description": "Per-user TRES limits, e.g. 'cpu=1000,gres/gpu=50'",
+                },
                 "dry_run": {"type": "boolean"},
                 "cluster": {"type": "string"},
             },
@@ -1600,6 +1648,306 @@ TOOL_SCHEMAS: list[dict[str, Any]] = [
                 "cluster": {"type": "string"},
             },
             "required": ["pattern"],
+        },
+    },
+    # ---- System & admin tools (Phase 3.5) ----
+    {
+        "name": "hpc_audit_query",
+        "description": (
+            "Search and filter the HPC-Pilot audit log. Returns matching records "
+            "as JSON lines, newest first."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "tool": {"type": "string"},
+                "actor": {"type": "string"},
+                "role": {"type": "string"},
+                "error_only": {"type": "boolean"},
+                "since_ts": {"type": "number"},
+                "limit": {"type": "integer"},
+            },
+        },
+    },
+    {
+        "name": "hpc_slurm_service",
+        "description": (
+            "Manage Slurm daemon service lifecycle via systemctl. "
+            "Use for starting/stopping/restarting slurmctld, slurmd, or slurmdbd."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "service": {
+                    "type": "string",
+                    "enum": ["slurmctld", "slurmd", "slurmdbd"],
+                    "description": "Which Slurm daemon to manage",
+                },
+                "action": {
+                    "type": "string",
+                    "enum": ["start", "stop", "restart", "status"],
+                    "description": "Action to perform",
+                },
+                "dry_run": {"type": "boolean"},
+                "cluster": {"type": "string"},
+            },
+            "required": ["service", "action"],
+        },
+    },
+    {
+        "name": "hpc_system_user_add",
+        "description": (
+            "Create a UNIX user account on the login node (useradd). "
+            "Used for onboarding new HPC users."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "username": {"type": "string", "description": "Username for the new account"},
+                "uid": {"type": "integer", "description": "Optional numeric UID"},
+                "groups": {"type": "string", "description": "Comma-separated supplementary groups"},
+                "shell": {"type": "string", "description": "Login shell (default /bin/bash)"},
+                "home": {"type": "string", "description": "Home directory path"},
+                "dry_run": {"type": "boolean"},
+                "cluster": {"type": "string"},
+            },
+            "required": ["username"],
+        },
+    },
+    {
+        "name": "hpc_system_user_delete",
+        "description": "Delete a UNIX user account (userdel).",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "username": {"type": "string"},
+                "remove_home": {"type": "boolean", "description": "Also remove home directory"},
+                "dry_run": {"type": "boolean"},
+                "cluster": {"type": "string"},
+            },
+            "required": ["username"],
+        },
+    },
+    {
+        "name": "hpc_system_user_group_add",
+        "description": "Add a user to a supplementary group (usermod -aG).",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "username": {"type": "string"},
+                "group": {"type": "string", "description": "Group name to add the user to"},
+                "dry_run": {"type": "boolean"},
+                "cluster": {"type": "string"},
+            },
+            "required": ["username", "group"],
+        },
+    },
+    {
+        "name": "hpc_system_ssh_key_deploy",
+        "description": "Deploy an SSH public key to a user's authorized_keys on the login node.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "username": {"type": "string"},
+                "public_key": {"type": "string", "description": "SSH public key line to append"},
+                "dry_run": {"type": "boolean"},
+                "cluster": {"type": "string"},
+            },
+            "required": ["username", "public_key"],
+        },
+    },
+    {
+        "name": "hpc_login_node_processes",
+        "description": (
+            "List top resource-consuming processes on the login node. "
+            "Use when investigating high load or unauthorized computation."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "sort_by": {
+                    "type": "string",
+                    "enum": ["cpu", "mem", "pid"],
+                    "description": "Sort field (default cpu)",
+                },
+                "limit": {"type": "integer", "description": "Number of processes (default 20)"},
+                "cluster": {"type": "string"},
+            },
+        },
+    },
+    {
+        "name": "hpc_storage_large_files",
+        "description": "Find the largest files under a directory. Useful for storage crisis triage.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "path": {"type": "string", "description": "Directory to search (e.g. /scratch)"},
+                "min_size_mb": {"type": "integer", "description": "Minimum file size in MB (default 100)"},
+                "limit": {"type": "integer", "description": "Max results (default 50)"},
+                "cluster": {"type": "string"},
+            },
+            "required": ["path"],
+        },
+    },
+    {
+        "name": "hpc_storage_quota_check",
+        "description": "Check filesystem quotas via repquota on the login node.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "cluster": {"type": "string"},
+            },
+        },
+    },
+    {
+        "name": "hpc_config_backup",
+        "description": (
+            "Snapshot current HPC configuration (Slurm, Warewulf, accounting) "
+            "to a timestamped backup directory. Returns list of saved files."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "dry_run": {"type": "boolean"},
+                "cluster": {"type": "string"},
+            },
+        },
+    },
+    # ---- Phase 3.6: Usage, notifications, Spack-image, storage ----
+    {
+        "name": "hpc_usage_vs_budget",
+        "description": (
+            "Compare a research group's actual resource usage against its QOS budget. "
+            "Queries sacct for job history and sacctmgr for QOS GrpTRES limits. "
+            "Returns CPU and GPU hours used vs allocated."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "account": {"type": "string", "description": "Slurm account name (e.g. astro-lab)"},
+                "qos_name": {"type": "string", "description": "QOS name (e.g. astro-lab-qos)"},
+                "start": {"type": "string", "description": "Start time e.g. 2026-01-01"},
+                "end": {"type": "string", "description": "End time (default: now)"},
+                "cluster": {"type": "string"},
+            },
+            "required": ["account", "qos_name"],
+        },
+    },
+    {
+        "name": "hpc_notify",
+        "description": "Send a notification message via the HPC-Pilot Telegram or Discord gateway.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "message": {"type": "string", "description": "Message text to send"},
+                "platform": {"type": "string", "enum": ["telegram", "discord"], "description": "Platform (default telegram)"},
+                "target": {"type": "string", "description": "Chat ID (Telegram) or channel ID (Discord)"},
+                "dry_run": {"type": "boolean"},
+                "cluster": {"type": "string"},
+            },
+            "required": ["message"],
+        },
+    },
+    {
+        "name": "hpc_warewulf_image_build_from_env",
+        "description": (
+            "Build a Warewulf compute image with a Spack environment baked in. "
+            "Imports the base image, installs Spack, activates the env, and builds."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "name": {"type": "string", "description": "Output image name"},
+                "base": {"type": "string", "description": "Base container image (default rockylinux:9)"},
+                "spack_env": {"type": "string", "description": "Spack environment name to bake in"},
+                "exec_steps": {"type": "array", "items": {"type": "string"}, "description": "Additional build commands"},
+                "gpu": {"type": "boolean", "description": "Include GPU support"},
+                "dry_run": {"type": "boolean"},
+                "cluster": {"type": "string"},
+            },
+            "required": ["name"],
+        },
+    },
+    {
+        "name": "hpc_job_submit_test",
+        "description": (
+            "Submit a short validation test job via sbatch. "
+            "Use after provisioning or image builds to verify the cluster works."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "partition": {"type": "string", "description": "Partition to submit to"},
+                "num_nodes": {"type": "integer", "description": "Number of nodes (default 1)"},
+                "ntasks": {"type": "integer", "description": "Number of tasks (default 1)"},
+                "dry_run": {"type": "boolean"},
+                "cluster": {"type": "string"},
+            },
+        },
+    },
+    {
+        "name": "hpc_storage_lustre_balance",
+        "description": (
+            "Check Lustre OST balance and optionally migrate files off overfull OSTs. "
+            "Reports per-OST usage and identifies imbalance."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "fs_name": {"type": "string", "description": "Lustre filesystem mount point (default /scratch)"},
+                "min_migrate_size_mb": {"type": "integer", "description": "Min file size for migration in MB (default 10240)"},
+                "dry_run": {"type": "boolean"},
+                "cluster": {"type": "string"},
+            },
+        },
+    },
+    {
+        "name": "hpc_storage_scrub_orphans",
+        "description": (
+            "Find orphaned job working directories older than a threshold. "
+            "Dry-run by default — lists candidates without deleting. "
+            "Use for storage cleanup review."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "work_dir": {"type": "string", "description": "Directory to scan (default /scratch)"},
+                "max_age_days": {"type": "integer", "description": "Age threshold in days (default 30)"},
+                "dry_run": {"type": "boolean", "description": "List without deleting (default true)"},
+                "cluster": {"type": "string"},
+            },
+        },
+    },
+    {
+        "name": "hpc_slurm_job_step_metrics",
+        "description": (
+            "Retrieve per-step resource metrics for a completed job via sacct. "
+            "Returns CPU, memory, wall time per job step."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "job_id": {"type": "string", "description": "Slurm job ID"},
+                "cluster": {"type": "string"},
+            },
+            "required": ["job_id"],
+        },
+    },
+    {
+        "name": "hpc_multi_migration_plan",
+        "description": (
+            "Analyze feasibility of migrating jobs from one cluster to another. "
+            "Compares partitions, QOS, and job counts. Use when planning "
+            "maintenance or load-balancing across clusters."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "source_cluster": {"type": "string", "description": "Cluster to migrate from"},
+                "target_cluster": {"type": "string", "description": "Cluster to migrate to"},
+                "dry_run": {"type": "boolean"},
+            },
+            "required": ["source_cluster", "target_cluster"],
         },
     },
 ]

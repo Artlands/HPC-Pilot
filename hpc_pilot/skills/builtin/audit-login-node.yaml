@@ -1,0 +1,35 @@
+name: audit-login-node
+description: >
+  Investigate login node load spikes — list top processes, identify
+  offending users, and produce findings.  Use when users run computation
+  on the login node instead of submitting jobs. Requires operator.
+required_role: operator
+inputs:
+  - name: sort_by
+    type: string
+    default: cpu
+    description: Sort processes by cpu or mem
+  - name: limit
+    type: integer
+    default: 15
+    description: Number of top processes to show
+steps:
+  - id: top_processes
+    tool: hpc_login_node_processes
+    args:
+      sort_by: "{{ sort_by }}"
+      limit: "{{ limit }}"
+  - id: dmesg_check
+    tool: hpc_logs_dmesg_xid
+    args:
+      node: localhost
+    run_when: false
+  - id: findings
+    builtin: prompt
+    args:
+      message: >
+        Login node audit complete.  Review the process list above.
+        Users running heavy computation should submit jobs instead via the queue.
+        Consider setting up cgroups for user-space resource limits if this is
+        a recurring issue.
+on_failure: pause

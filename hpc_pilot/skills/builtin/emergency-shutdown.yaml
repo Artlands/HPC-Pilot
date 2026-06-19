@@ -1,0 +1,52 @@
+name: emergency-shutdown
+description: >
+  Emergency shutdown of a set of nodes — drain running jobs, power off via
+  IPMI. Use when data center cooling fails or other hardware-threatening
+  emergencies arise. Requires admin.
+required_role: admin
+inputs:
+  - name: nodes
+    type: string
+    required: true
+    description: Comma-separated node names to shut down
+  - name: reason
+    type: string
+    default: emergency-shutdown
+    description: Drain reason
+steps:
+  - id: drain_nodes
+    builtin: for_each
+    args:
+      var: n
+      items:
+        split: ","
+        source: "{{ nodes }}"
+      do:
+        - tool: hpc_slurm_node_state
+          args:
+            node: "{{ n }}"
+            target: drain
+            reason: "{{ reason }}"
+  - id: power_off
+    builtin: for_each
+    args:
+      var: n
+      items:
+        split: ","
+        source: "{{ nodes }}"
+      do:
+        - tool: hpc_warewulf_power_off
+          args:
+            node: "{{ n }}"
+  - id: verify_down
+    builtin: for_each
+    args:
+      var: n
+      items:
+        split: ","
+        source: "{{ nodes }}"
+      do:
+        - tool: hpc_warewulf_power_status
+          args:
+            node: "{{ n }}"
+on_failure: pause

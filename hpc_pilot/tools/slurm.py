@@ -301,35 +301,74 @@ def hpc_slurm_job_cancel(
 # ---------------------------------------------------------------------------
 
 
+def _qos_tres_flag(value: str | None, flag: str) -> list[str]:
+    """Build TRES-related sacctmgr flags like GrpTRES= or MaxTRESPU=.
+
+    Expected format: ``"cpu=500000,gres/gpu=100000"``
+    """
+    if not value:
+        return []
+    # Validate: comma-separated key=value pairs
+    for pair in value.split(","):
+        pair = pair.strip()
+        if not pair or "=" not in pair:
+            raise ValueError(f"Invalid TRES value: {pair!r} in {value!r}")
+    return [f"{flag}={value}"]
+
+
 def hpc_slurm_qos_modify(
     name: str,
     max_wall_min: int | None = None,
+    grp_tres: str | None = None,
+    max_tres_per_user: str | None = None,
     dry_run: bool = False,
     *,
     cluster: str = "default",
 ) -> str:
-    """Modify a Slurm QOS entry."""
+    """Modify a Slurm QOS entry.
+
+    Args:
+        name: QOS name.
+        max_wall_min: Maximum wall-clock time in minutes.
+        grp_tres: Group TRES limits, e.g. ``"cpu=500000,gres/gpu=100000"``.
+        max_tres_per_user: Per-user TRES limits, e.g. ``"cpu=1000,gres/gpu=50"``.
+        dry_run: Preview without executing.
+    """
     _validate(name, "QOS name", _USER_RE)
     cl = _resolve_cluster(cluster)
     cmd = [cl.slurm("sacctmgr"), "--immediate", "modify", "qos", name, "set"]
     if max_wall_min is not None:
         cmd.append(f"MaxWall={max_wall_min}")
+    cmd += _qos_tres_flag(grp_tres, "GrpTRES")
+    cmd += _qos_tres_flag(max_tres_per_user, "MaxTRESPU")
     return _run(cmd, cluster=cl, dry_run=dry_run)
 
 
 def hpc_slurm_qos_create(
     name: str,
     max_wall_min: int | None = None,
+    grp_tres: str | None = None,
+    max_tres_per_user: str | None = None,
     *,
     cluster: str = "default",
     dry_run: bool = False,
 ) -> str:
-    """Create a new Slurm QOS entry (sacctmgr add qos)."""
+    """Create a new Slurm QOS entry (sacctmgr add qos).
+
+    Args:
+        name: QOS name.
+        max_wall_min: Maximum wall-clock time in minutes.
+        grp_tres: Group TRES limits, e.g. ``"cpu=500000,gres/gpu=100000"``.
+        max_tres_per_user: Per-user TRES limits, e.g. ``"cpu=1000,gres/gpu=50"``.
+        dry_run: Preview without executing.
+    """
     _validate(name, "QOS name", _USER_RE)
     cl = _resolve_cluster(cluster)
     cmd = [cl.slurm("sacctmgr"), "--immediate", "add", "qos", name]
     if max_wall_min is not None:
         cmd += [f"MaxWall={max_wall_min}"]
+    cmd += _qos_tres_flag(grp_tres, "GrpTRES")
+    cmd += _qos_tres_flag(max_tres_per_user, "MaxTRESPU")
     return _run(cmd, cluster=cl, dry_run=dry_run)
 
 

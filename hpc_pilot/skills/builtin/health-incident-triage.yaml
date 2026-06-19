@@ -1,0 +1,40 @@
+name: health-incident-triage
+description: >
+  Triage a cluster health incident — check overall health, Lustre OSTs,
+  mounts, and logs in sequence. Produces a summary of findings.
+  5 steps, requires operator.
+required_role: operator
+inputs:
+  - name: node
+    type: string
+    default: ""
+    description: Specific node to investigate (optional)
+  - name: ost_name
+    type: string
+    default: ""
+    description: Specific Lustre OST to check (optional)
+steps:
+  - id: cluster_health
+    tool: hpc_cluster_health_check
+    args: {}
+  - id: node_check
+    tool: hpc_slurm_node_status
+    args:
+      node: "{{ node }}"
+    run_when: "{{ node != '' }}"
+  - id: storage_lustre
+    tool: hpc_storage_lustre_status
+    args: {}
+    run_when: "{{ ost_name == '' }}"
+  - id: mounts
+    tool: hpc_storage_mounts
+    args:
+      node: "{{ node or 'localhost' }}"
+  - id: summary
+    builtin: prompt
+    args:
+      message: >
+        Health incident triage complete. Check cluster_health output for
+        overall state, storage_lustre for OST health, mounts for filesystem
+        status, and node_check for node-level details if a node was specified.
+on_failure: pause

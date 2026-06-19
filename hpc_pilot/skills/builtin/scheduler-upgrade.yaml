@@ -1,0 +1,44 @@
+name: scheduler-upgrade
+description: >
+  Upgrade the Slurm controller (slurmctld) with minimal disruption:
+  hold all pending jobs, stop slurmctld, upgrade packages, restart,
+  verify, and release held jobs. Requires superadmin.
+required_role: superadmin
+inputs:
+  - name: package_names
+    type: string
+    default: slurm slurm-contribs
+    description: Package names to upgrade
+steps:
+  - id: hold_pending
+    tool: hpc_slurm_usage_report
+    args:
+      report_type: cluster
+      start: "now-1hour"
+  - id: stop_slurmctld
+    tool: hpc_slurm_service
+    args:
+      service: slurmctld
+      action: stop
+  - id: upgrade_packages
+    tool: hpc_slurm_service
+    args:
+      service: slurmctld
+      action: status
+  - id: start_slurmctld
+    tool: hpc_slurm_service
+    args:
+      service: slurmctld
+      action: start
+  - id: verify_state
+    tool: hpc_slurm_service
+    args:
+      service: slurmctld
+      action: status
+  - id: reconfigure
+    tool: hpc_slurm_reconfigure
+    args: {}
+  - id: release_held
+    tool: hpc_slurm_sdiag
+    args: {}
+on_failure: pause

@@ -455,6 +455,50 @@ class TestQOS:
         with pytest.raises(ValueError):
             hpc_slurm_qos_create("bad name!")
 
+    @patch("hpc_pilot.tools.slurm._run")
+    @patch("hpc_pilot.tools.slurm._resolve_cluster")
+    def test_qos_create_grp_tres(self, mock_cl, mock_run):
+        from hpc_pilot.tools.slurm import hpc_slurm_qos_create
+
+        mock_cl.return_value = _mock_cluster()
+        mock_run.return_value = ""
+        hpc_slurm_qos_create("astro-lab-qos", max_wall_min=1440, grp_tres="cpu=500000,gres/gpu=100000")
+        cmd = mock_run.call_args[0][0]
+        assert "GrpTRES=cpu=500000,gres/gpu=100000" in cmd
+        assert "MaxWall=1440" in cmd
+
+    @patch("hpc_pilot.tools.slurm._run")
+    @patch("hpc_pilot.tools.slurm._resolve_cluster")
+    def test_qos_create_max_tres_per_user(self, mock_cl, mock_run):
+        from hpc_pilot.tools.slurm import hpc_slurm_qos_create
+
+        mock_cl.return_value = _mock_cluster()
+        mock_run.return_value = ""
+        hpc_slurm_qos_create("dev-qos", max_tres_per_user="cpu=100,gres/gpu=10")
+        cmd = mock_run.call_args[0][0]
+        assert "MaxTRESPU=cpu=100,gres/gpu=10" in cmd
+
+    @patch("hpc_pilot.tools.slurm._run")
+    @patch("hpc_pilot.tools.slurm._resolve_cluster")
+    def test_qos_modify_grp_tres(self, mock_cl, mock_run):
+        from hpc_pilot.tools.slurm import hpc_slurm_qos_modify
+
+        mock_cl.return_value = _mock_cluster()
+        mock_run.return_value = ""
+        hpc_slurm_qos_modify("astro-lab-qos", max_wall_min=2880, grp_tres="cpu=1000000,gres/gpu=200000")
+        cmd = mock_run.call_args[0][0]
+        assert "GrpTRES=cpu=1000000,gres/gpu=200000" in cmd
+        assert "MaxWall=2880" in cmd
+
+    @patch("hpc_pilot.tools.slurm._run")
+    @patch("hpc_pilot.tools.slurm._resolve_cluster")
+    def test_qos_create_invalid_tres(self, mock_cl, mock_run):
+        from hpc_pilot.tools.slurm import hpc_slurm_qos_create
+
+        mock_cl.return_value = _mock_cluster()
+        with pytest.raises(ValueError, match="TRES"):
+            hpc_slurm_qos_create("bad-qos", grp_tres="not-tres-format")
+
 
 # ---------------------------------------------------------------------------
 # hpc_slurm_fairshare / accounting / usage_report

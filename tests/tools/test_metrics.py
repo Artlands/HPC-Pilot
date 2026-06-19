@@ -245,25 +245,38 @@ class TestLogsSlurmctldTail:
         assert "tail" in cmd
         assert any("slurmctld.log" in part for part in cmd)
 
+    @patch("hpc_pilot.tools.metrics.subprocess.run")
+    @patch("hpc_pilot.tools.metrics._resolve_cluster")
+    def test_with_grep_filter(self, mock_cl, mock_sp_run):
+        """The grep branch uses subprocess.run directly instead of _run."""
+        from hpc_pilot.tools.metrics import hpc_logs_slurmctld_tail
+
+        mock_cl.return_value = _mock_cluster()
+        mock_sp_run.return_value = _sp_run_ok("error: GPU has fallen off the bus.\n")
+        result = hpc_logs_slurmctld_tail(lines=50, grep="GPU")
+        assert "GPU" in result
+
 
 class TestLogsSearch:
-    @patch("hpc_pilot.tools.metrics._run")
+    @patch("hpc_pilot.tools.metrics.subprocess.run")
     @patch("hpc_pilot.tools.metrics._resolve_cluster")
-    def test_happy_path(self, mock_cl, mock_run):
+    def test_happy_path(self, mock_cl, mock_sp_run):
+        """Uses subprocess.run directly (journalctl | grep pipeline)."""
         from hpc_pilot.tools.metrics import hpc_logs_search
 
         mock_cl.return_value = _mock_cluster()
-        mock_run.return_value = "Jun 19 12:00:00 host error: oom\n"
+        mock_sp_run.return_value = _sp_run_ok("Jun 19 12:00:00 host error: oom\n")
         result = hpc_logs_search("oom")
         assert "oom" in result
 
-    @patch("hpc_pilot.tools.metrics._run")
+    @patch("hpc_pilot.tools.metrics.subprocess.run")
     @patch("hpc_pilot.tools.metrics._resolve_cluster")
-    def test_no_matching_lines(self, mock_cl, mock_run):
+    def test_no_matching_lines(self, mock_cl, mock_sp_run):
+        """Returns '(no matching lines)' when grep produces empty output."""
         from hpc_pilot.tools.metrics import hpc_logs_search
 
         mock_cl.return_value = _mock_cluster()
-        mock_run.side_effect = RuntimeError("exited 1")
+        mock_sp_run.return_value = _sp_run_ok("")
         result = hpc_logs_search("nonexistent")
         assert "(no matching lines)" in result
 

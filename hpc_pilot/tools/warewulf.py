@@ -117,7 +117,10 @@ def hpc_warewulf_image_build(
 
     # Determine image size
     size_mb = 0
-    image_path = os.path.join(cl.warewulf_bin_dir, "..", "var", "warewulf", "images", name)
+    # Warewulf images are typically stored under /var/lib/warewulf/images/ or /var/warewulf/images/
+    image_path = os.path.join("/var", "lib", "warewulf", "images", name)
+    if not os.path.isdir(image_path):
+        image_path = os.path.join("/var", "warewulf", "images", name)
     if os.path.isdir(image_path):
         total_bytes = 0
         for dirpath, _dirnames, filenames in os.walk(image_path):

@@ -173,7 +173,7 @@ def hpc_cluster_health_check(*, cluster: str = "default") -> dict[str, Any]:
     try:
         _run(["mount"], cluster=cl, timeout=15)
         with suppress(Exception):
-            _run([cl.slurm("lctl"), "get_param", "obdfilter.*.state"],
+            _run(["lctl", "get_param", "obdfilter.*.state"],
                  cluster=cl, timeout=15)
         storage_info["status"] = "healthy"
     except Exception as exc:

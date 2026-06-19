@@ -5,6 +5,7 @@ import contextlib
 import json
 import re
 import shlex
+import subprocess
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -469,10 +470,22 @@ def hpc_logs_slurmctld_tail(
     cl = _resolve_cluster(cluster)
 
     if grep:
-        cmd = [
-            "tail", "-n", str(lines), "/var/log/slurm/slurmctld.log",
-            "|", "grep", "-E", "--", grep,
-        ]
+        try:
+            tail = subprocess.run(
+                ["tail", "-n", str(lines), "/var/log/slurm/slurmctld.log"],
+                capture_output=True, text=True, timeout=30,
+            )
+            if tail.returncode == 0:
+                grep_proc = subprocess.run(
+                    ["grep", "-E", "--", grep],
+                    input=tail.stdout, capture_output=True, text=True, timeout=30,
+                )
+                output = _redact_output(grep_proc.stdout)
+                return output
+            else:
+                raise RuntimeError(f"tail exited {tail.returncode}: {tail.stderr.strip()}")
+        except FileNotFoundError:
+            raise RuntimeError("tail or grep not found on the controller") from None
     else:
         cmd = ["tail", "-n", str(lines), "/var/log/slurm/slurmctld.log"]
 
@@ -513,7 +526,9 @@ def hpc_logs_dmesg_xid(
     """Search dmesg for GPU XID errors on a node via SSH."""
     _validate(node, "node")
     cl = _resolve_cluster(cluster)
-    remote_cmd = ["dmesg", "|", "grep", "-i", "xid"]
+    # Pipe via shell on the remote node so dmesg | grep works over SSH
+    import shlex
+    remote_cmd = ["sh", "-c", "dmesg | grep -i xid"]
     cmd = _build_ssh_cmd(node, cl, remote_cmd)
 
     try:
@@ -549,16 +564,22 @@ def hpc_logs_search(
     _validate(pattern, "search pattern")
     cl = _resolve_cluster(cluster)
 
-    cmd = [
-        "journalctl", f"--since={since}", "--no-pager",
-        "|", "grep", "-E", "--", pattern,
-    ]
     try:
-        output = _run(cmd, cluster=cl, timeout=60)
-    except RuntimeError:
-        return "(no matching lines)"
-
-    return _redact_output(output)
+        journal = subprocess.run(
+            ["journalctl", f"--since={since}", "--no-pager"],
+            capture_output=True, text=True, timeout=60,
+        )
+        if journal.returncode == 0:
+            grep_proc = subprocess.run(
+                ["grep", "-E", "--", pattern],
+                input=journal.stdout, capture_output=True, text=True, timeout=60,
+            )
+            output = _redact_output(grep_proc.stdout)
+            return output if output.strip() else "(no matching lines)"
+        else:
+            raise RuntimeError(f"journalctl exited {journal.returncode}")
+    except FileNotFoundError:
+        raise RuntimeError("journalctl or grep not found on the controller") from None
 
 
 # ---------------------------------------------------------------------------

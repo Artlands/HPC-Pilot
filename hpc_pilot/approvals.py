@@ -5,7 +5,7 @@ import json
 import os
 import time
 import uuid
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Any, Literal
 
 from hpc_pilot.audit import AuditEvent, log_audit

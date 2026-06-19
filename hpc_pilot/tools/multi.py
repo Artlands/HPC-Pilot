@@ -31,8 +31,8 @@ def _query_single(tool: str, args: dict[str, Any], cluster: str) -> str:
     """
     _check_rbac(tool, cluster)
 
-    from hpc_pilot.dispatch import _dispatch
     from hpc_pilot import tools
+    from hpc_pilot.dispatch import _dispatch
 
     effective_args = dict(args)
     effective_args["cluster"] = cluster

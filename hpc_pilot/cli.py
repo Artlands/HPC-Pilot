@@ -385,7 +385,7 @@ def approve_command(args: argparse.Namespace) -> int:
     request_id = getattr(args, "request_id", None)
     if not request_id:
         print("approve: an approval ID is required (use --list to see pending).", file=sys.stderr)
-        print(f"Usage: hpc-pilot approve <approval-id> [--reject]", file=sys.stderr)
+        print("Usage: hpc-pilot approve <approval-id> [--reject]", file=sys.stderr)
         return 2
 
     reject = getattr(args, "reject", False)

@@ -12,7 +12,6 @@ from hpc_pilot.paths import get_home
 from hpc_pilot.tools._run import _resolve_cluster, _run
 from hpc_pilot.tools._validation import _validate
 
-
 # ===================================================================
 # Image management
 # ===================================================================

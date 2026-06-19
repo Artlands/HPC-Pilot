@@ -355,7 +355,6 @@ class TestSpackFunctions:
 # Ansible
 # ---------------------------------------------------------------------------
 
-from hpc_pilot.tools.ansible import _try_import_jobs
 
 
 class TestAnsibleFunctions:
@@ -404,8 +403,8 @@ class TestAnsibleFunctions:
     @patch("hpc_pilot.jobs.subprocess.Popen")
     def test_playbook_run_async(self, mock_popen, mock_try_import):
         """When jobs.py exists, playbook_run returns a run_id dict via async."""
-        from hpc_pilot.tools import hpc_ansible_playbook_run
         import hpc_pilot.jobs as jobs_mod
+        from hpc_pilot.tools import hpc_ansible_playbook_run
 
         mock_try_import.return_value = jobs_mod
         mock_proc = Mock()

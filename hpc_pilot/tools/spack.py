@@ -8,7 +8,7 @@ import time
 from typing import Any
 
 from hpc_pilot.tools._run import _resolve_cluster, _run
-from hpc_pilot.tools._validation import _SPACK_ENV_RE, _USER_RE, _validate
+from hpc_pilot.tools._validation import _SPACK_ENV_RE, _validate
 
 
 def hpc_spack_env_list(*, cluster: str = "default") -> str:

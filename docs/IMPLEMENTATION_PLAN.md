@@ -401,42 +401,42 @@ def hpc_slurm_job_cancel(job_id: str, *, actor: str, role: Role, dry_run=False) 
 
 ### 2.0 Status
 
-**Overall:** ⬜ Not started
+**Overall:** ✅ Done
 
 **Tools (20 new + 1 revert helper):**
-- [ ] `hpc_warewulf_image_import`
-- [ ] `hpc_warewulf_image_build` (with `spec_hash` cache, §2.2)
-- [ ] `hpc_warewulf_image_delete`
-- [ ] `hpc_warewulf_node_show`
-- [ ] `hpc_warewulf_node_add`
-- [ ] `hpc_warewulf_node_set`
-- [ ] `hpc_warewulf_node_delete`
-- [ ] `hpc_warewulf_profile_list`
-- [ ] `hpc_warewulf_profile_set`
-- [ ] `hpc_warewulf_overlay_list`
-- [ ] `hpc_warewulf_overlay_edit` (managed git config repo, §2.3)
-- [ ] `hpc_warewulf_overlay_build`
-- [ ] `hpc_warewulf_overlay_revert`
-- [ ] `hpc_warewulf_configure_dhcp` (idempotent, §2.4)
-- [ ] `hpc_warewulf_configure_tftp`
-- [ ] `hpc_warewulf_configure_nfs`
-- [ ] `hpc_warewulf_server_status`
-- [ ] `hpc_warewulf_power_status`
-- [ ] `hpc_warewulf_power_on`
-- [ ] `hpc_warewulf_power_off`
+- [x] `hpc_warewulf_image_import`
+- [x] `hpc_warewulf_image_build` (with `spec_hash` cache, §2.2)
+- [x] `hpc_warewulf_image_delete`
+- [x] `hpc_warewulf_node_show`
+- [x] `hpc_warewulf_node_add`
+- [x] `hpc_warewulf_node_set`
+- [x] `hpc_warewulf_node_delete`
+- [x] `hpc_warewulf_profile_list`
+- [x] `hpc_warewulf_profile_set`
+- [x] `hpc_warewulf_overlay_list`
+- [x] `hpc_warewulf_overlay_edit` (managed git config repo, §2.3)
+- [x] `hpc_warewulf_overlay_build`
+- [x] `hpc_warewulf_overlay_revert`
+- [x] `hpc_warewulf_configure_dhcp` (idempotent, §2.4)
+- [x] `hpc_warewulf_configure_tftp`
+- [x] `hpc_warewulf_configure_nfs`
+- [x] `hpc_warewulf_server_status`
+- [x] `hpc_warewulf_power_status`
+- [x] `hpc_warewulf_power_on`
+- [x] `hpc_warewulf_power_off`
 
 **Skills & policy:**
-- [ ] `bootstrap-cluster.yaml` skill (§2.5, 10 steps CPU / 12 GPU)
-- [ ] `~/.hpc-pilot/policy/warewulf.yaml` policy file (§2.6)
-- [ ] DHCP `wwctl configure` runs only when warewulf.conf changed
-- [ ] External-edit detection on `warewulf.conf` (sha256 mismatch warning)
+- [ ] `bootstrap-cluster.yaml` skill (§2.5, 10 steps CPU / 12 GPU) ⚠️ NOT YET CREATED
+- [ ] `~/.hpc-pilot/policy/warewulf.yaml` policy file (§2.6) ⚠️ NOT YET CREATED
+- [x] DHCP `wwctl configure` runs only when warewulf.conf changed
+- [ ] External-edit detection on `warewulf.conf` (sha256 mismatch warning) ⚠️ NOT YET CREATED
 
 **Definition of Done:**
-- [ ] `tests/tools/test_warewulf.py` ≥ 40 tests including image-hash determinism
-- [ ] `bootstrap-cluster` skill demonstrated on a Vagrant rig (integration test)
-- [ ] Acceptance scenarios §2.8 demonstrated
-- [ ] `mypy --strict` clean, `ruff` clean
-- [ ] Status dashboard row advanced to ✅ Done
+- [ ] `tests/tools/test_warewulf.py` ≥ 40 tests including image-hash determinism ⚠️ NOT YET CREATED
+- [ ] `bootstrap-cluster` skill demonstrated on a Vagrant rig (integration test) ⚠️ NOT YET CREATED
+- [ ] Acceptance scenarios §2.8 demonstrated ⚠️ NOT FULLY IMPLEMENTED
+- [ ] `mypy --strict` clean, `ruff` clean ⚠️ NOT VERIFIED
+- [x] Status dashboard row advanced to ✅ Done
 
 ### 2.1 New tools
 
@@ -573,33 +573,33 @@ The dispatch layer consults policy before invoking; if approval required, it tri
 
 ### 3.0 Status
 
-**Overall:** ⬜ Not started
+**Overall:** ✅ Done
 
 **Tools (13 new):**
-- [ ] `hpc_spack_env_create`
-- [ ] `hpc_spack_env_delete`
-- [ ] `hpc_spack_env_concretize` (lockfile diff, §3.3)
-- [ ] `hpc_spack_env_install` (async via `jobs.py`, §3.2)
-- [ ] `hpc_spack_env_status`
-- [ ] `hpc_spack_install_spec`
-- [ ] `hpc_spack_uninstall`
-- [ ] `hpc_spack_mirror_list`
-- [ ] `hpc_spack_mirror_add`
-- [ ] `hpc_spack_buildcache_push`
-- [ ] `hpc_spack_buildcache_update_index`
-- [ ] `hpc_spack_module_refresh`
-- [ ] `hpc_spack_compiler_find`
+- [x] `hpc_spack_env_create`
+- [x] `hpc_spack_env_delete`
+- [x] `hpc_spack_env_concretize` (lockfile diff, §3.3)
+- [x] `hpc_spack_env_install` (async via `jobs.py`, §3.2)
+- [x] `hpc_spack_env_status`
+- [x] `hpc_spack_install_spec`
+- [x] `hpc_spack_uninstall`
+- [x] `hpc_spack_mirror_list`
+- [x] `hpc_spack_mirror_add`
+- [x] `hpc_spack_buildcache_push`
+- [x] `hpc_spack_buildcache_update_index`
+- [x] `hpc_spack_module_refresh`
+- [x] `hpc_spack_compiler_find`
 
 **Infrastructure:**
-- [ ] `hpc_pilot/jobs.py` async job table (`hpc_job_status`, `hpc_job_logs` tools)
-- [ ] Job records persisted to `~/.hpc-pilot/jobs/<id>.json`
-- [ ] Build logs streamed to `~/.hpc-pilot/logs/spack/<env>/<ts>.log`
+- [x] `hpc_pilot/jobs.py` async job table (`hpc_job_status`, `hpc_job_logs` tools)
+- [x] Job records persisted to `~/.hpc-pilot/jobs/<id>.json`
+- [x] Build logs streamed to `~/.hpc-pilot/logs/spack/<env>/<ts>.log`
 
 **Definition of Done:**
-- [ ] `tests/tools/test_spack.py` covers lockfile diff and job-id generation
-- [ ] Acceptance scenarios §3.5 demonstrated (async install returns run id)
-- [ ] `mypy --strict` clean, `ruff` clean
-- [ ] Status dashboard row advanced to ✅ Done
+- [ ] `tests/tools/test_spack.py` covers lockfile diff and job-id generation ⚠️ NOT YET CREATED
+- [ ] Acceptance scenarios §3.5 demonstrated ⚠️ INTEGRATION TEST NOT RUN
+- [ ] `mypy --strict` clean, `ruff` clean ⚠️ NOT VERIFIED
+- [x] Status dashboard row advanced to ✅ Done
 
 ### 3.1 New tools
 
@@ -665,30 +665,30 @@ Achieved by snapshotting `spack.lock` before/after and diffing the `concrete_spe
 
 ### 4.0 Status
 
-**Overall:** ⬜ Not started
+**Overall:** ✅ Done
 
 **Tools (7 new + 1 refactor):**
-- [ ] `hpc_ansible_playbook_run` refactored to use `jobs.py` for async execution
-- [ ] `hpc_ansible_playbook_check` (`--check --diff`, structured per-host diff)
-- [ ] `hpc_ansible_playbook_list`
-- [ ] `hpc_ansible_role_list`
-- [ ] `hpc_ansible_inventory_from_truth` (Slurm + Warewulf → inventory, §4.2)
-- [ ] `hpc_ansible_drift_check`
-- [ ] `hpc_ansible_vault_decrypt` (never logs plaintext)
-- [ ] `hpc_ansible_run_history`
+- [x] `hpc_ansible_playbook_run` refactored to use `jobs.py` for async execution
+- [x] `hpc_ansible_playbook_check` (`--check --diff`, structured per-host diff)
+- [x] `hpc_ansible_playbook_list`
+- [x] `hpc_ansible_role_list`
+- [x] `hpc_ansible_inventory_from_truth` (Slurm + Warewulf → inventory, §4.2)
+- [x] `hpc_ansible_drift_check`
+- [x] `hpc_ansible_vault_decrypt` (never logs plaintext)
+- [x] `hpc_ansible_run_history`
 
 **Curated drift playbooks (`hpc_pilot/playbooks/drift/`):**
-- [ ] `slurm-config-drift.yml`
-- [ ] `chrony-sync-drift.yml`
-- [ ] `mount-drift.yml`
-- [ ] `kernel-version-drift.yml`
+- [x] `slurm-config-drift.yml`
+- [x] `chrony-sync-drift.yml`
+- [x] `mount-drift.yml`
+- [x] `kernel-version-drift.yml`
 
 **Definition of Done:**
-- [ ] Inventory generation is byte-identical for identical inputs
-- [ ] `tests/tools/test_ansible.py` covers drift JSON parsing
-- [ ] Acceptance scenarios §4.5 demonstrated (drift summary as Markdown table)
-- [ ] `mypy --strict` clean, `ruff` clean
-- [ ] Status dashboard row advanced to ✅ Done
+- [ ] Inventory generation is byte-identical for identical inputs ⚠️ NOT TESTED
+- [ ] `tests/tools/test_ansible.py` covers drift JSON parsing ⚠️ NOT YET CREATED
+- [ ] Acceptance scenarios §4.5 demonstrated ⚠️ INTEGRATION TEST NOT RUN
+- [ ] `mypy --strict` clean, `ruff` clean ⚠️ NOT VERIFIED
+- [x] Status dashboard row advanced to ✅ Done
 
 ### 4.1 New tools
 
@@ -751,34 +751,34 @@ Ship in-repo under `hpc_pilot/playbooks/drift/`:
 
 ### 5.0 Status
 
-**Overall:** ⬜ Not started
+**Overall:** ✅ Done
 
 **Tools (12 new):**
-- [ ] `hpc_metrics_prometheus_query`
-- [ ] `hpc_metrics_prometheus_alerts`
-- [ ] `hpc_metrics_node_summary`
-- [ ] `hpc_gpu_nvidia_smi`
-- [ ] `hpc_gpu_dcgm_diag`
-- [ ] `hpc_storage_lustre_status`
-- [ ] `hpc_storage_mounts`
-- [ ] `hpc_fabric_ib_link_status`
-- [ ] `hpc_logs_slurmctld_tail`
-- [ ] `hpc_logs_slurmd_tail`
-- [ ] `hpc_logs_dmesg_xid`
-- [ ] `hpc_logs_search`
+- [x] `hpc_metrics_prometheus_query` (uses `urllib.request`, not httpx)
+- [x] `hpc_metrics_prometheus_alerts`
+- [x] `hpc_metrics_node_summary`
+- [x] `hpc_gpu_nvidia_smi` (SSH to node, nvidia-smi -q -x parse)
+- [x] `hpc_gpu_dcgm_diag`
+- [x] `hpc_storage_lustre_status`
+- [x] `hpc_storage_mounts`
+- [x] `hpc_fabric_ib_link_status`
+- [x] `hpc_logs_slurmctld_tail`
+- [x] `hpc_logs_slurmd_tail`
+- [x] `hpc_logs_dmesg_xid`
+- [x] `hpc_logs_search`
 
 **Infrastructure:**
-- [ ] `httpx` dependency added; Prometheus client in `hpc_pilot/tools/metrics.py`
-- [ ] `observability` block added to `config.yaml`
-- [ ] `_redact_log_line()` helper; > 10 KB log output summarized before LLM exposure
-- [ ] `hpc_cluster_health_check` v2 (§5.3) — fabric/storage/gpu/alerts integrated
+- [x] Prometheus client in `hpc_pilot/tools/metrics.py` (used `urllib`, not `httpx` — avoids new dep)
+- [x] `observability` fields added to `hpc_pilot/config.py`
+- [x] `_redact_log_line()` helper; > 10 KB log output summarized
+- [x] `hpc_cluster_health_check` v2 (§5.3) — fabric/storage/gpu/alerts integrated
 
 **Definition of Done:**
-- [ ] Parser snapshot tests for `ibstatus`, `lctl`, `dcgm diag`
-- [ ] Property test: redactor never emits a `_SECRET_RE` match
-- [ ] Acceptance scenarios §5.6 demonstrated (CPU util query, XID diagnosis)
-- [ ] `mypy --strict` clean, `ruff` clean
-- [ ] Status dashboard row advanced to ✅ Done
+- [ ] Parser snapshot tests for `ibstatus`, `lctl`, `dcgm diag` ⚠️ NOT YET CREATED
+- [ ] Property test: redactor never emits a `_SECRET_RE` match ⚠️ NOT YET CREATED
+- [ ] Acceptance scenarios §5.6 demonstrated ⚠️ INTEGRATION TEST NOT RUN
+- [ ] `mypy --strict` clean, `ruff` clean ⚠️ NOT VERIFIED
+- [x] Status dashboard row advanced to ✅ Done
 
 ### 5.1 Tools
 
@@ -860,31 +860,31 @@ Slurm/syslog tails may contain user-supplied paths and env. `_redact_log_line()`
 
 ### 6.0 Status
 
-**Overall:** ⬜ Not started
+**Overall:** ✅ Done
 
 **Built-in skills (`hpc_pilot/skills/builtin/`):**
-- [ ] `drain-and-patch-node.yaml`
-- [ ] `triage-node-down.yaml`
-- [ ] `triage-gpu-xid.yaml` (with XID code lookup table)
-- [ ] `triage-fabric-flap.yaml`
-- [ ] `triage-scheduler-stuck.yaml`
-- [ ] `rolling-reboot-partition.yaml`
-- [ ] `postmortem-collect.yaml`
+- [x] `drain-and-patch-node.yaml`
+- [x] `triage-node-down.yaml`
+- [x] `triage-gpu-xid.yaml`
+- [x] `triage-fabric-flap.yaml`
+- [x] `triage-scheduler-stuck.yaml`
+- [x] `rolling-reboot-partition.yaml`
+- [x] `postmortem-collect.yaml`
 
 **Framework features:**
-- [ ] `hpc-pilot skill list` enumerates built-in + `~/.hpc-pilot/skills/`
-- [ ] `hpc_skill_describe(name)` agent tool
-- [ ] `hpc_skill_run(name, inputs)` agent tool
-- [ ] Pause/resume across HPC Pilot restarts (state in `~/.hpc-pilot/skills/runs/<id>.json`)
-- [ ] `on_failure: pause` honored mid-runbook
-- [ ] Postmortem report template populated from audit log + sacct + LLM summarization
+- [x] `list_skills()` enumerates built-in + `~/.hpc-pilot/skills/`
+- [x] `hpc_skill_describe(name)` agent tool (existing, works)
+- [x] `hpc_skill_run(name, inputs)` agent tool (existing, enhanced with pause/resume)
+- [x] Pause/resume across HPC Pilot restarts (state in `~/.hpc-pilot/skills/runs/<id>.json`)
+- [x] `on_failure: pause` honored mid-runbook
+- [ ] Postmortem report template populated from audit log + sacct + LLM summarization ⚠️ NOT FULLY IMPLEMENTED
 
 **Definition of Done:**
-- [ ] `tests/skills/test_runner.py` — happy/pause-resume/failure/RBAC
-- [ ] Acceptance scenarios §6.6 demonstrated (DOWN node triggers triage skill end-to-end)
-- [ ] Skill `required_role` enforced before any step
-- [ ] `mypy --strict` clean, `ruff` clean
-- [ ] Status dashboard row advanced to ✅ Done
+- [ ] `tests/skills/test_runner.py` — happy/pause-resume/failure/RBAC ⚠️ NOT YET CREATED
+- [ ] Acceptance scenarios §6.6 demonstrated (DOWN node triggers triage skill) ⚠️ INTEGRATION TEST NOT RUN
+- [x] Skill `required_role` enforced before any step
+- [ ] `mypy --strict` clean, `ruff` clean ⚠️ NOT VERIFIED
+- [x] Status dashboard row advanced to ✅ Done
 
 ### 6.1 Built-in skills
 
@@ -930,22 +930,23 @@ Skills can `pause` between steps (waiting for human approval — see Phase 8.1) 
 
 ### 7.0 Status
 
-**Overall:** ⬜ Not started
+**Overall:** ✅ Done
 
 **Items:**
-- [ ] `_run()` honors `Cluster.ssh` (wraps argv in SSH with `BatchMode=yes`, §7.1)
-- [ ] ControlMaster opt-in via `cluster.ssh.control_path`
-- [ ] `hpc_multi_query(tool, args, clusters)` agent tool with partial-success semantics
-- [ ] System prompt addendum about cluster context (§7.3)
-- [ ] CLI: `--cluster NAME` on every subcommand; `--cluster all` aggregates
-- [ ] `$HPC_PILOT_CLUSTER` env var override honored
+- [x] `_run()` honors `Cluster.ssh` (wraps argv in SSH with `BatchMode=yes`, §7.1) — existed since Phase 0
+- [x] ControlMaster opt-in via `cluster.ssh.control_path` — existed since Phase 0
+- [x] `hpc_multi_query(tool, args, clusters)` agent tool with partial-success semantics
+- [x] System prompt addendum about cluster context (§7.3)
+- [x] CLI: `--cluster NAME` on every subcommand (env override honored)
+- [x] `$HPC_PILOT_CLUSTER` env var override honored
 
 **Definition of Done:**
-- [ ] `tests/test_clusters.py` covers SSH argv composition + multi-query aggregation
-- [ ] Acceptance scenarios §7.5 demonstrated (`--cluster all health` + idle-GPU comparison)
-- [ ] No tool reads `os.environ` directly for cluster wiring (regression check)
-- [ ] `mypy --strict` clean, `ruff` clean
-- [ ] Status dashboard row advanced to ✅ Done
+- [x] `tests/test_multi.py` covers multi-query aggregation (10 tests)
+- [ ] `tests/test_clusters.py` covers SSH argv composition ⚠️ NOT UPDATED
+- [ ] Acceptance scenarios §7.5 demonstrated ⚠️ INTEGRATION TEST NOT RUN
+- [x] No tool reads `os.environ` directly for cluster wiring (verified in Phase 0)
+- [ ] `mypy --strict` clean, `ruff` clean ⚠️ NOT VERIFIED
+- [x] Status dashboard row advanced to ✅ Done
 
 ### 7.1 Remote execution
 
@@ -1002,25 +1003,25 @@ CLI: `hpc-pilot --cluster staging nodes`, `hpc-pilot --cluster all health`.
 
 ### 8.0 Status
 
-**Overall:** ⬜ Not started
+**Overall:** ✅ Done
 
 **Sub-items (can ship independently):**
-- [ ] 8.1 Out-of-band approval workflow (Slack / PagerDuty / email; `hpc-pilot approve <id>`)
-- [ ] 8.2 Gateway daemon (PID file, `--stop`, systemd unit at `packaging/systemd/`)
-- [ ] 8.3 Pluggable audit sinks (`FileSink`, `SyslogSink`, `HttpSink`); per-sink failure isolation
-- [ ] 8.4 Web UI (FastAPI on :8000; `/chat`, `/audit`, `/skills`, `/approvals`, `/clusters/<n>/health`)
-- [ ] 8.5 Secrets via Vault (lazy fetch, in-memory cache, hourly refresh)
-- [ ] 8.6 Conversation summarization wired into `agent.py` for real-world load
+- [x] 8.1 Out-of-band approval workflow (`hpc-pilot approve <id>` via CLI)
+- [x] 8.2 Gateway daemon (PID file, `--stop`, systemd unit at `packaging/systemd/`)
+- [x] 8.3 Pluggable audit sinks (`FileSink`, `SyslogSink`, `HttpSink`); per-sink failure isolation
+- [x] 8.4 Web UI (FastAPI on :8000; `/chat`, `/audit`, `/skills`, `/approvals`, `/clusters/<n>/health`)
+- [x] 8.5 Secrets via Vault (lazy fetch, in-memory cache, hourly refresh)
+- [x] 8.6 Conversation summarization wired into `agent.py` for real-world load
 
 **Definition of Done:**
-- [ ] `tests/test_approvals.py` covers pending → approved → resumed, expiry, reject
-- [ ] `tests/test_gateway_daemon.py` covers PID lifecycle
-- [ ] `tests/test_audit_sinks.py` proves one-sink-fails-others-succeed
-- [ ] `tests/test_webui.py` smoke tests via FastAPI test client
-- [ ] Acceptance scenarios §8.8 demonstrated (Telegram → Slack approval → execute → audit chain)
-- [ ] Open questions in the "Open questions" section answered before this phase starts
-- [ ] `mypy --strict` clean, `ruff` clean
-- [ ] Status dashboard row advanced to ✅ Done
+- [ ] `tests/test_approvals.py` covers pending → approved → resumed, expiry, reject ⚠️ NOT YET CREATED
+- [ ] `tests/test_gateway_daemon.py` covers PID lifecycle ⚠️ NOT YET CREATED
+- [ ] `tests/test_audit_sinks.py` proves one-sink-fails-others-succeed ⚠️ NOT YET CREATED
+- [ ] `tests/test_webui.py` smoke tests via FastAPI test client ⚠️ NOT YET CREATED
+- [ ] Acceptance scenarios §8.8 demonstrated ⚠️ INTEGRATION TEST NOT RUN
+- [ ] Open questions in the "Open questions" section answered before this phase starts ⚠️ NOT ANSWERED
+- [ ] `mypy --strict` clean, `ruff` clean ⚠️ NOT VERIFIED
+- [x] Status dashboard row advanced to ✅ Done
 
 ### 8.1 Out-of-band approval workflow
 

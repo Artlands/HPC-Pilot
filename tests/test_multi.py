@@ -12,8 +12,6 @@ from __future__ import annotations
 
 from unittest.mock import patch
 
-import pytest
-
 
 class TestHpcMultiQuery:
     """Tests for hpc_multi_query — cross-cluster parallel query."""
@@ -122,10 +120,9 @@ class TestHpcMultiQuery:
 
     def test_rbac_viewer_can_call(self, tmp_home):
         """A VIEWER role can call hpc_multi_query via dispatch."""
+
         from hpc_pilot.dispatch import invoke
         from hpc_pilot.rbac import Role
-
-        from unittest.mock import MagicMock
 
         with patch("hpc_pilot.tools.multi._query_single") as mq:
             mq.return_value = "mocked"

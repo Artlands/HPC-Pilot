@@ -9,16 +9,14 @@ import urllib.parse
 import urllib.request
 import xml.etree.ElementTree as ET
 from collections import Counter
-from datetime import datetime
 from typing import Any
 
+from hpc_pilot.paths import config_path
 from hpc_pilot.tools._run import (
     _resolve_cluster,
     _run,
 )
 from hpc_pilot.tools._validation import _validate
-from hpc_pilot.paths import config_path
-
 
 # ---------------------------------------------------------------------------
 # Helpers

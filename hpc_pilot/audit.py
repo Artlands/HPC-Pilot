@@ -158,6 +158,7 @@ def _load_sinks_from_config() -> list[AuditSink]:
     """Read sinks from config.yaml. Returns empty list on any error."""
     try:
         import yaml
+
         from hpc_pilot.paths import config_path
         path = config_path()
         if not os.path.exists(path):

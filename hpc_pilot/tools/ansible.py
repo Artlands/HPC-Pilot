@@ -1,7 +1,6 @@
 """Ansible tools."""
 from __future__ import annotations
 
-import difflib
 import glob
 import json
 import os
@@ -136,7 +135,6 @@ def hpc_ansible_role_list(*, cluster: str = "default") -> list[str]:
 
 def hpc_ansible_inventory_from_truth(*, cluster: str = "default") -> dict:
     """Build Ansible inventory from Warewulf + Slurm source of truth."""
-    import shlex
 
     cl = _resolve_cluster(cluster)
 

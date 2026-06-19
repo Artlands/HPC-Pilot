@@ -1,17 +1,37 @@
 [project]
 name = "hpc-pilot"
-version = "0.1.0"
-description = "HPC Pilot — AI agent that configures and manages an HPC cluster (Warewulf, Ansible, Slurm, Spack)."
+version = "1.0.0"
+description = "HPC Pilot - Standalone AI agent for HPC cluster management"
 requires-python = ">=3.11"
 dependencies = [
+    # Hermes Agent core (embedded and extended)
+    "hermes-agent>=2.1.0",
+    
+    # Pydantic for typed data models
     "pydantic>=2.7",
     "pydantic-settings>=2.2",
+    
+    # Database
     "sqlalchemy>=2.0",
     "alembic>=1.13",
     "psycopg[binary]>=3.1",
+    
+    # YAML configuration
     "pyyaml>=6.0",
-    "typer>=0.12",          # CLI
-    "textual>=0.80",        # TUI framework
+    
+    # CLI framework
+    "typer>=0.12",
+    "rich>=13.0",
+    
+    # TUI framework
+    "textual>=0.80",
+    
+    # HTTP clients for APIs
+    "httpx>=0.26",
+    "aiohttp>=3.9",
+    
+    # Background tasks
+    "anyio>=4.0",
 ]
 
 [project.optional-dependencies]
@@ -32,25 +52,21 @@ openai = [
 ]
 
 [project.scripts]
-hpc-pilot = "hpc_agent.core.interaction:app"
+hpc-pilot = "hpc_pilot.cli:main"
+hpc-pilot-gateway = "hpc_pilot.gateway:main"
 
 [build-system]
 requires = ["setuptools>=68"]
 build-backend = "setuptools.build_meta"
 
 [tool.setuptools.packages.find]
-include = ["hpc_agent*"]
+include = ["hpc_pilot*"]
 
 [tool.ruff]
 line-length = 100
 target-version = "py311"
 lint.select = ["E", "F", "I", "UP", "B", "SIM"]
-# str+Enum is the project-wide convention (matches the specs); SQLAlchemy Mapped[...]
-# forward-ref strings are intentional and must stay quoted.
 lint.ignore = ["UP042"]
-
-[tool.ruff.lint.per-file-ignores]
-"hpc_agent/state/models.py" = ["UP037"]
 
 [tool.black]
 line-length = 100
@@ -66,3 +82,43 @@ ignore_missing_imports = true
 testpaths = ["tests"]
 addopts = "-q"
 asyncio_mode = "auto"
+
+# Hermes Agent embedding configuration
+[tool.hermes-agent]
+# HPC-Pilot bundles Hermes Agent internally
+bundled = true
+# Override paths to use bundled version
+config_path = "~/.hpc-pilot/config.yaml"
+env_path = "~/.hpc-pilot/.env"
+skills_path = "~/.hpc-pilot/skills"
+sessions_path = "~/.hpc-pilot/sessions"
+state_db = "~/.hpc-pilot/state.db"
+logs_path = "~/.hpc-pilot/logs"
+auth_path = "~/.hpc-pilot/auth.json"
+
+# HPC-Pilot specific settings
+[tool.hpc-pilot]
+# Default cluster configuration
+default_cluster = "prod"
+# Gateway configuration
+gateway_port = 8000
+# Supported platforms
+platforms = ["telegram", "discord", "slack"]
+# Skill bundle
+skills = ["hpc-pilot:hpc"]
+
+[[tool.hpc-pilot.plugins]]
+name = "hpc-slurm"
+path = "hpc_pilot.plugins.slurm"
+
+[[tool.hpc-pilot.plugins]]
+name = "hpc-warewulf"
+path = "hpc_pilot.plugins.warewulf"
+
+[[tool.hpc-pilot.plugins]]
+name = "hpc-ansible"
+path = "hpc_pilot.plugins.ansible"
+
+[[tool.hpc-pilot.plugins]]
+name = "hpc-spack"
+path = "hpc_pilot.plugins.spack"

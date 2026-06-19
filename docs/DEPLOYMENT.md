@@ -30,12 +30,22 @@ pip install -e ".[dev]"
 The first command run creates `~/.hpc-pilot/config.yaml` with defaults.
 
 ```yaml
-hpc:
-  slurm_bin_dir: /usr/bin      # directory containing scontrol, squeue, etc.
-  warewulf_bin_dir: /usr/bin   # directory containing wwctl
-  spack_root: /opt/spack
-  ansible_dir: /etc/hpc-pilot/ansible
-  config_repo: /etc/hpc-pilot/config
+model:
+  default: claude-opus-4-7
+
+clusters:
+  default:
+    slurm_bin_dir: /usr/bin      # directory containing scontrol, squeue, etc.
+    warewulf_bin_dir: /usr/bin   # directory containing wwctl
+    spack_root: /opt/spack
+    ansible_dir: /etc/hpc-pilot/ansible
+    # Optional SSH config when the Slurm controller is remote:
+    # ssh:
+    #   host: head01.example.com
+    #   user: hpcadmin
+    #   key: ~/.ssh/hpc-pilot
+
+default_cluster: default
 ```
 
 ## Role setup
@@ -55,10 +65,10 @@ Roles: `viewer` (read-only) → `operator` (+ node state) → `admin` (+ QOS, An
 Create `~/.hpc-pilot/.env` (not auto-created):
 
 ```bash
-# Future AI agent integration (planned)
+# AI agent (required for hpc-pilot chat and gateway)
 ANTHROPIC_API_KEY=sk-ant-...
 
-# Platform bots (planned)
+# Platform bots (for Telegram/Discord gateway)
 TELEGRAM_BOT_TOKEN=...
 DISCORD_BOT_TOKEN=...
 ```

@@ -7,6 +7,10 @@ AI agent commands (require ANTHROPIC_API_KEY):
     hpc-pilot chat -q TEXT   Single AI query, non-interactive
     hpc-pilot shell          Shell session (alias for chat with --actor/--role)
 
+Setup commands:
+    hpc-pilot setup          Create ~/.hpc-pilot/ directory and default config
+    hpc-pilot setup-hermes   Install Hermes Agent plugin (symlink)
+
 Direct cluster commands (no API key needed):
     hpc-pilot health         Check cluster health
     hpc-pilot nodes [NODE]   Show Slurm node status

@@ -37,31 +37,34 @@ pip install 'hpc-pilot[gateway]'
 | Warewulf 4.x (`wwctl`) | Warewulf commands |
 | Spack (`spack`) | Spack commands |
 | Ansible (`ansible-playbook`) | Ansible commands |
-| API key (Anthropic / OpenAI / etc.) | AI chat / gateway |
+| API key for your model provider | AI chat / gateway (default: Anthropic) |
 
 ---
 
 ## Quick Start
 
 ```bash
-# 1. Install the Hermes Agent plugin
+# 1. Create the config directory and default config.yaml
+hpc-pilot setup
+
+# 2. Install the Hermes Agent plugin
 hpc-pilot setup-hermes
 
-# 2. Set your API key (Anthropic, OpenAI, Gemini, etc.)
+# 3. Set your API key (Anthropic, OpenAI, Gemini, etc.)
 echo 'ANTHROPIC_API_KEY=sk-ant-...' >> ~/.hpc-pilot/.env
 
-# 3. Start the AI chat
+# 4. Start the AI chat
 hpc-pilot chat
 
-# 4. Ask anything
+# 5. Ask anything
 You: How many nodes are available?
 You: Show me running jobs for user alice
 You: Drain node gpu01 for maintenance (dry-run first, then confirm)
 ```
 
-> **First time?** Run `hpc-pilot setup-hermes` once after installation. This
-> symlinks the HPC-Pilot tool plugin into Hermes Agent so the AI model can
-> call Slurm, Warewulf, Spack, and Ansible commands.
+> **First time?** Run `hpc-pilot setup` to create the config directory, then
+> `hpc-pilot setup-hermes` to symlink the HPC-Pilot tool plugin into Hermes
+> Agent so the AI model can call Slurm, Warewulf, Spack, and Ansible commands.
 
 ### Using a different provider
 
@@ -111,7 +114,8 @@ hpc-pilot qos NAME --apply [--yes]          # apply QOS change
 hpc-pilot warewulf                          # Warewulf node list
 hpc-pilot spack list|find ENV|compilers     # Spack queries
 hpc-pilot ansible PLAYBOOK [--apply]        # Ansible playbook
-hpc-pilot setup-hermes                      # install Hermes Agent plugin
+hpc-pilot setup                            # create ~/.hpc-pilot/ and default config
+hpc-pilot setup-hermes                     # install Hermes Agent plugin
 hpc-pilot self-evolve [args]                # generate a new tool locally
 hpc-pilot self-evolve-create-pr [args]      # push an evolved tool and open PR
 hpc-pilot version                           # version info
@@ -180,16 +184,17 @@ The plugin lives in the repo at `hpc_pilot/hermes_plugin/` and is installed
 to `~/.hermes/plugins/hpc-pilot/` via:
 
 ```bash
-hpc-pilot setup-hermes
+hpc-pilot setup         # create ~/.hpc-pilot/ and default config
+hpc-pilot setup-hermes  # symlink the plugin to ~/.hermes/plugins/hpc-pilot/
 ```
 
-This creates a symlink so the plugin stays in sync with the repo. Run it
-again after `git pull` to refresh.
+Both symlink and the Hermes plugin directory are created automatically.
+Run `hpc-pilot setup-hermes` again after `git pull` to refresh.
 
 ### How it works
 
 1. Hermes Agent loads the `hpc-pilot` plugin at startup
-2. The plugin registers 100+ tools (`hpc_slurm_*`, `hpc_warewulf_*`, etc.)
+2. The plugin registers 114 tools (`hpc_slurm_*`, `hpc_warewulf_*`, etc.)
    as a Hermes toolset named `"hpc"`
 3. Each tool call flows through: Hermes dispatch → RBAC check →
    audit logging → tool execution

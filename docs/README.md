@@ -1,78 +1,30 @@
 # HPC Pilot Documentation
 
-This directory contains documentation for HPC Pilot - a standalone AI agent for HPC cluster management.
+## Contents
 
-## Quick Start
+- [ARCHITECTURE.md](ARCHITECTURE.md) — Technical architecture, safety model, module map
+- [DEPLOYMENT.md](DEPLOYMENT.md) — Installation, configuration, production setup
 
-### Installation
-
-```bash
-pip install hpc-pilot[anthropic]
-hpc-pilot setup
-```
-
-That's it! HPC Pilot embeds Hermes Agent internally - no separate installation needed.
-
-### Basic Usage
+## Quick reference
 
 ```bash
-# Interactive chat
-hpc-pilot
+pip install hpc-pilot
 
-# Single query
-hpc-pilot chat -q "Show cluster health"
-
-# Gateway (web + platforms)
-hpc-pilot gateway --start
+hpc-pilot health                          # cluster health check
+hpc-pilot nodes [NODE]                    # Slurm node status
+hpc-pilot queue [--user U] [--partition P]# job queue
+hpc-pilot qos NAME [--max-wall-min N]     # QOS (dry-run by default)
+hpc-pilot qos NAME --apply [--yes]        # apply QOS change
+hpc-pilot warewulf                        # Warewulf node list
+hpc-pilot spack list|find ENV|compilers   # Spack queries
+hpc-pilot ansible PLAYBOOK [--apply]      # Ansible playbook
+hpc-pilot version                         # version info
 ```
 
-## Directory Structure
+## Safety model summary
 
-```
-docs/
-├── README.md              # This file - user documentation
-├── ARCHITECTURE.md        # Technical architecture
-├── CONFIGURATION.md       # Configuration reference
-├── TOOLS.md               # Tool reference
-├── GATEWAY.md             # Gateway configuration
-└── DEVELOPMENT.md         # Development guide
-```
+| Default | With `--apply` | With `--apply --yes` |
+|---------|---------------|----------------------|
+| Dry-run (prints command) | Prompts `[y/N]` | Executes directly |
 
-## Architecture
-
-```
-┌─────────────────────────────────────────────────────────────┐
-│                 HPC PILOT CLI                               │
-│  - hpc-pilot (entrypoint)                                   │
-│  - hpc-pilot gateway (web + platform)                       │
-└─────────────────────────────────────────────────────────────┘
-                          │
-                          ▼
-┌─────────────────────────────────────────────────────────────┐
-│           EMBEDDED HERMES AGENT                             │
-│  - hermes-agent core (bundled)                              │
-│  - Tool registry                                            │
-│  - Gateway (Telegram, Discord, Slack)                       │
-│  - Cron scheduler                                           │
-└─────────────────────────────────────────────────────────────┘
-                          │
-                          ▼
-┌─────────────────────────────────────────────────────────────┐
-│              HPC PILOT TOOLS                                │
-│  - Slurm, Warewulf, Ansible, Spack                          │
-└─────────────────────────────────────────────────────────────┘
-```
-
-## Key Features
-
-- ✅ Self-contained installation
-- ✅ Gateway support (web + platforms)
-- ✅ Persistent memory
-- ✅ Cron jobs
-- ✅ Skill learning
-
-## Next Steps
-
-1. Read [CONFIGURATION.md](CONFIGURATION.md) for setup
-2. Read [TOOLS.md](TOOLS.md) for tool reference
-3. Read [GATEWAY.md](GATEWAY.md) for gateway setup
+See [ARCHITECTURE.md](ARCHITECTURE.md) for RBAC roles and audit logging.

@@ -1,346 +1,145 @@
 # HPC Pilot Architecture
 
-This document describes the technical architecture of HPC Pilot.
-
-## Architecture Overview
+## Overview
 
 ```
 ┌──────────────────────────────────────────────────────────────────────┐
 │                        USER INTERFACE                                 │
+│  ┌──────────────┐  ┌──────────────────────────────────────────────┐  │
+│  │   CLI        │  │  Gateway (planned — not yet implemented)     │  │
+│  │  (argparse)  │  │  Telegram / Discord / Slack / Web            │  │
+│  └──────────────┘  └──────────────────────────────────────────────┘  │
+└──────────────────────────────────────────────────────────────────────┘
+              │                         │
+              │                         └─ hpc_pilot/gateway.py (stub)
+              │
+              ▼
+┌──────────────────────────────────────────────────────────────────────┐
+│                   SAFETY LAYER                                        │
 │  ┌──────────────┐  ┌──────────────┐  ┌──────────────────────────┐   │
-│  │   CLI        │  │  Gateway     │  │  Platform Apps             │   │
-│  │  (typer)     │  │  (web)       │  │  (Telegram, Discord, etc.)│   │
+│  │  RBAC        │  │  Dry-run     │  │  Audit log               │   │
+│  │  rbac.py     │  │  gate        │  │  audit.py                │   │
 │  └──────────────┘  └──────────────┘  └──────────────────────────┘   │
 └──────────────────────────────────────────────────────────────────────┘
-                             │
-                             ▼
+              │
+              ▼
 ┌──────────────────────────────────────────────────────────────────────┐
-│                   EMBEDDED HERMES AGENT                               │
-│  ┌──────────────┐  ┌──────────────┐  ┌──────────────────────────┐   │
-│  │  CLI Layer   │  │ Gateway Layer│  │ Agent Core               │   │
-│  │  (hpc_pilot) │  │  (hpc_pilot) │  │  (hermes-agent)          │   │
-│  └──────────────┘  └──────────────┘  └──────────────────────────┘   │
+│                   HPC PILOT TOOLS  (tools.py)                        │
+│  ┌──────────┐ ┌──────────┐ ┌──────────┐ ┌────────────────────────┐  │
+│  │ Slurm    │ │Warewulf  │ │ Ansible  │ │ Spack                  │  │
+│  └──────────┘ └──────────┘ └──────────┘ └────────────────────────┘  │
 └──────────────────────────────────────────────────────────────────────┘
+              │
+              ▼
+     subprocess.run (shell=False, no injection)
+```
+
+## Module map
+
+| File | Purpose |
+|------|---------|
+| `cli.py` | CLI entry point; command routing; RBAC check; audit context |
+| `gateway.py` | Gateway stub (planned) |
+| `_hermes.py` | Agent integration stub (planned) |
+| `tools.py` | HPC tool functions; `_run` helper; `parse_slurm_nodes` |
+| `paths.py` | Home-directory paths (`~/.hpc-pilot/…`) |
+| `config.py` | Default config generation |
+| `rbac.py` | `Role` enum, `TOOL_MIN_ROLE`, `check_permission`, `get_role` |
+| `audit.py` | `audit_tool` context manager; `log_audit` → `audit.jsonl` |
+
+## Data flow — CLI mutating command
+
+```
+User: hpc-pilot qos gpu --max-wall-min 2880 --apply --yes
+         │
+         ▼
+cli.main() → qos_command()
+         │
+         ├─ check_permission("hpc_slurm_qos_modify", role)  [rbac.py]
+         │         raises PermissionError if role < ADMIN
+         │
+         ├─ (dry_run=False because --apply)
+         │
+         ├─ with audit_tool(tool, actor, role, args, dry_run=False)  [audit.py]
+         │         opens ~/.hpc-pilot/logs/audit.jsonl on exit
+         │
+         └─ hpc_slurm_qos_modify("gpu", 2880, dry_run=False)  [tools.py]
+                   │
+                   └─ _run(["sacctmgr", "--immediate", "modify", ...])
                              │
-                             ▼
-┌──────────────────────────────────────────────────────────────────────┐
-│                   HPC PILOT TOOLS                                     │
-│  ┌──────────┐ ┌──────────┐ ┌──────────┐ ┌─────────────────────────┐ │
-│  │ Slurm    │ │Warewulf  │ │ Ansible  │ │  Spack                │ │
-│  │ tools.py │ │tools.py  │ │tools.py  │ │  tools.py             │ │
-│  └──────────┘ └──────────┘ └──────────┘ └─────────────────────────┘ │
-└──────────────────────────────────────────────────────────────────────┘
+                             └─ subprocess.run(shell=False)
 ```
 
-## Components
+## Safety gates
 
-### 1. CLI Layer (`hpc_pilot/cli.py`)
+### 1. Dry-run by default
 
-**Purpose**: Entry point for command-line usage
+Every mutating tool function has a `dry_run: bool = False` parameter.  When
+`dry_run=True` the resolved command is returned as a string prefixed with
+`"DRY-RUN: "` without calling `subprocess.run`.  CLI commands default to
+`dry_run=True`; `--apply` flips it to `False`.
+
+### 2. RBAC
 
 ```python
-def main() -> int:
-    """Main entry point."""
-    # Initialize home and config
-    init_home()
-    init_config()
-    
-    # Parse CLI arguments
-    # Dispatch to appropriate command
+# rbac.py
+TOOL_MIN_ROLE = {
+    "hpc_slurm_node_status": Role.VIEWER,   # read-only
+    "hpc_slurm_qos_modify":  Role.ADMIN,    # dangerous
+    "hpc_ansible_playbook_run": Role.ADMIN, # dangerous
+    ...
+}
 ```
 
-**Key Features**:
-- Argument parsing with `argparse`
-- Command routing (chat, shell, tui, gateway, etc.)
-- Home directory initialization
-- Config file generation
+Role is read from `$HPC_PILOT_ROLE` env var → `~/.hpc-pilot/auth.json` →
+default `VIEWER`.
 
-### 2. Gateway Layer (`hpc_pilot/gateway.py`)
+### 3. Approval prompt
 
-**Purpose**: Web and platform gateway server
+For ADMIN-level commands with `--apply`, the user is prompted `[y/N]` unless
+`--yes` is also supplied (for non-interactive scripts).
 
-```python
-def main() -> int:
-    """Gateway server entry point."""
-    # Initialize home and config
-    init_home()
-    init_config()
-    
-    # Start web server
-    # Configure platform connections
-```
+### 4. Audit log
 
-**Key Features**:
-- HTTP server on port 8000
-- Telegram bot support
-- Discord bot support
-- Slack bot support
+Every tool invocation writes one JSON line to
+`~/.hpc-pilot/logs/audit.jsonl`. Fields: `ts`, `actor`, `role`, `tool`,
+`args` (secrets redacted), `dry_run`, `returncode`, `duration_ms`, `error`.
+I/O errors in audit writing are silently discarded so a full disk never
+blocks cluster operations.
 
-### 3. Hermes Integration (`hpc_pilot/_hermes.py`)
+## Input validation
 
-**Purpose**: Embed and extend Hermes Agent
+`tools.py` validates user-supplied strings before building the subprocess
+argv:
 
-```python
-def run_cli(args: list[str]) -> int:
-    """Run Hermes CLI with HPC config."""
-    # Set Hermes environment variables
-    os.environ["HERMES_HOME"] = get_home()
-    os.environ["HERMES_CONFIG"] = get_config_path()
-    
-    # Import and run Hermes CLI
-    from hermes_cli.main import main as hermes_main
-    return hermes_main(args)
-```
+- Node names, QOS names, partition names, user names: must match
+  `^[a-zA-Z0-9][a-zA-Z0-9_\[\],.-]*$` (reject leading `-` flag injection).
+- Unknown filter keys in `hpc_slurm_queue` are rejected.
+- Empty playbook path is rejected.
+- Invalid node state targets are rejected.
 
-**Key Features**:
-- Environment variable setup
-- Config path override
-- Toolset registration
+## Error surfacing
 
-### 4. Tool Modules (`hpc_pilot/tools.py`)
+The `_run(cmd)` helper raises `RuntimeError` on non-zero exit codes, including
+the command's stderr. CLI handlers catch `RuntimeError → exit 1`,
+`ValueError → exit 2`.
 
-**Purpose**: HPC-specific tools for Hermes Agent
-
-```python
-def hpc_slurm_node_status(node: str) -> str:
-    """Get Slurm node status."""
-    result = subprocess.run(["scontrol", "show", "node", node])
-    return result.stdout
-
-# Register with Hermes registry
-registry.register(
-    name="hpc_slurm_node_status",
-    toolset="hpc",
-    schema={...},
-    handler=hpc_slurm_node_status,
-    check_fn=check_slurm_available,
-)
-```
-
-**Key Features**:
-- 12+ HPC tools
-- Automatic tool registration
-- Requirement checking
-
-## Data Flow
-
-### CLI Command Flow
-
-```
-User Command (hpc-pilot health)
-         │
-         ▼
-CLI main() → init_home() → init_config()
-         │
-         ▼
-Parse arguments → health_command()
-         │
-         ▼
-hpc_pilot.tools.hpc_cluster_health_check()
-         │
-         ▼
-Return JSON to user
-```
-
-### Gateway Request Flow
-
-```
-HTTP Request (POST /api/chat)
-         │
-         ▼
-Gateway main() → init_home() → init_config()
-         │
-         ▼
-Route to Hermes Agent
-         │
-         ▼
-Run conversation loop
-         │
-         ▼
-Return response
-```
-
-### Tool Call Flow
-
-```
-User Query ("Show cluster health")
-         │
-         ▼
-Hermes CLI → parse query
-         │
-         ▼
-Hermes tool registry → find hpc tools
-         │
-         ▼
-Run hpc_cluster_health_check()
-         │
-         ▼
-Return structured response
-```
-
-## Configuration
-
-### Home Directory Structure
+## Home directory layout
 
 ```
 ~/.hpc-pilot/
-├── config.yaml          # Main configuration
-├── .env                 # Environment variables
-├── skills/              # User-defined skills
-├── sessions/            # Session history
-├── logs/                # Log files
-└── state.db             # SQLite database
+├── config.yaml      # Main configuration (auto-created on first run)
+├── .env             # Secrets (not auto-created; user provides)
+├── auth.json        # {"role": "operator"}
+├── skills/          # (planned)
+├── sessions/        # (planned)
+└── logs/
+    └── audit.jsonl  # Append-only audit log
 ```
 
-### Configuration Process
+## Planned agent layer
 
-1. **First Run**:
-   - Detect `~/.hpc-pilot/` doesn't exist
-   - Create directory structure
-   - Generate default `config.yaml`
-   - Generate default `.env` (empty, user fills in)
-
-2. **Subsequent Runs**:
-   - Load existing `config.yaml`
-   - Apply any environment variables
-   - Run command
-
-### Configuration Options
-
-```yaml
-model:
-  default: anthropic/claude-sonnet-4
-  provider: anthropic
-
-agent:
-  max_turns: 90
-  approvals:
-    mode: smart
-
-hpc:
-  slurm_bin_dir: /usr/bin
-  warewulf_bin_dir: /usr/bin
-  spack_root: /opt/spack
-  ansible_dir: /etc/hpc-pilot/ansible
-  config_repo: /etc/hpc-pilot/config
-
-gateway:
-  enabled: true
-  port: 8000
-  platforms:
-    telegram:
-      enabled: true
-    discord:
-      enabled: true
-
-toolsets:
-  hpc:
-    enabled: true
-```
-
-## Tool Registration
-
-HPC Pilot registers tools with Hermes Agent registry:
-
-```python
-from tools.registry import registry
-
-registry.register(
-    name="hpc_slurm_node_status",
-    toolset="hpc",
-    schema={
-        "name": "hpc_slurm_node_status",
-        "description": "Get Slurm node status",
-        "parameters": {
-            "type": "object",
-            "properties": {"node": {"type": "string"}},
-            "required": ["node"]
-        }
-    },
-    handler=lambda args, **kw: hpc_slurm_node_status(args.get("node", "")),
-    check_fn=check_slurm_available,
-)
-```
-
-## Error Handling
-
-### Missing Dependencies
-
-```python
-try:
-    from hermes_cli.main import main as hermes_main
-    return hermes_main(args)
-except ImportError as e:
-    print(f"Error: {e}")
-    print("Install with: pip install hpc-pilot[anthropic]")
-    return 1
-```
-
-### Configuration Errors
-
-```python
-def init_config() -> str:
-    home = init_home()
-    config_path = os.path.join(home, "config.yaml")
-    
-    if not os.path.exists(config_path):
-        # Generate default config
-        with open(config_path, "w") as f:
-            f.write(DEFAULT_CONFIG)
-    
-    return config_path
-```
-
-## Performance
-
-### CLI Latency
-- Cold start: ~2-5 seconds
-- Hot start: ~1-2 seconds
-- Tool execution: depends on command
-
-### Gateway Throughput
-- Static files: ~1000 req/s
-- API endpoints: ~100 req/s
-- Real-time: WebSockets for streaming
-
-## Security
-
-### Secret Redaction
-- Hermes Agent's built-in secret redaction
-- Config files excluded from logs
-- Environment variables masked
-
-### File Access
-- Tools run in sandboxed environment
-- File access limited to HPC paths
-- Audit logging for all operations
-
-## Deployment
-
-### Production Setup
-
-1. **Install**:
-   ```bash
-   pip install hpc-pilot[anthropic]
-   ```
-
-2. **Configure**:
-   ```bash
-   hpc-pilot setup
-   ```
-
-3. **Set credentials**:
-   ```bash
-   # Edit ~/.hpc-pilot/.env
-   ANTHROPIC_API_KEY=***
-   ```
-
-4. **Start gateway**:
-   ```bash
-   hpc-pilot gateway --start
-   ```
-
-5. **Deploy**:
-   - Run as systemd service
-   - Configure HTTPS
-   - Set up reverse proxy (nginx)
+`_hermes.py` and `gateway.py` are stubs for a future integration. When
+implemented, tool functions will be registered as agent tools via the Hermes
+tool registry (or Anthropic SDK tool-use directly). RBAC and audit hooks will
+move into the tool-call layer so they apply to both CLI and agent paths.

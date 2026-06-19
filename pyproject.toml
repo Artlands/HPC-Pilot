@@ -1,54 +1,33 @@
 [project]
 name = "hpc-pilot"
 version = "1.0.0"
-description = "HPC Pilot - Standalone AI agent for HPC cluster management"
+description = "HPC Pilot - AI agent for HPC cluster management (Slurm, Warewulf, Ansible, Spack)"
 requires-python = ">=3.11"
 dependencies = [
-    # Hermes Agent core (embedded and extended)
-    "hermes-agent>=2.1.0",
-    
-    # Pydantic for typed data models
-    "pydantic>=2.7",
-    "pydantic-settings>=2.2",
-    
-    # Database
-    "sqlalchemy>=2.0",
-    "alembic>=1.13",
-    "psycopg[binary]>=3.1",
-    
-    # YAML configuration
+    # AI agent core
+    "anthropic>=0.40",
+    # Load ~/.hpc-pilot/.env automatically
+    "python-dotenv>=1.0",
+    # Read config.yaml
     "pyyaml>=6.0",
-    
-    # CLI framework
-    "typer>=0.12",
-    "rich>=13.0",
-    
-    # TUI framework
-    "textual>=0.80",
-    
-    # HTTP clients for APIs
-    "httpx>=0.26",
-    "aiohttp>=3.9",
-    
-    # Background tasks
-    "anyio>=4.0",
 ]
 
 [project.optional-dependencies]
+telegram = [
+    "python-telegram-bot>=21.0",
+]
+discord = [
+    "discord.py>=2.3",
+]
+gateway = [
+    "hpc-pilot[telegram,discord]",
+]
 dev = [
     "pytest>=8.0",
     "pytest-cov>=5.0",
-    "pytest-asyncio>=0.23",
     "ruff>=0.5",
     "black>=24.0",
     "mypy>=1.10",
-    "types-pyyaml",
-]
-anthropic = [
-    "anthropic>=0.30",
-]
-openai = [
-    "openai>=1.0",
 ]
 
 [project.scripts]
@@ -75,50 +54,13 @@ target-version = ["py311"]
 [tool.mypy]
 python_version = "3.11"
 strict = true
-plugins = ["pydantic.mypy", "sqlalchemy.ext.mypy.plugin"]
 ignore_missing_imports = true
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = "-q"
-asyncio_mode = "auto"
 
-# Hermes Agent embedding configuration
-[tool.hermes-agent]
-# HPC-Pilot bundles Hermes Agent internally
-bundled = true
-# Override paths to use bundled version
-config_path = "~/.hpc-pilot/config.yaml"
-env_path = "~/.hpc-pilot/.env"
-skills_path = "~/.hpc-pilot/skills"
-sessions_path = "~/.hpc-pilot/sessions"
-state_db = "~/.hpc-pilot/state.db"
-logs_path = "~/.hpc-pilot/logs"
-auth_path = "~/.hpc-pilot/auth.json"
-
-# HPC-Pilot specific settings
 [tool.hpc-pilot]
-# Default cluster configuration
 default_cluster = "prod"
-# Gateway configuration
 gateway_port = 8000
-# Supported platforms
-platforms = ["telegram", "discord", "slack"]
-# Skill bundle
-skills = ["hpc-pilot:hpc"]
-
-[[tool.hpc-pilot.plugins]]
-name = "hpc-slurm"
-path = "hpc_pilot.plugins.slurm"
-
-[[tool.hpc-pilot.plugins]]
-name = "hpc-warewulf"
-path = "hpc_pilot.plugins.warewulf"
-
-[[tool.hpc-pilot.plugins]]
-name = "hpc-ansible"
-path = "hpc_pilot.plugins.ansible"
-
-[[tool.hpc-pilot.plugins]]
-name = "hpc-spack"
-path = "hpc_pilot.plugins.spack"
+platforms = ["telegram", "discord"]

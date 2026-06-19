@@ -1,178 +1,189 @@
-# HPC Pilot - AI Agent for HPC Cluster Management
+# HPC Pilot — AI Agent for HPC Cluster Management
 
-HPC Pilot is a standalone AI agent for HPC cluster management, built on Hermes Agent.
+HPC Pilot is a Claude-powered command-line agent for HPC clusters.
+It wraps Slurm, Warewulf, Ansible, and Spack with an AI chat interface,
+Telegram/Discord bots, plus direct CLI commands with safety gates
+(dry-run by default, RBAC, audit log).
 
-## Features
-
-- **Self-contained installation** - `pip install hpc-pilot` is all you need
-- **Gateway support** - Telegram, Discord, Slack built-in
-- **Persistent memory** - Learn across sessions
-- **Cron jobs** - Scheduled cluster monitoring
-- **Skill learning** - Document workflows for reuse
+---
 
 ## Installation
 
-### Prerequisites
-- Python 3.11 or higher
-- Slurm (for Slurm management)
-- Warewulf (optional, for Warewulf management)
-- Spack (optional, for Spack management)
-- Ansible (optional, for Ansible management)
-
-### Quick Start
-
 ```bash
-# Install HPC Pilot (includes Hermes Agent)
-pip install hpc-pilot[anthropic]
+pip install hpc-pilot
 
-# Or with OpenAI support
-pip install hpc-pilot[openai]
-
-# Initial setup (creates ~/.hpc-pilot/)
-hpc-pilot setup
+# With Telegram and Discord gateway support
+pip install 'hpc-pilot[gateway]'
 ```
 
-That's it! No need to install Hermes Agent separately.
+### Prerequisites
 
-## Usage
+| Component | Required for |
+|-----------|-------------|
+| Python 3.11+ | Always |
+| `ANTHROPIC_API_KEY` | AI chat / gateway |
+| Slurm (`scontrol`, `squeue`, `sacctmgr`) | Slurm commands |
+| Warewulf 4.x (`wwctl`) | Warewulf commands |
+| Spack (`spack`) | Spack commands |
+| Ansible (`ansible-playbook`) | Ansible commands |
 
-### CLI Interface
+---
+
+## Quick Start
 
 ```bash
-# Start interactive chat
-hpc-pilot
+# 1. Add your API key
+echo 'ANTHROPIC_API_KEY=sk-ant-...' >> ~/.hpc-pilot/.env
+
+# 2. Start the AI chat
 hpc-pilot chat
 
-# Single query
-hpc-pilot chat -q "Show cluster health"
-
-# Start shell
-hpc-pilot shell
-
-# Start text-based UI
-hpc-pilot tui
-
-# Check cluster health
-hpc-pilot health
-
-# Show node status
-hpc-pilot nodes
-hpc-pilot nodes gpu01
-
-# Show job queue
-hpc-pilot queue
-hpc-pilot queue --user alice
-
-# Manage QOS
-hpc-pilot qos gpu --max-wall-min 2880 --apply
-
-# Show Warewulf status
-hpc-pilot werewulf
-
-# Spack commands
-hpc-pilot spack list
-hpc-pilot spack find my-env
-hpc-pilot spack compilers
-
-# Ansible commands
-hpc-pilot ansible /path/to/playbook.yml --apply
-
-# View version
-hpc-pilot version
+# 3. Ask anything
+You: How many nodes are available?
+You: Show me running jobs for user alice
+You: Drain node gpu01 for maintenance (dry-run first, then confirm)
 ```
 
-### Gateway (Web + Platforms)
+---
+
+## Commands
+
+### AI agent (requires ANTHROPIC_API_KEY)
 
 ```bash
-# Start gateway server
+hpc-pilot chat                    # interactive multi-turn chat
+hpc-pilot chat -q "Show health"  # single query, non-interactive
+hpc-pilot shell --role admin      # chat with explicit RBAC role
+hpc-pilot gateway --start         # start Telegram + Discord bots
+hpc-pilot gateway --status        # show which platforms are configured
+hpc-pilot gateway --setup         # print setup instructions
+```
+
+### Direct cluster commands (no API key needed)
+
+```bash
+hpc-pilot health                            # cluster health check
+hpc-pilot nodes [NODE]                      # Slurm node status
+hpc-pilot queue [--user U] [--partition P]  # job queue
+hpc-pilot qos NAME [--max-wall-min N]       # QOS (dry-run by default)
+hpc-pilot qos NAME --apply [--yes]          # apply QOS change
+hpc-pilot warewulf                          # Warewulf node list
+hpc-pilot spack list|find ENV|compilers     # Spack queries
+hpc-pilot ansible PLAYBOOK [--apply]        # Ansible playbook
+hpc-pilot version                           # version info
+```
+
+---
+
+## AI chat example
+
+```
+You: Show me the cluster health
+
+Agent: [→ hpc_cluster_health_check]
+I checked your cluster. Here's the summary:
+
+| Component  | Status   | Notes                        |
+|------------|----------|------------------------------|
+| Slurm      | ✅ healthy | 48 nodes, 2 DOWN (gpu03,04) |
+| Warewulf   | ✅ healthy | 48 nodes registered          |
+| Spack      | ✅ healthy |                              |
+| Ansible    | ✅ healthy |                              |
+
+⚠️ Two nodes are DOWN: `gpu03`, `gpu04`. Run `hpc-pilot nodes gpu03` for details.
+
+You: Drain gpu03 for hardware inspection
+
+Agent: [→ hpc_slurm_node_status]  [→ hpc_slurm_node_state]
+DRY-RUN: scontrol update node=gpu03 state=drain reason=hardware-inspection
+
+This will prevent new jobs from scheduling on gpu03. Currently 3 jobs are
+running; they will finish before the node is fully drained.
+
+Shall I apply this change? (I'll set dry_run=false if you confirm.)
+
+You: Yes, go ahead
+
+Agent: [→ hpc_slurm_node_state]
+Done. gpu03 is now DRAINING.
+```
+
+---
+
+## Gateway (Telegram + Discord)
+
+```bash
+# ~/.hpc-pilot/.env
+ANTHROPIC_API_KEY=sk-ant-...
+TELEGRAM_BOT_TOKEN=123456:ABC...    # from @BotFather
+DISCORD_BOT_TOKEN=MTE...            # from Discord Developer Portal
+HPC_PILOT_ROLE=admin
+
 hpc-pilot gateway --start
-
-# Configure gateway
-hpc-pilot gateway --setup
-
-# Gateway serves web UI on http://localhost:8000
-# Also supports Telegram, Discord, Slack
 ```
 
-#### Gateway Configuration
+Users can DM the Telegram bot or mention the Discord bot (`@HPC-Pilot`) to
+get the same AI interface.  Each user gets an isolated conversation session.
 
-1. Create `~/.hpc-pilot/.env`:
+---
+
+## Safety model
+
+Mutating commands are **dry-run by default** — the agent previews the command
+before executing.
+
+```
+You: Change gpu QOS to 2-day wall time
+Agent: DRY-RUN: sacctmgr --immediate modify qos gpu set MaxWall=2880
+       Shall I apply this? ...
+```
+
+Approval flow:
+| Mode | Behaviour |
+|------|-----------|
+| Default | prints DRY-RUN command, stops |
+| `--apply` (CLI) | prompts `[y/N]` |
+| `--apply --yes` | skips prompt (for scripts) |
+| Agent confirms | sets `dry_run=false` only after user says yes |
+
+---
+
+## RBAC
+
 ```bash
-ANTHROPIC_API_KEY=***
-TELEGRAM_BOT_TOKEN=***
-DISCORD_BOT_TOKEN=***
+export HPC_PILOT_ROLE=admin   # viewer | operator | admin
+# or
+echo '{"role": "operator"}' > ~/.hpc-pilot/.env
 ```
 
-2. Configure platforms in `~/.hpc-pilot/config.yaml`:
-```yaml
-gateway:
-  enabled: true
-  platforms:
-    telegram:
-      enabled: true
-    discord:
-      enabled: true
+| Role | Allowed tools |
+|------|---------------|
+| `viewer` | node status, queue, health, Spack queries, Warewulf images |
+| `operator` | viewer + node drain/resume |
+| `admin` | operator + QOS modify, Ansible playbooks, Warewulf bootstrap |
+
+---
+
+## Audit log
+
+Every tool invocation is appended to `~/.hpc-pilot/logs/audit.jsonl`:
+
+```json
+{"ts": 1750000000.0, "actor": "cli", "role": "admin", "tool": "hpc_slurm_qos_modify",
+ "args": {"name": "gpu", "max_wall_min": 2880, "dry_run": false},
+ "returncode": 0, "duration_ms": 43}
 ```
 
-3. Start gateway:
-```bash
-hpc-pilot gateway --start
-```
-
-## Architecture
-
-```
-┌─────────────────────────────────────────────────────────────┐
-│                     HPC PILOT CLI                           │
-│  - hpc-pilot (entrypoint)                                   │
-│  - hpc-pilot gateway (web + platform support)               │
-└─────────────────────────────────────────────────────────────┘
-                          │
-                          ▼
-┌─────────────────────────────────────────────────────────────┐
-│              EMBEDDED HERMES AGENT                          │
-│  - hermes-agent core (bundled)                              │
-│  - Tool registry (auto-discovery)                           │
-│  - Gateway (Telegram, Discord, Slack)                      │
-│  - Cron scheduler                                           │
-└─────────────────────────────────────────────────────────────┘
-                          │
-                          ▼
-┌─────────────────────────────────────────────────────────────┐
-│                HPC PILOT TOOLS                              │
-│  - Slurm: QOS, nodes, queues                                │
-│  - Warewulf: nodes, images                                  │
-│  - Ansible: playbooks, inventory                            │
-│  - Spack: environments, compilers                           │
-└─────────────────────────────────────────────────────────────┘
-```
+---
 
 ## Configuration
 
-Configuration is stored in `~/.hpc-pilot/`:
-
-```
-~/.hpc-pilot/
-├── config.yaml      # Main configuration
-├── .env             # Environment variables
-├── skills/          # User skills
-├── sessions/        # Session history
-├── logs/            # Log files
-└── state.db         # Database
-```
-
-### Configuration File
+`~/.hpc-pilot/config.yaml` (auto-created on first run):
 
 ```yaml
-# ~/.hpc-pilot/config.yaml
 model:
-  default: anthropic/claude-sonnet-4
+  default: claude-opus-4-7
   provider: anthropic
-
-agent:
-  max_turns: 90
-  approvals:
-    mode: smart
 
 hpc:
   slurm_bin_dir: /usr/bin
@@ -180,173 +191,53 @@ hpc:
   spack_root: /opt/spack
   ansible_dir: /etc/hpc-pilot/ansible
   config_repo: /etc/hpc-pilot/config
-
-gateway:
-  enabled: true
-  port: 8000
-  platforms:
-    telegram:
-      enabled: true
-    discord:
-      enabled: true
 ```
 
-### Environment Variables
-
+`~/.hpc-pilot/.env`:
 ```bash
-# ~/.hpc-pilot/.env
-ANTHROPIC_API_KEY=your-api-key
-TELEGRAM_BOT_TOKEN=your-telegram-token
-DISCORD_BOT_TOKEN=your-discord-token
-SLACK_BOT_TOKEN=***
-
-# HPC Cluster Environment
-HPC_SLURM_BIN_DIR=/usr/bin
-HPC_WAREWOLF_BIN_DIR=/usr/bin
-HPC_SPACK_ROOT=/opt/spack
-HPC_CONFIG_REPO=/etc/hpc-pilot/config
+ANTHROPIC_API_KEY=sk-ant-...
+TELEGRAM_BOT_TOKEN=...
+DISCORD_BOT_TOKEN=...
+HPC_PILOT_ROLE=admin
 ```
 
-## Tool Coverage
+---
 
-| Tool Domain | Hermes Tool | CLI Command |
-|------------|-------------|-------------|
-| Slurm | `hpc_slurm_node_status` | `hpc-pilot nodes` |
-| Slurm | `hpc_slurm_queue` | `hpc-pilot queue` |
-| Slurm | `hpc_slurm_node_state` | `hpc-pilot node-state` |
-| Slurm | `hpc_slurm_qos_modify` | `hpc-pilot qos` |
-| Warewulf | `hpc_warewulf_node_status` | `hpc-pilot werewulf` |
-| Warewulf | `hpc_warewulf_image_list` | `hpc-pilot werewulf images` |
-| Warewulf | `hpc_warewulf_bootstrap` | `hpc-pilot werewulf bootstrap` |
-| Spack | `hpc_spack_env_list` | `hpc-pilot spack list` |
-| Spack | `hpc_spack_find` | `hpc-pilot spack find` |
-| Spack | `hpc_spack_compilers` | `hpc-pilot spack compilers` |
-| Ansible | `hpc_ansible_playbook_run` | `hpc-pilot ansible` |
-| Ansible | `hpc_ansible_inventory_generate` | `hpc-pilot ansible inventory` |
-| Cluster | `hpc_cluster_health_check` | `hpc-pilot health` |
-
-## Gateway Features
-
-### Web UI
-Visit `http://localhost:8000` after starting the gateway.
-
-### Telegram Bot
-1. Create bot via @BotFather
-2. Add token to `~/.hpc-pilot/.env`
-3. Enable in config.yaml
-4. Start gateway
-
-### Discord Bot
-1. Create application at Discord Developer Portal
-2. Add token to `~/.hpc-pilot/.env`
-3. Enable in config.yaml
-4. Start gateway
-
-### Slack App
-1. Create app at Slack Developer Portal
-2. Add token to `~/.hpc-pilot/.env`
-3. Enable in config.yaml
-4. Start gateway
-
-## Cron Jobs
-
-```bash
-# List cron jobs
-hpc-pilot cron list
-
-# Create cron job (runs every 30 minutes)
-hpc-pilot cron create "30m" -p "Run cluster health check"
-
-# Create weekly report (every Monday at 9am)
-hpc-pilot cron create "0 9 * * 1" -p "Generate weekly cluster usage report"
-```
-
-## Skill Learning
-
-Skills are stored in `~/.hpc-pilot/skills/`:
-
-```bash
-# List skills
-hpc-pilot skills list
-
-# Install skill
-hpc-pilot skills install hpc:qos-management
-
-# Create new skill
-hpc-pilot skills create my-workflow
-```
-
-## Development
-
-### Run Tests
-
-```bash
-# Install dev dependencies
-pip install -e ".[dev]"
-
-# Run tests
-pytest tests/
-```
-
-### Build Documentation
-
-```bash
-# Build docs
-python -m build
-```
-
-### Project Structure
+## Project structure
 
 ```
 hpc_pilot/
-├── __init__.py           # Package init
-├── cli.py                # CLI entrypoint
-├── gateway.py            # Gateway server
-├── _hermes.py            # Hermes integration
-├── tools.py              # HPC tools
-├── plugins/              # Plugin modules
-│   ├── slurm.py
-│   ├── warewulf.py
-│   ├── ansible.py
-│   └── spack.py
-└── __pycache__/
+├── cli.py       # CLI entry point + command handlers
+├── gateway.py   # Telegram + Discord gateway
+├── agent.py     # HpcAgent: Claude tool-use loop
+├── tools.py     # HPC tool functions (Slurm, Warewulf, Spack, Ansible)
+├── paths.py     # Home-directory path helpers
+├── config.py    # Config initialization
+├── rbac.py      # Role-Based Access Control
+└── audit.py     # Audit logging
 
-tests/                    # Test suite
-docs/                     # Documentation
+tests/
+├── test_cli.py
+├── test_gateway.py
+├── test_tools.py
+├── test_safety.py   # RBAC + audit tests
+└── test_agent.py    # Agent loop + tool dispatch tests
 ```
 
-## Troubleshooting
+---
 
-### Hermes not found
+## Development
+
 ```bash
-# Reinstall with Hermes support
-pip install hpc-pilot[anthropic] --force-reinstall
+pip install -e ".[dev,gateway]"
+pytest tests/
 ```
 
-### Gateway won't start
-```bash
-# Check logs
-ls ~/.hpc-pilot/logs/
+---
 
-# Reconfigure
-hpc-pilot gateway --setup
-```
+## Planned
 
-### Tools not available
-```bash
-# Check if tools are registered
-hpc-pilot tools
-
-# Rebuild tool registry
-hpc-pilot tools rebuild
-```
-
-## License
-
-MIT License - See LICENSE file for details.
-
-## Support
-
-- Documentation: https://hpc-pilot.readthedocs.io/
-- GitHub: https://github.com/your-org/hpc-pilot
-- Issues: https://github.com/your-org/hpc-pilot/issues
+- `hpc-pilot tui` — text-based UI (Textual)
+- `hpc-pilot cron` — scheduled monitoring jobs
+- Session persistence across restarts
+- Web UI (port 8000)

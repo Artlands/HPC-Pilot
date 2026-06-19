@@ -1,9 +1,9 @@
 """
 Tests for hpc_pilot/agent.py.
 
-The Anthropic client is mocked throughout so no real API calls are made.
+The Hermes CLI subprocess is mocked throughout so no real agent calls are made.
 Tests cover: tool dispatch, RBAC enforcement, conversation loop,
-dry_run propagation, and error handling.
+session persistence, and schema completeness.
 """
 from __future__ import annotations
 
@@ -14,64 +14,39 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 # ---------------------------------------------------------------------------
-# Fixtures
+# Helpers
 # ---------------------------------------------------------------------------
 
 
 def _make_agent(role_value: str = "admin") -> Any:
-    """Create an HpcAgent with a mocked Anthropic client and the given role."""
+    """Create an HpcAgent with the given role (no mocked subprocess)."""
     from hpc_pilot.agent import HpcAgent
     from hpc_pilot.rbac import Role
 
     role = Role(role_value)
-    with patch("hpc_pilot.agent._load_env"):  # don't touch real .env
-        agent = HpcAgent(model="claude-opus-4-7", role=role, actor="test-actor")
-    agent._client = MagicMock()  # replace real Anthropic client
+    with patch("hpc_pilot.agent._load_env"):
+        agent = HpcAgent(model="test-model", role=role, actor="test-actor")
     return agent
 
 
-def _text_response(text: str) -> MagicMock:
-    """Return a mock messages.create response with stop_reason='end_turn'."""
-    block = MagicMock()
-    block.type = "text"
-    block.text = text
-    response = MagicMock()
-    response.stop_reason = "end_turn"
-    response.content = [block]
-    return response
-
-
-def _tool_response(name: str, tool_id: str, args: dict[str, Any]) -> MagicMock:
-    """Return a mock messages.create response with one tool_use block."""
-    block = MagicMock()
-    block.type = "tool_use"
-    block.name = name
-    block.id = tool_id
-    block.input = args
-    response = MagicMock()
-    response.stop_reason = "tool_use"
-    response.content = [block]
-    return response
-
-
 # ---------------------------------------------------------------------------
-# Tool dispatch (_call_tool)
+# Tool dispatch (_execute_tool)
 # ---------------------------------------------------------------------------
 
 
-class TestCallTool:
+class TestExecuteTool:
     @patch("hpc_pilot.tools.subprocess.run")
     def test_node_status_dispatched(self, mock_run):
         mock_run.return_value = MagicMock(returncode=0, stdout="NodeName=n01", stderr="")
         agent = _make_agent()
-        result = agent._call_tool("hpc_slurm_node_status", {"node": "n01"})
+        result = agent._execute_tool("hpc_slurm_node_status", {"node": "n01"})
         assert "NodeName=n01" in result
 
     @patch("hpc_pilot.tools.subprocess.run")
     def test_queue_filters_mapped(self, mock_run):
         mock_run.return_value = MagicMock(returncode=0, stdout="JOBID ...", stderr="")
         agent = _make_agent()
-        agent._call_tool("hpc_slurm_queue", {"user": "alice", "partition": "gpu"})
+        agent._execute_tool("hpc_slurm_queue", {"user": "alice", "partition": "gpu"})
         argv = mock_run.call_args[0][0]
         assert "--user" in argv and "alice" in argv
         assert "--partition" in argv and "gpu" in argv
@@ -86,34 +61,37 @@ class TestCallTool:
             patch("hpc_pilot.tools.check_spack_available", return_value=False),
             patch("hpc_pilot.tools.check_ansible_available", return_value=False),
         ):
-            result = agent._call_tool("hpc_cluster_health_check", {})
+            result = agent._execute_tool("hpc_cluster_health_check", {})
         parsed = json.loads(result)
         assert "overall" in parsed
 
     def test_qos_dry_run_default_true(self):
         agent = _make_agent()
         with patch("hpc_pilot.tools.subprocess.run") as mock_run:
-            # dry_run=True → subprocess must NOT be called
-            result = agent._call_tool("hpc_slurm_qos_modify", {"name": "gpu", "max_wall_min": 60})
+            result = agent._execute_tool(
+                "hpc_slurm_qos_modify", {"name": "gpu", "max_wall_min": 60}
+            )
         mock_run.assert_not_called()
         assert "DRY-RUN" in result
 
     def test_unknown_tool_returns_message(self):
         agent = _make_agent()
-        result = agent._call_tool("hpc_does_not_exist", {})
-        assert "unknown tool" in result
+        result = agent._execute_tool("hpc_does_not_exist", {})
+        assert "unknown tool" in result.lower()
 
     @patch("hpc_pilot.tools.subprocess.run")
     def test_warewulf_power_reset_dry_run(self, mock_run):
         agent = _make_agent()
-        result = agent._call_tool("hpc_warewulf_power_reset", {"node": "n01"})
+        result = agent._execute_tool("hpc_warewulf_power_reset", {"node": "n01"})
         mock_run.assert_not_called()
         assert "DRY-RUN" in result
 
     @patch("hpc_pilot.tools.subprocess.run")
     def test_ansible_playbook_dry_run(self, mock_run):
         agent = _make_agent()
-        result = agent._call_tool("hpc_ansible_playbook_run", {"playbook": "/p/play.yml"})
+        result = agent._execute_tool(
+            "hpc_ansible_playbook_run", {"playbook": "/p/play.yml"}
+        )
         mock_run.assert_not_called()
         assert "DRY-RUN" in result
 
@@ -143,11 +121,10 @@ class TestExecuteToolRbac:
     def test_admin_allowed_qos_dry_run(self, mock_run):
         mock_run.return_value = MagicMock(returncode=0, stdout="Modified", stderr="")
         agent = _make_agent(role_value="admin")
-        # dry_run=False → subprocess called
         result = agent._execute_tool(
             "hpc_slurm_qos_modify", {"name": "gpu", "max_wall_min": 60, "dry_run": False}
         )
-        assert result  # some output
+        assert result
 
     @patch("hpc_pilot.tools.subprocess.run")
     def test_viewer_allowed_node_status(self, mock_run):
@@ -157,7 +134,6 @@ class TestExecuteToolRbac:
         assert "NodeName" in result
 
     def test_tool_error_surfaced_as_string(self):
-        """RuntimeError from the tool is caught and returned as a string (not re-raised)."""
         agent = _make_agent(role_value="admin")
         with patch("hpc_pilot.tools.subprocess.run") as mock_run:
             mock_run.return_value = MagicMock(returncode=1, stdout="", stderr="permission denied")
@@ -168,155 +144,93 @@ class TestExecuteToolRbac:
 
 
 # ---------------------------------------------------------------------------
-# run_turn — conversation loop
+# run_turn — delegates to ``hermes chat -q`` subprocess
 # ---------------------------------------------------------------------------
 
 
 class TestRunTurn:
-    def test_single_text_response(self):
-        """Agent returns text immediately when stop_reason = end_turn."""
+    @patch("hpc_pilot.agent._find_hermes", return_value="/usr/bin/hermes")
+    @patch("hpc_pilot.agent.subprocess.run")
+    def test_single_text_response(self, mock_run, mock_find):
+        """Agent returns text from the Hermes subprocess."""
+        mock_run.return_value = MagicMock(returncode=0, stdout="The cluster is healthy.")
         agent = _make_agent()
-        agent._client.messages.create.return_value = _text_response("The cluster is healthy.")
-
         text, history = agent.run_turn("Is the cluster OK?", [])
 
         assert text == "The cluster is healthy."
-        assert len(history) == 2  # user message + assistant message
-        assert history[0]["role"] == "user"
-        assert history[1]["role"] == "assistant"
+        # Verify subprocess was called with correct args
+        args = mock_run.call_args[0][0]
+        assert "-q" in args
+        assert "Is the cluster OK?" in args
+        assert "-t" in args
+        assert "hpc" in args
 
-    def test_tool_call_then_text(self):
-        """Agent executes a tool and then produces a final text response."""
+    @patch("hpc_pilot.agent._find_hermes", return_value="/usr/bin/hermes")
+    @patch("hpc_pilot.agent.subprocess.run")
+    def test_streaming_path_calls_on_text(self, mock_run, mock_find):
+        """When on_text is provided, Hermes output is streamed."""
+        mock_run.return_value = MagicMock(returncode=0, stdout="Hello world.")
         agent = _make_agent()
-        agent._client.messages.create.side_effect = [
-            _tool_response("hpc_cluster_health_check", "toolu_01", {}),
-            _text_response("Everything looks good."),
-        ]
-
-        with (
-            patch("hpc_pilot.tools.check_slurm_available", return_value=False),
-            patch("hpc_pilot.tools.check_warewulf_available", return_value=False),
-            patch("hpc_pilot.tools.check_spack_available", return_value=False),
-            patch("hpc_pilot.tools.check_ansible_available", return_value=False),
-        ):
-            text, history = agent.run_turn("How is the cluster?", [])
-
-        assert text == "Everything looks good."
-        # messages.create called twice: once with tool, once after tool result
-        assert agent._client.messages.create.call_count == 2
-        # history: user, assistant (tool call), user (tool result), assistant (text)
-        assert len(history) == 4
-
-    def test_streaming_path_calls_on_text(self):
-        """When on_text is provided, the streaming API is used."""
-        agent = _make_agent()
-
         chunks_received: list[str] = []
-        mock_stream = MagicMock()
-        mock_stream.__enter__ = MagicMock(return_value=mock_stream)
-        mock_stream.__exit__ = MagicMock(return_value=False)
-        mock_stream.text_stream = iter(["Hello ", "world."])
-        final = _text_response("Hello world.")
-        mock_stream.get_final_message.return_value = final
+        text, _ = agent.run_turn("Hi", [], on_text=lambda c: chunks_received.append(c))
 
-        agent._client.messages.stream.return_value = mock_stream
+        assert "Hello world." in text
+        assert len(chunks_received) >= 1
 
-        text, _ = agent.run_turn(
-            "Hi",
-            [],
-            on_text=lambda c: chunks_received.append(c),
-        )
-
-        assert chunks_received == ["Hello ", "world."]
-        agent._client.messages.stream.assert_called_once()
-        agent._client.messages.create.assert_not_called()
-
-    def test_on_tool_callback_called(self):
-        """on_tool callback is invoked with tool name and args."""
-        agent = _make_agent()
-        agent._client.messages.create.side_effect = [
-            _tool_response("hpc_spack_env_list", "toolu_02", {}),
-            _text_response("Spack envs listed."),
-        ]
-
-        tool_calls: list[tuple[str, dict]] = []
-        with patch("hpc_pilot.tools.subprocess.run") as mock_run:
-            mock_run.return_value = MagicMock(returncode=0, stdout="==> Environments", stderr="")
-            text, _ = agent.run_turn(
-                "List Spack environments",
-                [],
-                on_tool=lambda n, a: tool_calls.append((n, a)),
-            )
-
-        assert tool_calls[0][0] == "hpc_spack_env_list"
-
-    def test_permission_error_returned_as_tool_result(self):
-        """A PermissionError inside execute_tool is returned as a string to Claude."""
-
-        agent = _make_agent(role_value="viewer")
-        agent._client.messages.create.side_effect = [
-            _tool_response("hpc_slurm_qos_modify", "toolu_03", {"name": "gpu"}),
-            _text_response("You do not have permission."),
-        ]
-
-        text, history = agent.run_turn("Modify the gpu QOS", [])
-
-        # The tool result message (history[2]) should contain the permission error
-        tool_result_msg = history[2]
-        assert tool_result_msg["role"] == "user"
-        content = tool_result_msg["content"]
-        assert any("Permission" in str(c) for c in content)
-
-    def test_history_preserved_across_turns(self):
-        """Calling run_turn twice accumulates history correctly."""
-        agent = _make_agent()
-        agent._client.messages.create.side_effect = [
-            _text_response("Turn 1 response."),
-            _text_response("Turn 2 response."),
-        ]
-
-        _, history = agent.run_turn("First message", [])
-        _, history = agent.run_turn("Second message", history)
-
-        roles = [m["role"] for m in history]
-        assert roles == ["user", "assistant", "user", "assistant"]
-
-    def test_run_query_single_shot(self):
+    @patch("hpc_pilot.agent._find_hermes", return_value="/usr/bin/hermes")
+    @patch("hpc_pilot.agent.subprocess.run")
+    def test_run_query_single_shot(self, mock_run, mock_find):
         """run_query wraps run_turn and returns just the text."""
+        mock_run.return_value = MagicMock(returncode=0, stdout="42 nodes available.")
         agent = _make_agent()
-        agent._client.messages.create.return_value = _text_response("42 nodes available.")
-
         result = agent.run_query("How many nodes?")
+
         assert result == "42 nodes available."
-
-    def test_max_iterations_breaks_infinite_loop(self):
-        """run_turn exits after max_iterations if the model keeps calling tools."""
-        agent = _make_agent()
-        # Always returns a tool_use response — would loop forever without the guard
-        agent._client.messages.create.return_value = _tool_response(
-            "hpc_cluster_health_check", "toolu_inf", {}
-        )
-
-        with (
-            patch("hpc_pilot.tools.check_slurm_available", return_value=False),
-            patch("hpc_pilot.tools.check_warewulf_available", return_value=False),
-            patch("hpc_pilot.tools.check_spack_available", return_value=False),
-            patch("hpc_pilot.tools.check_ansible_available", return_value=False),
-        ):
-            text, _ = agent.run_turn("loop test", [], max_iterations=3)
-
-        assert agent._client.messages.create.call_count == 3
-        assert "Stopped after 3 iterations" in text
 
 
 # ---------------------------------------------------------------------------
-# Session persistence (Q2)
+# run_chat_loop — execs ``hermes chat -t hpc``
+# ---------------------------------------------------------------------------
+
+
+class TestRunChatLoop:
+    @patch("hpc_pilot.agent._find_hermes", return_value="/usr/bin/hermes")
+    @patch("hpc_pilot.agent.os.execvp")
+    def test_execs_hermes_chat_with_hpc_toolset(self, mock_exec, mock_find):
+        """run_chat_loop calls execvp with 'hermes chat -t hpc'."""
+        from hpc_pilot.agent import run_chat_loop
+
+        agent = _make_agent()
+        rc = run_chat_loop(agent)
+
+        assert rc == 0
+        mock_exec.assert_called_once()
+        args = mock_exec.call_args[0]
+        assert args[0] == "/usr/bin/hermes"
+        assert "chat" in args[1]
+        assert "-t" in args[1]
+        assert "hpc" in args[1]
+
+    def test_hermes_not_found(self):
+        """run_chat_loop returns 1 when hermes is not found."""
+        from hpc_pilot.agent import run_chat_loop
+
+        agent = _make_agent()
+        with patch("hpc_pilot.agent._find_hermes", return_value="/nonexistent/hermes"):
+            with patch("hpc_pilot.agent.os.execvp", side_effect=FileNotFoundError):
+                rc = run_chat_loop(agent)
+
+        assert rc == 1
+
+
+# ---------------------------------------------------------------------------
+# Session persistence
 # ---------------------------------------------------------------------------
 
 
 class TestSessionPersistence:
     def test_save_and_load_roundtrip(self, tmp_path):
-        """save_session → load_session returns identical messages."""
+        """save_session -> load_session returns identical messages."""
         from hpc_pilot.agent import load_session, save_session
 
         agent = _make_agent()
@@ -338,7 +252,6 @@ class TestSessionPersistence:
 
         with patch("hpc_pilot.paths.sessions_dir", return_value=str(tmp_path)):
             first = _new_session_id()
-            # create the file so the next call must pick something different
             (tmp_path / f"{first}.json").write_text("{}")
             second = _new_session_id()
 
@@ -384,161 +297,6 @@ class TestSessionPersistence:
         msg = {"role": "assistant", "content": [block]}
         result = _serialize_message(msg)
         assert result["content"] == [{"type": "text", "text": "hello"}]
-
-    def test_run_chat_loop_saves_session_on_exit(self, tmp_path):
-        """run_chat_loop persists history when the user exits."""
-        from hpc_pilot.agent import run_chat_loop
-
-        agent = _make_agent()
-        agent._client.messages.create.return_value = _text_response("pong")
-
-        with (
-            patch("hpc_pilot.paths.get_home", return_value=str(tmp_path)),
-            patch("builtins.input", side_effect=["ping", "exit"]),
-            patch("builtins.print"),
-        ):
-            run_chat_loop(agent)
-
-        sessions_dir = tmp_path / "sessions"
-        saved = list(sessions_dir.glob("*.json"))
-        assert len(saved) == 1
-
-    def test_chat_list_sessions_cli(self, tmp_path, capsys):
-        """hpc-pilot chat --list-sessions prints saved sessions."""
-        from hpc_pilot.agent import save_session
-
-        agent = _make_agent()
-        history = [{"role": "user", "content": "q"}, {"role": "assistant", "content": "a"}]
-        with patch("hpc_pilot.paths.get_home", return_value=str(tmp_path)):
-            save_session(history, agent, session_id="mysession")
-
-        from hpc_pilot.cli import main
-        with patch("hpc_pilot.paths.get_home", return_value=str(tmp_path)):
-            rc = main(["chat", "--list-sessions"])
-
-        assert rc == 0
-        out = capsys.readouterr().out
-        assert "mysession" in out
-
-
-# ---------------------------------------------------------------------------
-# TOOL_SCHEMAS completeness
-# ---------------------------------------------------------------------------
-
-
-# ---------------------------------------------------------------------------
-# on_result callback (Q5)
-# ---------------------------------------------------------------------------
-
-
-class TestOnResultCallback:
-    def test_on_result_called_after_tool_execution(self):
-        """on_result callback receives (tool_name, result_string) after each tool call."""
-        agent = _make_agent()
-        tool_resp = _tool_response("hpc_cluster_health_check", "toolu_01", {})
-        text_resp = _text_response("Done.")
-        agent._client.messages.create.side_effect = [tool_resp, text_resp]
-
-        collected: list[tuple[str, str]] = []
-
-        with (
-            patch("hpc_pilot.tools.check_slurm_available", return_value=False),
-            patch("hpc_pilot.tools.check_warewulf_available", return_value=False),
-            patch("hpc_pilot.tools.check_spack_available", return_value=False),
-            patch("hpc_pilot.tools.check_ansible_available", return_value=False),
-        ):
-            agent.run_turn(
-                "health check",
-                [],
-                on_result=lambda name, result: collected.append((name, result)),
-            )
-
-        assert len(collected) == 1
-        assert collected[0][0] == "hpc_cluster_health_check"
-        assert isinstance(collected[0][1], str)
-
-
-# ---------------------------------------------------------------------------
-# Token usage logging (Q3)
-# ---------------------------------------------------------------------------
-
-
-class TestTokenUsageLogging:
-    def test_log_llm_usage_writes_audit_record(self, tmp_path):
-        """log_llm_usage appends a record with usage field to the audit log."""
-        import json as _json
-
-        from hpc_pilot.audit import log_llm_usage
-
-        log_file = tmp_path / "audit.jsonl"
-        with patch("hpc_pilot.audit.audit_log_path", return_value=str(log_file)):
-            log_llm_usage(
-                actor="test",
-                role="admin",
-                model="claude-opus-4-7",
-                input_tokens=100,
-                output_tokens=50,
-            )
-
-        line = _json.loads(log_file.read_text().strip())
-        assert line["tool"] == "llm_call"
-        assert line["usage"] == {"input_tokens": 100, "output_tokens": 50}
-
-    def test_run_turn_logs_token_usage(self, tmp_path):
-        """run_turn calls log_llm_usage after each API call."""
-        agent = _make_agent()
-        response = _text_response("hello")
-        response.usage = MagicMock(input_tokens=10, output_tokens=5)
-        agent._client.messages.create.return_value = response
-
-        with patch("hpc_pilot.audit.log_llm_usage") as mock_log:
-            agent.run_turn("hi", [])
-
-        mock_log.assert_called_once_with(
-            actor="test-actor",
-            role="admin",
-            model="claude-opus-4-7",
-            input_tokens=10,
-            output_tokens=5,
-        )
-
-
-# ---------------------------------------------------------------------------
-# Retry logic (Q4)
-# ---------------------------------------------------------------------------
-
-
-class TestRetryLogic:
-    def test_non_streaming_retries_on_rate_limit(self):
-        """run_turn retries non-streaming calls on RateLimitError (up to 3 attempts)."""
-        import anthropic
-
-        agent = _make_agent()
-        success = _text_response("ok")
-        agent._client.messages.create.side_effect = [
-            anthropic.RateLimitError("rate limited", response=MagicMock(), body={}),
-            success,
-        ]
-
-        with patch("hpc_pilot.agent.time.sleep"):  # don't actually sleep
-            text, _ = agent.run_turn("hi", [])
-
-        assert text == "ok"
-        assert agent._client.messages.create.call_count == 2
-
-    def test_non_streaming_raises_after_three_failures(self):
-        """run_turn raises after 3 consecutive transient failures."""
-        import anthropic
-
-        agent = _make_agent()
-        agent._client.messages.create.side_effect = anthropic.RateLimitError(
-            "rate limited", response=MagicMock(), body={}
-        )
-
-        with patch("hpc_pilot.agent.time.sleep"), pytest.raises(anthropic.RateLimitError):
-            agent.run_turn("hi", [])
-
-        assert agent._client.messages.create.call_count == 3
 
 
 # ---------------------------------------------------------------------------

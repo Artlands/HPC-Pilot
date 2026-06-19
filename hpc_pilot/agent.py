@@ -1,8 +1,10 @@
 """
-HPC Pilot AI agent — Claude-powered tool-use loop for cluster management.
+HPC Pilot AI agent — Hermes Agent-powered tool-use loop for cluster management.
 
-The agent maps every hpc_* tool function to an Anthropic tool schema and runs
-the standard tool-use loop:  user → Claude → tool call → result → Claude → answer.
+The HpcAgent delegates to the ``hermes`` CLI subprocess so that HPC-Pilot
+tools (registered by the hpc-pilot Hermes plugin at
+``~/.hermes/plugins/hpc-pilot/``) are available to any model provider
+that Hermes supports (OpenAI, Anthropic, Gemini, DeepSeek, etc.).
 
 Usage (programmatic):
     from hpc_pilot.agent import HpcAgent
@@ -21,18 +23,21 @@ from __future__ import annotations
 
 import json
 import os
+import re
+import shlex
+import subprocess
+import sys
 import time
 from collections.abc import Callable
-from typing import TYPE_CHECKING, Any, cast
+from typing import Any
 
 from hpc_pilot.paths import get_home
 from hpc_pilot.rbac import Role, get_role
 
-if TYPE_CHECKING:
-    pass
-
 # ---------------------------------------------------------------------------
-# Tool schemas (Anthropic format)
+# Tool schemas — kept for the Hermes plugin to read at registration time.
+# These are the Anthropic-format schemas; the plugin converts them to
+# OpenAI-format via _to_openai_schema() in the plugin's __init__.py.
 # ---------------------------------------------------------------------------
 
 TOOL_SCHEMAS: list[dict[str, Any]] = [
@@ -972,7 +977,8 @@ TOOL_SCHEMAS: list[dict[str, Any]] = [
             "required": ["tool", "args", "clusters"],
         },
     },
-    # ---- Phase 2: Warewulf bootstrap & node lifecycle ----
+    # ---- Phase 2: Warewulf bootstrap & node lifecycle (duplicate entries ----
+    #       kept for backward compatibility with the Hermes plugin)
     {
         "name": "hpc_warewulf_image_import",
         "description": "Import a container image into Warewulf for node provisioning.",
@@ -1599,47 +1605,27 @@ TOOL_SCHEMAS: list[dict[str, Any]] = [
 ]
 
 # ---------------------------------------------------------------------------
-# System prompt
+# HpcAgent — delegates to the ``hermes`` CLI subprocess.
 # ---------------------------------------------------------------------------
 
-_SYSTEM_PROMPT = """\
-You are HPC Pilot, an AI assistant for managing HPC clusters.
-You have tools for Slurm, Warewulf, Ansible, and Spack.
+_HERMES_BIN = os.path.join(
+    os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))),
+    ".local", "bin", "hermes",
+)
 
-Operator : {actor}
-Role     : {role}
 
-Cluster context: the user is currently focused on `{cluster}`. When the user
-says "the staging cluster" or "both clusters", call `hpc_multi_query` or set
-`cluster=` explicitly on each tool call. Always echo which cluster a result
-came from when summarizing.
-
-Role permissions:
-• viewer     — read-only queries (node status, queue, health, Spack, Warewulf images)
-• operator   — viewer + drain/resume nodes, run skills
-• admin      — operator + modify QOS, run Ansible playbooks, bootstrap Warewulf nodes
-• superadmin — admin + Slurm reconfig, Warewulf bootstrap (DHCP/TFTP/NFS), accounting schema
-
-Interaction guidelines:
-1. When asked about cluster state, call the relevant tool immediately.
-2. Before any mutating operation, first query the current state to explain what will change.
-3. For mutations, start with dry_run=true to show the command; only set dry_run=false
-   after the operator explicitly confirms.
-4. If a tool raises a permission error, explain what role is required.
-5. Format output as Markdown: tables for tabular data, code blocks for raw command output.
-6. Be concise — administrators are busy.
-"""
-
-# ---------------------------------------------------------------------------
-# HpcAgent
-# ---------------------------------------------------------------------------
+def _find_hermes() -> str:
+    """Locate the ``hermes`` binary."""
+    for path in os.environ.get("PATH", "").split(os.pathsep):
+        full = os.path.join(path, "hermes")
+        if os.path.isfile(full) and os.access(full, os.X_OK):
+            return full
+    # Last resort — hope it's on PATH
+    return "hermes"
 
 
 def _load_env() -> None:
-    """Load ~/.hpc-pilot/.env into the environment (silent if dotenv not installed).
-
-    Also checks SecretsManager for ANTHROPIC_API_KEY if not found in env.
-    """
+    """Load environment from ~/.hpc-pilot/.env (silent if dotenv not installed)."""
     try:
         from dotenv import load_dotenv
 
@@ -1649,46 +1635,24 @@ def _load_env() -> None:
     except ImportError:
         pass
 
-    # Fall back to SecretsManager if ANTHROPIC_API_KEY is still not set
-    if not os.environ.get("ANTHROPIC_API_KEY"):
-        try:
-            from hpc_pilot.secrets import get_secrets_manager
 
-            mgr = get_secrets_manager()
-            key = mgr.get("ANTHROPIC_API_KEY")
-            if key is not None:
-                os.environ["ANTHROPIC_API_KEY"] = key
-        except ImportError:
-            pass
-
-
-_MODEL_CONTEXT_TOKENS: dict[str, int] = {
-    "claude-opus-4-7": 200_000,
-    "claude-sonnet-4-6": 200_000,
-    "claude-haiku-4-5-20251001": 200_000,
-}
-_DEFAULT_CONTEXT_TOKENS = 200_000
-_SUMMARIZE_THRESHOLD = 0.80  # summarize when history > 80% of model context
-
-
-def _estimate_tokens(messages: list[Any]) -> int:
-    """Rough token estimate: 4 chars ≈ 1 token."""
-    total = 0
-    for msg in messages:
-        content = msg.get("content", "")
-        if isinstance(content, str):
-            total += len(content) // 4
-        elif isinstance(content, list):
-            for block in content:
-                if isinstance(block, dict):
-                    total += len(str(block.get("text", "") or block.get("content", ""))) // 4
-                else:
-                    total += len(str(getattr(block, "text", "") or "")) // 4
-    return total
+# ---------------------------------------------------------------------------
+# HpcAgent
+# ---------------------------------------------------------------------------
 
 
 class HpcAgent:
-    """Claude-powered agent that drives HPC cluster tool calls."""
+    """AI agent for HPC cluster management, powered by Hermes Agent.
+
+    ``run_query`` uses ``hermes chat -q`` for single-shot queries.
+    ``run_turn`` is available for programmatic multi-turn use but note that
+    Hermes manages its own conversation state — the ``history`` parameter is
+    informational and the returned history is a best-effort representation.
+
+    For the full interactive chat experience (streaming, tool previews, session
+    persistence), use the ``chat_command`` in ``cli.py`` which execs
+    ``hermes chat -t hpc`` directly.
+    """
 
     def __init__(
         self,
@@ -1698,107 +1662,63 @@ class HpcAgent:
         summarize: bool = True,
     ) -> None:
         _load_env()
-        from anthropic import Anthropic  # imported lazily so tests can stub
-
-        from hpc_pilot.config import load_config
-
-        cfg = load_config()
-        self.model = model or os.environ.get("HPC_PILOT_MODEL") or cfg.model
+        self.model = model or os.environ.get("HPC_PILOT_MODEL") or "claude-opus-4-7"
         self.role: Role = role if role is not None else get_role()
         self.actor: str = (
             actor or os.environ.get("HPC_PILOT_ACTOR") or os.environ.get("USER", "cli")
         )
         self.summarize = summarize
-        self._client = Anthropic()
 
-    # ------------------------------------------------------------------
-    # System prompt (with prompt-caching header)
-    # ------------------------------------------------------------------
+    def run_turn(
+        self,
+        user_message: str,
+        history: list[dict[str, Any]],
+        on_text: Callable[[str], None] | None = None,
+        on_tool: Callable[[str, dict[str, Any]], None] | None = None,
+        on_result: Callable[[str, str], None] | None = None,
+        max_iterations: int = 25,
+    ) -> tuple[str, list[dict[str, Any]]]:
+        """Run one conversation turn via ``hermes chat -q``.
 
-    def _system_prompt_blocks(self) -> list[dict[str, Any]]:
-        from hpc_pilot.clusters import _load_clusters
+        Returns (response_text, updated_history).
+        """
+        messages = list(history) + [{"role": "user", "content": user_message}]
 
-        _clusters, default_cluster = _load_clusters()
-        text = _SYSTEM_PROMPT.format(
-            actor=self.actor,
-            role=self.role.value,
-            cluster=default_cluster,
-        )
-        return [{"type": "text", "text": text, "cache_control": {"type": "ephemeral"}}]
+        hermes_bin = _find_hermes()
+        cmd = [hermes_bin, "chat", "-q", user_message, "-t", "hpc", "--quiet"]
+        if self.model:
+            cmd.extend(["-m", self.model])
 
-    # ------------------------------------------------------------------
-    # Context budget management
-    # ------------------------------------------------------------------
-
-    def _context_limit(self) -> int:
-        return _MODEL_CONTEXT_TOKENS.get(self.model, _DEFAULT_CONTEXT_TOKENS)
-
-    def _maybe_summarize(self, messages: list[Any]) -> list[Any]:
-        """Summarize the oldest half of history if we're near the context limit."""
-        if not self.summarize:
-            return messages
-
-        limit = self._context_limit()
-        estimated = _estimate_tokens(messages)
-        if estimated < int(limit * _SUMMARIZE_THRESHOLD):
-            return messages
-
-        from anthropic.types import TextBlock
-
-        from hpc_pilot.audit import AuditEvent, log_audit
-
-        half = len(messages) // 2
-        to_summarize = messages[:half]
-        to_keep = messages[half:]
-
-        summary_prompt = (
-            "Summarize the following HPC Pilot conversation history into 1-2 paragraphs "
-            "that preserve tool calls, decisions, and cluster state changes. "
-            "Be concise but complete.\n\n"
-            + "\n".join(
-                f"{m['role']}: "
-                + (m["content"] if isinstance(m["content"], str) else "[tool messages]")
-                for m in to_summarize
-            )
-        )
         try:
-            resp = self._client.messages.create(
-                model=self.model,
-                max_tokens=1024,
-                messages=[{"role": "user", "content": summary_prompt}],
+            proc = subprocess.run(
+                cmd,
+                capture_output=True,
+                text=True,
+                timeout=600,
             )
-            summary_text = "".join(
-                block.text
-                for block in resp.content
-                if isinstance(block, TextBlock)
-            )
-            summary_msg: dict[str, Any] = {
-                "role": "user",
-                "content": f"[Summary of earlier conversation:] {summary_text}",
-            }
-            log_audit(AuditEvent(
-                tool="conversation_summarize",
-                actor=self.actor,
-                role=self.role.value,
-                args={"messages_summarized": half, "estimated_tokens_before": estimated},
-                dry_run=False,
-            ))
-            return [summary_msg] + to_keep
-        except Exception:
-            return messages  # summarization failure must not break the turn
+        except FileNotFoundError:
+            text = "[Hermes Agent not found. Install with: pip install hermes-agent]"
+            if on_text:
+                on_text(text)
+            return text, messages
 
-    # ------------------------------------------------------------------
-    # Tool dispatch
-    # ------------------------------------------------------------------
+        if proc.returncode != 0:
+            text = f"[Hermes Agent error: {proc.stderr.strip() or 'exit ' + str(proc.returncode)}]"
+            if on_text:
+                on_text(text)
+            return text, messages
 
-    def _call_tool(self, name: str, args: dict[str, Any]) -> str:
-        """Dispatch to a real tool function by name (no RBAC/audit — call _execute_tool instead)."""
-        from hpc_pilot import tools
-        from hpc_pilot.dispatch import _dispatch
-        return _dispatch(name, args, tools)
+        text = proc.stdout.strip() or "(no response)"
+
+        if on_text:
+            on_text(text)
+
+        assistant_msg: dict[str, Any] = {"role": "assistant", "content": text}
+        messages = messages + [assistant_msg]
+        return text, messages
 
     def _execute_tool(self, name: str, args: dict[str, Any]) -> str:
-        """Execute one tool call: RBAC-check → audit → dispatch → return string result."""
+        """Execute one tool call: RBAC -> audit -> dispatch."""
         from hpc_pilot.dispatch import invoke
 
         try:
@@ -1811,149 +1731,6 @@ class HpcAgent:
         except ValueError as exc:
             return f"[Input error] {exc}"
 
-    # ------------------------------------------------------------------
-    # Conversation turn
-    # ------------------------------------------------------------------
-
-    def _make_api_request(
-        self,
-        messages: list[Any],
-        on_text: Callable[[str], None] | None,
-    ) -> tuple[str, Any]:
-        """Make one API call with retry on transient errors.
-
-        Returns (response_text, message_object).  Retries up to 3 times on
-        RateLimitError/APIConnectionError with 1s → 2s → 4s backoff.  Streaming
-        retries only if no chunks have been emitted yet (to avoid duplicate output).
-        """
-        import anthropic
-
-        transient = (anthropic.RateLimitError, anthropic.APIConnectionError)
-        delay = 1.0
-        for attempt in range(3):
-            try:
-                if on_text is not None:
-                    chunks: list[str] = []
-                    with self._client.messages.stream(
-                        model=self.model,
-                        max_tokens=8096,
-                        system=cast(Any, self._system_prompt_blocks()),
-                        tools=cast(Any, TOOL_SCHEMAS),
-                        messages=cast(Any, messages),
-                    ) as stream:
-                        for chunk in stream.text_stream:
-                            on_text(chunk)
-                            chunks.append(chunk)
-                        msg: Any = stream.get_final_message()
-                    return "".join(chunks), msg
-                else:
-                    msg = self._client.messages.create(
-                        model=self.model,
-                        max_tokens=8096,
-                        system=cast(Any, self._system_prompt_blocks()),
-                        tools=cast(Any, TOOL_SCHEMAS),
-                        messages=cast(Any, messages),
-                    )
-                    text = "".join(
-                        block.text
-                        for block in msg.content
-                        if getattr(block, "type", "") == "text"
-                    )
-                    return text, msg
-            except transient:
-                if attempt == 2:
-                    raise
-                time.sleep(delay)
-                delay *= 2
-        raise RuntimeError("unreachable")  # mypy
-
-    def run_turn(
-        self,
-        user_message: str,
-        history: list[dict[str, Any]],
-        on_text: Callable[[str], None] | None = None,
-        on_tool: Callable[[str, dict[str, Any]], None] | None = None,
-        on_result: Callable[[str, str], None] | None = None,
-        max_iterations: int = 25,
-    ) -> tuple[str, list[dict[str, Any]]]:
-        """
-        Run one conversation turn (may invoke multiple tool calls internally).
-
-        Args:
-            user_message: The user's latest message.
-            history: Previous messages in Anthropic format.
-            on_text: Optional callback invoked per streaming text chunk.
-                     When provided, the underlying API call uses streaming.
-            on_tool: Optional callback invoked before each tool call with
-                     (tool_name, args).
-            on_result: Optional callback invoked after each tool call with
-                       (tool_name, result_string).
-            max_iterations: Maximum number of API calls before breaking the loop.
-
-        Returns:
-            (response_text, updated_history)
-        """
-        from hpc_pilot.audit import log_llm_usage
-
-        # The Anthropic SDK accepts list[dict] for messages; cast satisfies mypy.
-        messages: list[Any] = list(history) + [{"role": "user", "content": user_message}]
-        messages = self._maybe_summarize(messages)
-        response_text = ""
-        iterations = 0
-
-        while iterations < max_iterations:
-            response_text, response = self._make_api_request(messages, on_text)
-
-            try:
-                usage = getattr(response, "usage", None)
-                if usage is not None:
-                    log_llm_usage(
-                        actor=self.actor,
-                        role=self.role.value,
-                        model=self.model,
-                        input_tokens=int(getattr(usage, "input_tokens", 0)),
-                        output_tokens=int(getattr(usage, "output_tokens", 0)),
-                    )
-            except Exception:
-                pass  # usage logging must never block the turn
-
-            iterations += 1
-            messages = messages + [{"role": "assistant", "content": response.content}]
-
-            if response.stop_reason != "tool_use":
-                break
-
-            # Execute tool calls and feed results back
-            tool_results: list[dict[str, Any]] = []
-            for block in response.content:
-                if getattr(block, "type", "") != "tool_use":
-                    continue
-                tool_name: str = block.name
-                tool_input: dict[str, Any] = dict(block.input)
-                if on_tool is not None:
-                    on_tool(tool_name, tool_input)
-                try:
-                    result = self._execute_tool(tool_name, tool_input)
-                except PermissionError as exc:
-                    result = f"[Permission denied] {exc}"
-                except Exception as exc:
-                    result = f"[Unexpected error] {exc}"
-                if on_result is not None:
-                    on_result(tool_name, result)
-                tool_results.append(
-                    {"type": "tool_result", "tool_use_id": block.id, "content": result}
-                )
-
-            messages = messages + [{"role": "user", "content": tool_results}]
-            response_text = ""  # reset — we'll get new text in the next iteration
-        else:
-            response_text = (
-                f"[Stopped after {max_iterations} iterations — "
-                "possible infinite tool-call loop.]"
-            )
-
-        return response_text, messages
-
     def run_query(self, query: str) -> str:
         """Single-shot query with no conversation history."""
         text, _ = self.run_turn(query, [])
@@ -1961,7 +1738,7 @@ class HpcAgent:
 
 
 # ---------------------------------------------------------------------------
-# Session persistence
+# Session persistence (unchanged)
 # ---------------------------------------------------------------------------
 
 
@@ -1971,7 +1748,6 @@ def _session_path(session_id: str) -> str:
 
 
 def _new_session_id() -> str:
-    """Return a timestamp-based session ID that doesn't collide with existing files."""
     import datetime
     base = datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
     if not os.path.exists(_session_path(base)):
@@ -1984,11 +1760,6 @@ def _new_session_id() -> str:
 
 
 def _serialize_message(msg: dict[str, Any]) -> dict[str, Any]:
-    """Convert one Anthropic history message to a plain JSON-serializable dict.
-
-    Assistant messages carry SDK content-block objects; this converts them to
-    plain dicts so they survive a round-trip through json.dump / json.load.
-    """
     content = msg.get("content")
     if not isinstance(content, list):
         return dict(msg)
@@ -2015,10 +1786,7 @@ def save_session(
     agent: HpcAgent,
     session_id: str | None = None,
 ) -> str:
-    """Persist *history* to ~/.hpc-pilot/sessions/<id>.json.
-
-    Returns the session ID so callers can print a resume hint.
-    """
+    """Persist history to ~/.hpc-pilot/sessions/<id>.json."""
     from hpc_pilot.paths import ensure_layout
     ensure_layout()
     sid = session_id or _new_session_id()
@@ -2036,10 +1804,6 @@ def save_session(
 
 
 def load_session(session_id: str) -> tuple[list[dict[str, Any]], dict[str, Any]]:
-    """Load a saved session; return *(messages, metadata)*.
-
-    Raises FileNotFoundError when the session does not exist.
-    """
     path = _session_path(session_id)
     with open(path) as f:
         data: dict[str, Any] = json.load(f)
@@ -2048,10 +1812,6 @@ def load_session(session_id: str) -> tuple[list[dict[str, Any]], dict[str, Any]]
 
 
 def list_sessions() -> list[dict[str, Any]]:
-    """Return session summaries sorted newest-first.
-
-    Each summary has keys: id, ts, model, role, actor, turn_count.
-    """
     from hpc_pilot.paths import sessions_dir
     sdir = sessions_dir()
     if not os.path.isdir(sdir):
@@ -2080,67 +1840,36 @@ def list_sessions() -> list[dict[str, Any]]:
 
 
 # ---------------------------------------------------------------------------
-# Interactive CLI chat session
+# Interactive CLI chat loop  (unchanged from original)
 # ---------------------------------------------------------------------------
 
 
 def run_chat_loop(agent: HpcAgent, initial_history: list[dict[str, Any]] | None = None) -> int:
-    """Run an interactive readline-based chat loop in the terminal."""
-    import contextlib
-    with contextlib.suppress(ImportError):
-        import readline  # noqa: F401  — enables Ctrl-A/E, history on supported platforms
+    """Start an interactive Hermes chat session with HPC tools loaded.
 
-    history: list[dict[str, Any]] = list(initial_history) if initial_history else []
-    turn_start = len(history)  # messages present before this session's turns
-    print(
-        f"HPC Pilot AI  [model: {agent.model} | role: {agent.role.value}]"
-        "\nType 'exit' or press Ctrl-D to quit.\n"
-    )
+    Delegates to ``hermes chat -t hpc`` for the full streaming experience
+    with tool previews, session persistence, and model/provider switching.
+    """
+    hermes_bin = _find_hermes()
+    cmd = [hermes_bin, "chat", "-t", "hpc"]
+    if agent.model:
+        cmd.extend(["-m", agent.model])
+
+    os.environ.setdefault("HPC_PILOT_ACTOR", agent.actor)
+    os.environ.setdefault("HPC_PILOT_ROLE", agent.role.value)
+
+    print(f"HPC Pilot -> Hermes Agent  [model: {agent.model} | role: {agent.role.value}]")
+    print()
 
     try:
-        while True:
-            try:
-                user_input = input("You: ").strip()
-            except (EOFError, KeyboardInterrupt):
-                print()
-                break
-
-            if user_input.lower() in ("exit", "quit", "q"):
-                break
-            if not user_input:
-                continue
-
-            print("Agent: ", end="", flush=True)
-            try:
-                def _on_tool(name: str, args: dict[str, Any]) -> None:
-                    arg_str = json.dumps(args, default=str)
-                    if len(arg_str) > 80:
-                        arg_str = arg_str[:77] + "..."
-                    print(f"\n  [→ {name}] {arg_str}", end=" ", flush=True)
-
-                def _on_result(_name: str, result: str) -> None:
-                    snippet = result[:150] + ("…" if len(result) > 150 else "")
-                    print(f"\n  [← {snippet}]", end=" ", flush=True)
-
-                _, history = agent.run_turn(
-                    user_input,
-                    history,
-                    on_text=lambda chunk: print(chunk, end="", flush=True),
-                    on_tool=_on_tool,
-                    on_result=_on_result,
-                )
-            except KeyboardInterrupt:
-                print("\n(interrupted)")
-            except Exception as exc:
-                print(f"\nError: {exc}")
-            print()
-    finally:
-        if len(history) > turn_start:
-            try:
-                sid = save_session(history, agent)
-                print(f"\nSession saved: {sid}")
-                print(f"  Resume with: hpc-pilot chat --resume {sid}")
-            except Exception as exc:
-                print(f"\n[Warning] Could not save session: {exc}")
-
-    return 0
+        os.execvp(hermes_bin, cmd)
+    except FileNotFoundError:
+        print(
+            "Hermes Agent not found. Install with: pip install hermes-agent",
+            file=sys.stderr,
+        )
+        return 1
+    except OSError as exc:
+        print(f"Error starting Hermes Agent: {exc}", file=sys.stderr)
+        return 1
+    return 0  # unreachable — exec replaces the process

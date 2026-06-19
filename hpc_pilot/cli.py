@@ -134,43 +134,15 @@ def chat_command(args: argparse.Namespace) -> int:
                 print(f"{s['id']}  {ts}  {s['turn_count']} turn(s)  [{s['role']}]")
         return 0
 
-    try:
-        from hpc_pilot.agent import load_session, run_chat_loop
-    except ImportError as exc:
-        print(f"Missing dependency: {exc}", file=sys.stderr)
-        print("Install with: pip install 'hpc-pilot[agent]'", file=sys.stderr)
-        return 1
-
-    # Validate --resume before touching the API key — gives a clear error immediately.
-    initial_history: list[dict[str, Any]] | None = None
-    resume_id: str | None = getattr(args, "resume", None)
-    if resume_id:
-        try:
-            initial_history, _meta = load_session(resume_id)
-            turn_count = sum(1 for m in initial_history if m.get("role") == "user")
-            print(f"Resuming session {resume_id}  ({turn_count} previous turn(s))\n")
-        except FileNotFoundError:
-            print(f"Session not found: {resume_id}", file=sys.stderr)
-            return 1
-
-    if not os.environ.get("ANTHROPIC_API_KEY"):
-        # Try loading from .env
-        from hpc_pilot.agent import _load_env
-        _load_env()
-
-    if not os.environ.get("ANTHROPIC_API_KEY"):
-        print(
-            "ANTHROPIC_API_KEY is not set.\n"
-            "Add it to ~/.hpc-pilot/.env or export it in your shell.",
-            file=sys.stderr,
-        )
-        return 1
+    # Load env so API keys are available
+    from hpc_pilot.agent import _load_env
+    _load_env()
 
     agent = _make_agent(args)
 
     query: str | None = getattr(args, "query", None)
     if query:
-        # Single-shot non-interactive mode
+        # Single-shot non-interactive mode via hermes chat -q
         try:
             text = agent.run_query(query)
             print(text)
@@ -179,7 +151,9 @@ def chat_command(args: argparse.Namespace) -> int:
             print(f"Error: {exc}", file=sys.stderr)
             return 1
 
-    return run_chat_loop(agent, initial_history=initial_history)
+    # Interactive mode: exec into hermes chat -t hpc
+    from hpc_pilot.agent import run_chat_loop
+    return run_chat_loop(agent, initial_history=None)
 
 
 def shell_command(args: argparse.Namespace) -> int:
@@ -729,6 +703,52 @@ def version_command(args: argparse.Namespace) -> int:
         return 1
 
 
+def setup_hermes_command(args: argparse.Namespace) -> int:
+    """Symlink the HPC-Pilot Hermes plugin into ~/.hermes/plugins/hpc-pilot/."""
+    import shutil
+
+    hermes_plugins_dir = os.path.expanduser("~/.hermes/plugins")
+    link_dir = os.path.join(hermes_plugins_dir, "hpc-pilot")
+
+    from hpc_pilot.hermes_plugin import plugin_dir
+
+    src = plugin_dir()
+
+    if not os.path.exists(src):
+        print(f"Plugin source not found: {src}", file=sys.stderr)
+        return 1
+
+    os.makedirs(hermes_plugins_dir, exist_ok=True)
+
+    # Remove existing link/directory, then symlink
+    if os.path.islink(link_dir) or os.path.exists(link_dir):
+        try:
+            if os.path.islink(link_dir):
+                os.unlink(link_dir)
+            else:
+                shutil.rmtree(link_dir)
+        except OSError as exc:
+            print(f"Error removing existing plugin at {link_dir}: {exc}", file=sys.stderr)
+            return 1
+
+    try:
+        os.symlink(src, link_dir)
+    except OSError as exc:
+        # Fall back to copy when symlink fails (e.g. across filesystems)
+        try:
+            shutil.copytree(src, link_dir, dirs_exist_ok=True)
+        except OSError as copy_err:
+            print(f"Error installing plugin: {copy_err}", file=sys.stderr)
+            return 1
+
+    print(f"HPC-Pilot Hermes plugin installed at {link_dir}")
+    print(f"  -> source: {src}")
+    print()
+    print("Next: set ANTHROPIC_API_KEY (or other provider key) in your environment")
+    print("  and run: hpc-pilot chat")
+    return 0
+
+
 # ---------------------------------------------------------------------------
 # Argument parser
 # ---------------------------------------------------------------------------
@@ -922,6 +942,13 @@ def main(argv: list[str] | None = None) -> int:
     # version
     version_p = subs.add_parser("version", help="Show version")
     version_p.set_defaults(func=version_command)
+
+    # setup-hermes
+    setup_hermes_p = subs.add_parser(
+        "setup-hermes",
+        help="Install the HPC-Pilot Hermes Agent plugin",
+    )
+    setup_hermes_p.set_defaults(func=setup_hermes_command)
 
     args = parser.parse_args(argv)
 

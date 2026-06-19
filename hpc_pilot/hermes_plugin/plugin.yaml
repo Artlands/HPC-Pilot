@@ -1,0 +1,7 @@
+name: hpc-pilot
+version: 1.0.0
+description: >
+  HPC cluster management tools for Slurm, Warewulf, Spack, Ansible,
+  health checks, metrics, GPU diagnostics, storage, fabric, and logs.
+kind: standalone
+provides_tools: true

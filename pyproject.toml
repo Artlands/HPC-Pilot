@@ -4,8 +4,8 @@ version = "1.0.0"
 description = "HPC Pilot - AI agent for HPC cluster management (Slurm, Warewulf, Ansible, Spack)"
 requires-python = ">=3.11"
 dependencies = [
-    # AI agent core
-    "anthropic>=0.40",
+    # Hermes Agent (model-agnostic AI agent runtime)
+    "hermes-agent>=0.16",
     # Load ~/.hpc-pilot/.env automatically
     "python-dotenv>=1.0",
     # Read config.yaml

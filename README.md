@@ -1,9 +1,12 @@
 # HPC Pilot — AI Agent for HPC Cluster Management
 
-HPC Pilot is a Claude-powered command-line agent for HPC clusters.
-It wraps Slurm, Warewulf, Ansible, and Spack with an AI chat interface,
-Telegram/Discord bots, plus direct CLI commands with safety gates
-(dry-run by default, RBAC, audit log).
+HPC Pilot is an AI agent for HPC clusters built on **Hermes Agent**. It wraps
+Slurm, Warewulf, Ansible, and Spack with an AI chat interface, Telegram/Discord
+bots, plus direct CLI commands with safety gates (dry-run by default, RBAC,
+audit log).
+
+The agent engine is model-agnostic — use Anthropic Claude, OpenAI GPT, Google
+Gemini, DeepSeek, or any provider Hermes Agent supports.
 
 ---
 
@@ -21,38 +24,67 @@ pip install 'hpc-pilot[gateway]'
 | Component | Required for |
 |-----------|-------------|
 | Python 3.11+ | Always |
-| `ANTHROPIC_API_KEY` | AI chat / gateway |
 | Slurm (`scontrol`, `squeue`, `sacctmgr`) | Slurm commands |
 | Warewulf 4.x (`wwctl`) | Warewulf commands |
 | Spack (`spack`) | Spack commands |
 | Ansible (`ansible-playbook`) | Ansible commands |
+| API key (Anthropic / OpenAI / etc.) | AI chat / gateway |
 
 ---
 
 ## Quick Start
 
 ```bash
-# 1. Add your API key
+# 1. Install the Hermes Agent plugin
+hpc-pilot setup-hermes
+
+# 2. Set your API key (Anthropic, OpenAI, Gemini, etc.)
 echo 'ANTHROPIC_API_KEY=sk-ant-...' >> ~/.hpc-pilot/.env
 
-# 2. Start the AI chat
+# 3. Start the AI chat
 hpc-pilot chat
 
-# 3. Ask anything
+# 4. Ask anything
 You: How many nodes are available?
 You: Show me running jobs for user alice
 You: Drain node gpu01 for maintenance (dry-run first, then confirm)
+```
+
+> **First time?** Run `hpc-pilot setup-hermes` once after installation. This
+> symlinks the HPC-Pilot tool plugin into Hermes Agent so the AI model can
+> call Slurm, Warewulf, Spack, and Ansible commands.
+
+### Using a different provider
+
+```bash
+# OpenAI
+echo 'OPENAI_API_KEY=sk-...' >> ~/.hpc-pilot/.env
+hpc-pilot chat -m gpt-4o
+
+# Gemini
+echo 'GEMINI_API_KEY=...' >> ~/.hpc-pilot/.env
+hpc-pilot chat -m gemini-2.0-flash
+
+# DeepSeek / OpenRouter / any OpenAI-compatible provider
+echo 'DEEPSEEK_API_KEY=...' >> ~/.hpc-pilot/.env
+hpc-pilot chat -m deepseek-chat
+```
+
+Set the default model and provider in `~/.hpc-pilot/.env`:
+```bash
+HPC_PILOT_MODEL=claude-sonnet-4-6
 ```
 
 ---
 
 ## Commands
 
-### AI agent (requires ANTHROPIC_API_KEY)
+### AI agent
 
 ```bash
 hpc-pilot chat                    # interactive multi-turn chat
 hpc-pilot chat -q "Show health"  # single query, non-interactive
+hpc-pilot chat -m gpt-4o         # specify model
 hpc-pilot shell --role admin      # chat with explicit RBAC role
 hpc-pilot gateway --start         # start Telegram + Discord bots
 hpc-pilot gateway --status        # show which platforms are configured
@@ -70,6 +102,7 @@ hpc-pilot qos NAME --apply [--yes]          # apply QOS change
 hpc-pilot warewulf                          # Warewulf node list
 hpc-pilot spack list|find ENV|compilers     # Spack queries
 hpc-pilot ansible PLAYBOOK [--apply]        # Ansible playbook
+hpc-pilot setup-hermes                      # install Hermes Agent plugin
 hpc-pilot version                           # version info
 ```
 
@@ -85,12 +118,12 @@ I checked your cluster. Here's the summary:
 
 | Component  | Status   | Notes                        |
 |------------|----------|------------------------------|
-| Slurm      | ✅ healthy | 48 nodes, 2 DOWN (gpu03,04) |
-| Warewulf   | ✅ healthy | 48 nodes registered          |
-| Spack      | ✅ healthy |                              |
-| Ansible    | ✅ healthy |                              |
+| Slurm      | healthy  | 48 nodes, 2 DOWN (gpu03,04) |
+| Warewulf   | healthy  | 48 nodes registered          |
+| Spack      | healthy  |                              |
+| Ansible    | healthy  |                              |
 
-⚠️ Two nodes are DOWN: `gpu03`, `gpu04`. Run `hpc-pilot nodes gpu03` for details.
+2 nodes are DOWN: gpu03, gpu04. Run `hpc-pilot nodes gpu03` for details.
 
 You: Drain gpu03 for hardware inspection
 
@@ -127,6 +160,33 @@ get the same AI interface.  Each user gets an isolated conversation session.
 
 ---
 
+## Hermes Agent Plugin
+
+HPC-Pilot registers its cluster management tools as a Hermes Agent plugin.
+This is what makes them available to the AI model during chat.
+
+The plugin lives in the repo at `hpc_pilot/hermes_plugin/` and is installed
+to `~/.hermes/plugins/hpc-pilot/` via:
+
+```bash
+hpc-pilot setup-hermes
+```
+
+This creates a symlink so the plugin stays in sync with the repo. Run it
+again after `git pull` to refresh.
+
+### How it works
+
+1. Hermes Agent loads the `hpc-pilot` plugin at startup
+2. The plugin registers 93+ tools (`hpc_slurm_*`, `hpc_warewulf_*`, etc.)
+   as a Hermes toolset named `"hpc"`
+3. Each tool call flows through: Hermes dispatch → RBAC check →
+   audit logging → tool execution
+4. Tool availability checks are mapped to subsystem probes
+   (`check_slurm_available`, etc.)
+
+---
+
 ## Safety model
 
 Mutating commands are **dry-run by default** — the agent previews the command
@@ -151,16 +211,17 @@ Approval flow:
 ## RBAC
 
 ```bash
-export HPC_PILOT_ROLE=admin   # viewer | operator | admin
+export HPC_PILOT_ROLE=admin   # viewer | operator | admin | superadmin
 # or
-echo '{"role": "operator"}' > ~/.hpc-pilot/.env
+echo '{"role": "operator"}' > ~/.hpc-pilot/auth.json
 ```
 
 | Role | Allowed tools |
 |------|---------------|
 | `viewer` | node status, queue, health, Spack queries, Warewulf images |
-| `operator` | viewer + node drain/resume |
+| `operator` | viewer + node drain/resume, job hold/cancel (own jobs only) |
 | `admin` | operator + QOS modify, Ansible playbooks, Warewulf bootstrap |
+| `superadmin` | admin + Slurm reconfig, accounting schema, infrastructure |
 
 ---
 
@@ -183,14 +244,13 @@ Every tool invocation is appended to `~/.hpc-pilot/logs/audit.jsonl`:
 ```yaml
 model:
   default: claude-opus-4-7
-  provider: anthropic
 
-hpc:
-  slurm_bin_dir: /usr/bin
-  warewulf_bin_dir: /usr/bin
-  spack_root: /opt/spack
-  ansible_dir: /etc/hpc-pilot/ansible
-  config_repo: /etc/hpc-pilot/config
+clusters:
+  default:
+    slurm_bin_dir: /usr/bin
+    warewulf_bin_dir: /usr/bin
+    spack_root: /opt/spack
+    ansible_dir: /etc/hpc-pilot/ansible
 ```
 
 `~/.hpc-pilot/.env`:
@@ -199,6 +259,7 @@ ANTHROPIC_API_KEY=sk-ant-...
 TELEGRAM_BOT_TOKEN=...
 DISCORD_BOT_TOKEN=...
 HPC_PILOT_ROLE=admin
+HPC_PILOT_MODEL=claude-sonnet-4-6
 ```
 
 ---
@@ -207,21 +268,21 @@ HPC_PILOT_ROLE=admin
 
 ```
 hpc_pilot/
-├── cli.py       # CLI entry point + command handlers
-├── gateway.py   # Telegram + Discord gateway
-├── agent.py     # HpcAgent: Claude tool-use loop
-├── tools.py     # HPC tool functions (Slurm, Warewulf, Spack, Ansible)
-├── paths.py     # Home-directory path helpers
-├── config.py    # Config initialization
-├── rbac.py      # Role-Based Access Control
-└── audit.py     # Audit logging
-
-tests/
-├── test_cli.py
-├── test_gateway.py
-├── test_tools.py
-├── test_safety.py   # RBAC + audit tests
-└── test_agent.py    # Agent loop + tool dispatch tests
+├── cli.py              # CLI entry point + command handlers
+├── gateway.py          # Telegram + Discord gateway
+├── agent.py            # HpcAgent: delegates to Hermes Agent subprocess
+├── hermes_plugin/      # Hermes Agent plugin (tool schemas + registration)
+│   ├── plugin.yaml
+│   └── __init__.py
+├── tools/              # HPC tool functions (Slurm, Warewulf, Spack, Ansible, ...)
+├── dispatch.py         # Tool invocation: RBAC → audit → dispatch
+├── rbac.py             # Role-Based Access Control
+├── audit.py            # Audit logging (file, syslog, HTTP sinks)
+├── approvals.py        # Out-of-band approval workflow
+├── clusters.py         # Multi-cluster configuration
+├── skills/             # Runbook/skill system
+├── playbooks/          # Ansible drift-check playbooks
+└── policy/             # Policy YAML files
 ```
 
 ---
@@ -233,11 +294,24 @@ pip install -e ".[dev,gateway]"
 pytest tests/
 ```
 
+Tests mock the Hermes subprocess and the underlying system binaries so no
+real API keys or cluster access are needed.
+
 ---
 
-## Planned
+## Architecture
 
-- `hpc-pilot tui` — text-based UI (Textual)
-- `hpc-pilot cron` — scheduled monitoring jobs
-- Session persistence across restarts
-- Web UI (port 8000)
+```
+┌──────────────┐     ┌──────────────────────────────┐
+│  hpc-pilot   │     │      Hermes Agent             │
+│  CLI/Gateway │────▶│  (model-agnostic runtime)     │
+│  /Web UI     │     │                              │
+└──────────────┘     │  ┌─────────────────────────┐  │
+                     │  │  hpc-pilot plugin        │  │
+                     │  │  93+ HPC tools           │  │
+                     │  │  RBAC → Audit → Dispatch │  │
+                     │  └─────────────────────────┘  │
+                     │                              │
+                     │  Claude · GPT · Gemini · ...  │
+                     └──────────────────────────────┘
+```

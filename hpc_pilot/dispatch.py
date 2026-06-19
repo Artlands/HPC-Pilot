@@ -419,6 +419,76 @@ _DISPATCH: dict[str, Callable[[dict[str, Any], Any], str]] = {
         indent=2,
         default=str,
     ),
+    # ---- Metrics / Observability ----
+    "hpc_metrics_prometheus_query": lambda args, t: json.dumps(
+        t.hpc_metrics_prometheus_query(
+            args["query"],
+            start=args.get("start"),
+            end=args.get("end"),
+            step=args.get("step"),
+            cluster=_cl(args),
+        ),
+        indent=2, default=str,
+    ),
+    "hpc_metrics_prometheus_alerts": lambda args, t: json.dumps(
+        t.hpc_metrics_prometheus_alerts(cluster=_cl(args)),
+        indent=2, default=str,
+    ),
+    "hpc_metrics_node_summary": lambda args, t: json.dumps(
+        t.hpc_metrics_node_summary(
+            args["node"], cluster=_cl(args),
+        ),
+        indent=2, default=str,
+    ),
+    "hpc_gpu_nvidia_smi": lambda args, t: json.dumps(
+        t.hpc_gpu_nvidia_smi(args["node"], cluster=_cl(args)),
+        indent=2, default=str,
+    ),
+    "hpc_gpu_dcgm_diag": lambda args, t: t.hpc_gpu_dcgm_diag(
+        args["node"], cluster=_cl(args), dry_run=_dr(args),
+    ),
+    "hpc_storage_lustre_status": lambda args, t: json.dumps(
+        t.hpc_storage_lustre_status(cluster=_cl(args)),
+        indent=2, default=str,
+    ),
+    "hpc_storage_mounts": lambda args, t: json.dumps(
+        t.hpc_storage_mounts(cluster=_cl(args)),
+        indent=2, default=str,
+    ),
+    "hpc_fabric_ib_link_status": lambda args, t: json.dumps(
+        t.hpc_fabric_ib_link_status(args["node"], cluster=_cl(args)),
+        indent=2, default=str,
+    ),
+    "hpc_logs_slurmctld_tail": lambda args, t: t.hpc_logs_slurmctld_tail(
+        lines=int(args.get("lines", 50)),
+        grep=args.get("grep"),
+        cluster=_cl(args),
+    ),
+    "hpc_logs_slurmd_tail": lambda args, t: t.hpc_logs_slurmd_tail(
+        args["node"],
+        lines=int(args.get("lines", 50)),
+        cluster=_cl(args),
+    ),
+    "hpc_logs_dmesg_xid": lambda args, t: json.dumps(
+        t.hpc_logs_dmesg_xid(args["node"], cluster=_cl(args)),
+        indent=2, default=str,
+    ),
+    "hpc_logs_search": lambda args, t: t.hpc_logs_search(
+        args["pattern"],
+        since=args.get("since", "24h ago"),
+        cluster=_cl(args),
+    ),
+    # ---- Phase 7: Multi-cluster federation ----
+    "hpc_multi_query": lambda args, t: json.dumps(
+        t.hpc_multi_query(
+            args["tool"],
+            args.get("args", {}),
+            args["clusters"],
+            dry_run=bool(args.get("dry_run", False)),
+        ),
+        indent=2,
+        default=str,
+    ),
 }
 
 

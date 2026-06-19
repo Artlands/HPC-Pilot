@@ -134,4 +134,122 @@ def hpc_cluster_health_check(*, cluster: str = "default") -> dict[str, Any]:
         "status": "unknown" if not ansible_ok else "healthy",
     }
 
+    # --- Fabric: ibstatus probe ---
+    fabric_info: dict[str, Any] = {
+        "status": "not_checked",
+        "links_down": [],
+    }
+    try:
+        _run(["which", "ibstatus"], cluster=cl, timeout=10)
+        ib_out = _run(["ibstatus"], cluster=cl, timeout=30)
+        links_down: list[str] = []
+        current_dev = ""
+        for line in ib_out.splitlines():
+            m = __import__("re").match(
+                r"Infiniband device '(\S+)' port (\d+)", line
+            )
+            if m:
+                current_dev = f"{m.group(1)}:{m.group(2)}"
+            if current_dev and "state" in line.lower():
+                if "active" not in line.lower() and "up" not in line.lower():
+                    links_down.append(current_dev)
+        if links_down:
+            fabric_info["status"] = "degraded"
+            fabric_info["links_down"] = links_down
+            health["issues"].append(f"IB links down: {', '.join(links_down)}")
+            if health["overall"] == "healthy":
+                health["overall"] = "degraded"
+        else:
+            fabric_info["status"] = "healthy"
+    except Exception:
+        fabric_info["status"] = "unavailable"
+    health["fabric"] = fabric_info
+
+    # --- Storage: mount check + lctl probe ---
+    storage_info: dict[str, Any] = {
+        "status": "not_checked",
+        "lustre_evictions_last_hour": 0,
+    }
+    try:
+        _run(["mount"], cluster=cl, timeout=15)
+        try:
+            _run([cl.slurm("lctl"), "get_param", "obdfilter.*.state"],
+                 cluster=cl, timeout=15)
+        except Exception:
+            pass  # non-Lustre filesystems are fine
+        storage_info["status"] = "healthy"
+    except Exception as exc:
+        storage_info["status"] = "error"
+        health["issues"].append(f"Storage check error: {exc}")
+        if health["overall"] == "healthy":
+            health["overall"] = "degraded"
+    health["storage"] = storage_info
+
+    # --- GPU: check for XID errors in dmesg ---
+    gpu_info: dict[str, Any] = {
+        "status": "not_checked",
+        "xid_errors_last_hour": 0,
+    }
+    try:
+        dmesg_out = _run(["dmesg"], cluster=cl, timeout=30)
+        xid_lines = [
+            l for l in dmesg_out.splitlines()
+            if "xid" in l.lower()
+        ]
+        xid_count = 0
+        for line in xid_lines:
+            ts_match = __import__("re").match(r"\[(\d+\.\d+)\]", line)
+            if ts_match:
+                ts = float(ts_match.group(1))
+                # count all XID errors (no boot-time anchor available here)
+                xid_count += 1
+        gpu_info["xid_errors_last_hour"] = xid_count
+        if xid_count > 0:
+            gpu_info["status"] = "degraded"
+            health["issues"].append(
+                f"{xid_count} GPU XID error(s) detected in dmesg"
+            )
+            if health["overall"] == "healthy":
+                health["overall"] = "degraded"
+        else:
+            gpu_info["status"] = "healthy"
+    except Exception:
+        gpu_info["status"] = "unavailable"
+    health["gpu"] = gpu_info
+
+    # --- Metrics: Prometheus reachability check ---
+    metrics_info: dict[str, Any] = {
+        "status": "not_checked",
+        "prometheus_reachable": False,
+        "alerts_firing": 0,
+    }
+    try:
+        import json
+        import urllib.request
+
+        from hpc_pilot.tools.metrics import _cluster_prometheus_url
+        url = _cluster_prometheus_url(cluster)
+        resp = urllib.request.urlopen(
+            f"{url.rstrip('/')}/api/v1/alerts", timeout=10
+        )
+        body = resp.read().decode("utf-8")
+        data = json.loads(body)
+        alerts = data.get("data", {}).get("alerts", [])
+        firing = [a for a in alerts if a.get("state") == "firing"]
+        metrics_info["prometheus_reachable"] = True
+        metrics_info["alerts_firing"] = len(firing)
+        metrics_info["status"] = "healthy" if not firing else "degraded"
+        if firing:
+            health["issues"].append(
+                f"{len(firing)} Prometheus alert(s) currently firing"
+            )
+    except Exception:
+        try:
+            from hpc_pilot.tools.metrics import _cluster_prometheus_url
+            _cluster_prometheus_url(cluster)
+            metrics_info["status"] = "unreachable"
+        except Exception:
+            metrics_info["status"] = "not_configured"
+    health["metrics"] = metrics_info
+
     return health

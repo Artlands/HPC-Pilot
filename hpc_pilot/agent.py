@@ -939,6 +939,39 @@ TOOL_SCHEMAS: list[dict[str, Any]] = [
             "properties": {"cluster": {"type": "string"}},
         },
     },
+    # ---- Phase 7: Multi-cluster federation ----
+    {
+        "name": "hpc_multi_query",
+        "description": (
+            "Run a tool across multiple clusters in parallel and return "
+            "per-cluster results. Use when the user says 'both clusters', "
+            "'all clusters', or names multiple clusters. Handles partial "
+            "failure — one cluster error does not affect others."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "tool": {
+                    "type": "string",
+                    "description": "The hpc_* tool name to invoke (e.g. hpc_slurm_queue)",
+                },
+                "args": {
+                    "type": "object",
+                    "description": "Keyword arguments for the tool (do NOT include cluster)",
+                },
+                "clusters": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "List of cluster names to target",
+                },
+                "dry_run": {
+                    "type": "boolean",
+                    "description": "Preview without executing (default: false)",
+                },
+            },
+            "required": ["tool", "args", "clusters"],
+        },
+    },
     # ---- Phase 2: Warewulf bootstrap & node lifecycle ----
     {
         "name": "hpc_warewulf_image_import",
@@ -1365,6 +1398,204 @@ TOOL_SCHEMAS: list[dict[str, Any]] = [
             "required": ["run_id"],
         },
     },
+    # ---- Phase 5: Observability & Metrics ----
+    {
+        "name": "hpc_metrics_prometheus_query",
+        "description": (
+            "Query the Prometheus HTTP API (instant or range query). "
+            "Returns JSON results."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "query": {"type": "string", "description": "PromQL query string"},
+                "start": {"type": "string", "description": "Range start time (RFC3339 or Unix timestamp)"},
+                "end": {"type": "string", "description": "Range end time"},
+                "step": {"type": "string", "description": "Query resolution step width (e.g. '15s')"},
+                "cluster": {"type": "string"},
+            },
+            "required": ["query"],
+        },
+    },
+    {
+        "name": "hpc_metrics_prometheus_alerts",
+        "description": "Fetch active (firing/pending) alerts from Prometheus /api/v1/alerts.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "cluster": {"type": "string"},
+            },
+        },
+    },
+    {
+        "name": "hpc_gpu_nvidia_smi",
+        "description": (
+            "Run nvidia-smi -q -x on a compute node via SSH and return "
+            "per-GPU metrics (temp, util, ECC errors)."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "node": {"type": "string", "description": "Compute node name"},
+                "cluster": {"type": "string"},
+            },
+            "required": ["node"],
+        },
+    },
+    {
+        "name": "hpc_gpu_dcgm_diag",
+        "description": (
+            "Run dcgmi diag -r 1 (level-1 GPU diagnostic) on a node via SSH. "
+            "Requires admin."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "node": {"type": "string", "description": "Compute node name"},
+                "dry_run": {
+                    "type": "boolean",
+                    "description": "Preview the command without executing",
+                },
+                "cluster": {"type": "string"},
+            },
+            "required": ["node"],
+        },
+    },
+    {
+        "name": "hpc_metrics_node_summary",
+        "description": (
+            "Aggregate observability metrics for a single compute node — "
+            "GPU state, InfiniBand link status, and GPU XID errors."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "node": {"type": "string", "description": "Compute node name"},
+                "cluster": {"type": "string"},
+            },
+            "required": ["node"],
+        },
+    },
+    {
+        "name": "hpc_storage_lustre_status",
+        "description": (
+            "Check Lustre filesystem health — OST/MDT state via lctl get_param. "
+            "Returns per-target status."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "cluster": {"type": "string"},
+            },
+        },
+    },
+    {
+        "name": "hpc_storage_mounts",
+        "description": (
+            "Show mounted filesystems and disk usage (mount + df -h) "
+            "on the cluster controller."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "cluster": {"type": "string"},
+            },
+        },
+    },
+    {
+        "name": "hpc_fabric_ib_link_status",
+        "description": (
+            "Check InfiniBand link status (ibstatus) on a node via SSH. "
+            "Returns link rate, state, and per-port info."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "node": {"type": "string", "description": "Compute node name"},
+                "cluster": {"type": "string"},
+            },
+            "required": ["node"],
+        },
+    },
+    {
+        "name": "hpc_logs_slurmctld_tail",
+        "description": (
+            "Read the last N lines from /var/log/slurm/slurmctld.log, "
+            "optionally filtered by a grep pattern."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "lines": {
+                    "type": "integer",
+                    "description": "Number of lines to show (default: 50)",
+                },
+                "grep": {
+                    "type": "string",
+                    "description": "Optional grep -E pattern to filter lines",
+                },
+                "cluster": {"type": "string"},
+            },
+        },
+    },
+    {
+        "name": "hpc_logs_slurmd_tail",
+        "description": (
+            "Read the last N lines of the slurmd journal on a compute node "
+            "via SSH (journalctl -u slurmd)."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "node": {"type": "string", "description": "Compute node name"},
+                "lines": {
+                    "type": "integer",
+                    "description": "Number of lines to show (default: 50)",
+                },
+                "cluster": {"type": "string"},
+            },
+            "required": ["node"],
+        },
+    },
+    {
+        "name": "hpc_logs_dmesg_xid",
+        "description": (
+            "Search dmesg for GPU XID errors on a compute node via SSH. "
+            "Returns parsed XID entries with timestamps."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "node": {"type": "string", "description": "Compute node name"},
+                "cluster": {"type": "string"},
+            },
+            "required": ["node"],
+        },
+    },
+    {
+        "name": "hpc_logs_search",
+        "description": (
+            "Search the Slurm controller's systemd journal (journalctl) "
+            "for matching log lines."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "pattern": {
+                    "type": "string",
+                    "description": "grep -E pattern to search for",
+                },
+                "since": {
+                    "type": "string",
+                    "description": (
+                        "Time range, e.g. '24h ago', '7d ago' (default: '24h ago')"
+                    ),
+                },
+                "cluster": {"type": "string"},
+            },
+            "required": ["pattern"],
+        },
+    },
 ]
 
 # ---------------------------------------------------------------------------
@@ -1377,6 +1608,11 @@ You have tools for Slurm, Warewulf, Ansible, and Spack.
 
 Operator : {actor}
 Role     : {role}
+
+Cluster context: the user is currently focused on `{cluster}`. When the user
+says "the staging cluster" or "both clusters", call `hpc_multi_query` or set
+`cluster=` explicitly on each tool call. Always echo which cluster a result
+came from when summarizing.
 
 Role permissions:
 • viewer     — read-only queries (node status, queue, health, Spack, Warewulf images)
@@ -1400,7 +1636,10 @@ Interaction guidelines:
 
 
 def _load_env() -> None:
-    """Load ~/.hpc-pilot/.env into the environment (silent if dotenv not installed)."""
+    """Load ~/.hpc-pilot/.env into the environment (silent if dotenv not installed).
+
+    Also checks SecretsManager for ANTHROPIC_API_KEY if not found in env.
+    """
     try:
         from dotenv import load_dotenv
 
@@ -1409,6 +1648,18 @@ def _load_env() -> None:
             load_dotenv(env_file, override=False)
     except ImportError:
         pass
+
+    # Fall back to SecretsManager if ANTHROPIC_API_KEY is still not set
+    if not os.environ.get("ANTHROPIC_API_KEY"):
+        try:
+            from hpc_pilot.secrets import get_secrets_manager
+
+            mgr = get_secrets_manager()
+            key = mgr.get("ANTHROPIC_API_KEY")
+            if key is not None:
+                os.environ["ANTHROPIC_API_KEY"] = key
+        except ImportError:
+            pass
 
 
 _MODEL_CONTEXT_TOKENS: dict[str, int] = {
@@ -1465,7 +1716,14 @@ class HpcAgent:
     # ------------------------------------------------------------------
 
     def _system_prompt_blocks(self) -> list[dict[str, Any]]:
-        text = _SYSTEM_PROMPT.format(actor=self.actor, role=self.role.value)
+        from hpc_pilot.clusters import _load_clusters
+
+        _clusters, default_cluster = _load_clusters()
+        text = _SYSTEM_PROMPT.format(
+            actor=self.actor,
+            role=self.role.value,
+            cluster=default_cluster,
+        )
         return [{"type": "text", "text": text, "cache_control": {"type": "ephemeral"}}]
 
     # ------------------------------------------------------------------

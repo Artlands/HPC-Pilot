@@ -1,0 +1,30 @@
+name: rolling-reboot-partition
+description: Rolling reboot of all nodes in a partition — drain, wait, reboot, verify, resume per node.
+required_role: admin
+inputs:
+  - name: partition
+    type: string
+    required: true
+  - name: reason
+    type: string
+    default: "rolling-reboot"
+steps:
+  - id: list_nodes
+    tool: hpc_slurm_partition_list
+    args: {}
+  - id: drain_node
+    tool: hpc_slurm_node_state
+    args: {node: "{{ node }}", target: drain, reason: "{{ reason }}"}
+  - id: wait
+    builtin: wait_until
+    args: {}
+  - id: reboot
+    tool: hpc_warewulf_power_reset
+    args: {node: "{{ node }}"}
+  - id: verify
+    tool: hpc_cluster_health_check
+    args: {}
+  - id: resume
+    tool: hpc_slurm_node_state
+    args: {node: "{{ node }}", target: resume}
+on_failure: pause

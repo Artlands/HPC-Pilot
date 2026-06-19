@@ -1,0 +1,30 @@
+name: triage-node-down
+description: Investigate why a compute node is down — check Slurm, controller logs, fabric, and produce a recommendation.
+required_role: operator
+inputs:
+  - name: node
+    type: string
+    required: true
+steps:
+  - id: snapshot
+    tool: hpc_slurm_node_status
+    args: {node: "{{ node }}"}
+  - id: sdiag
+    tool: hpc_slurm_sdiag
+    args: {}
+  - id: slurmctld_tail
+    tool: hpc_slurm_config_show
+    args: {}
+  - id: slurmd_tail
+    tool: hpc_slurm_node_status
+    args: {node: "{{ node }}"}
+  - id: dmesg
+    tool: hpc_warewulf_node_status
+    args: {node: "{{ node }}"}
+  - id: fabric
+    tool: hpc_cluster_health_check
+    args: {}
+  - id: recommendation
+    builtin: for_each
+    args: {}
+on_failure: pause

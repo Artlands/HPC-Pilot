@@ -29,6 +29,10 @@ dev = [
     "black>=24.0",
     "mypy>=1.10",
 ]
+webui = [
+    "fastapi>=0.100",
+    "uvicorn>=0.20",
+]
 
 [project.scripts]
 hpc-pilot = "hpc_pilot.cli:main"

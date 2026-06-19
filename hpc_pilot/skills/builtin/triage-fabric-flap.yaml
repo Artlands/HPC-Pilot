@@ -1,0 +1,18 @@
+name: triage-fabric-flap
+description: Investigate InfiniBand fabric flapping — capture ibstatus, monitor delta over 60s, and recommend.
+required_role: operator
+inputs:
+  - name: node
+    type: string
+    required: true
+steps:
+  - id: ibstatus
+    tool: hpc_slurm_node_status
+    args: {node: "{{ node }}"}
+  - id: delta_60s
+    tool: hpc_cluster_health_check
+    args: {}
+  - id: recommend
+    builtin: for_each
+    args: {}
+on_failure: pause

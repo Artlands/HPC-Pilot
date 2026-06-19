@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 import os
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any
 
 from hpc_pilot.paths import config_path, ensure_layout
@@ -49,6 +49,8 @@ class Config:
     warewulf_bin_dir: str = "/usr/bin"
     spack_root: str = "/opt/spack"
     ansible_dir: str = "/etc/hpc-pilot/ansible"
+    prometheus_url: str = ""
+    observability: dict[str, Any] = field(default_factory=dict)
 
     def slurm(self, binary: str) -> str:
         return os.path.join(self.slurm_bin_dir, binary)
@@ -88,12 +90,20 @@ def load_config() -> Config:
         else:
             hpc_cfg = data.get("hpc", {}) or {}
 
+        # Read observability config
+        obs_raw: dict[str, Any] = data.get("observability", {}) or {}
+        prometheus_url = str(
+            obs_raw.get("prometheus", {}).get("url", "") or ""
+        )
+
         return Config(
             model=model,
             slurm_bin_dir=str(hpc_cfg.get("slurm_bin_dir", Config.slurm_bin_dir)),
             warewulf_bin_dir=str(hpc_cfg.get("warewulf_bin_dir", Config.warewulf_bin_dir)),
             spack_root=str(hpc_cfg.get("spack_root", Config.spack_root)),
             ansible_dir=str(hpc_cfg.get("ansible_dir", Config.ansible_dir)),
+            prometheus_url=prometheus_url,
+            observability=obs_raw,
         )
     except Exception:
         return Config()

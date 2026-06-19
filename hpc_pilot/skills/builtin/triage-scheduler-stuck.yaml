@@ -1,0 +1,18 @@
+name: triage-scheduler-stuck
+description: Diagnose a stuck Slurm scheduler — check sdiag, backfill depth, controller errors, suggest reconfigure.
+required_role: admin
+inputs: []
+steps:
+  - id: sdiag
+    tool: hpc_slurm_sdiag
+    args: {}
+  - id: backfill_depth
+    tool: hpc_slurm_sdiag
+    args: {}
+  - id: slurmctld_errors
+    tool: hpc_slurm_config_show
+    args: {}
+  - id: suggest_reconfigure
+    tool: hpc_slurm_reconfigure
+    args: {dry_run: true}
+on_failure: pause

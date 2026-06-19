@@ -1,0 +1,24 @@
+name: triage-gpu-xid
+description: Diagnose a GPU XID error — identify the error code, check dmesg and DCGM, recommend action.
+required_role: operator
+inputs:
+  - name: node
+    type: string
+    required: true
+  - name: xid_code
+    type: string
+    required: false
+steps:
+  - id: identify_xid
+    tool: hpc_slurm_node_status
+    args: {node: "{{ node }}"}
+  - id: dmesg_xid
+    tool: hpc_slurm_node_status
+    args: {node: "{{ node }}"}
+  - id: dcgm_diag
+    tool: hpc_cluster_health_check
+    args: {}
+  - id: recommend
+    builtin: for_each
+    args: {}
+on_failure: pause

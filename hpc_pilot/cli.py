@@ -22,7 +22,9 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import signal
 import sys
+import time
 import warnings
 from collections.abc import Callable
 from typing import Any
@@ -90,7 +92,8 @@ def _make_agent(args: argparse.Namespace) -> Any:
     model: str = getattr(args, "model", None) or os.environ.get(
         "HPC_PILOT_MODEL", "claude-opus-4-7"
     )
-    return HpcAgent(model=model)
+    summarize: bool = getattr(args, "no_summarize", False) is False
+    return HpcAgent(model=model, summarize=summarize)
 
 
 # ---------------------------------------------------------------------------
@@ -208,20 +211,221 @@ def tui_command(args: argparse.Namespace) -> int:
 
 
 def gateway_command(args: argparse.Namespace) -> int:
+    """Gateway daemon control: start, stop, status."""
+    from hpc_pilot.paths import gateway_pid_path
+
+    pid_path = gateway_pid_path()
+
+    if getattr(args, "start", False):
+        return _gateway_start(args, pid_path)
+
+    if getattr(args, "stop", False):
+        return _gateway_stop(pid_path)
+
+    if getattr(args, "status", False):
+        return _gateway_status(pid_path)
+
+    if getattr(args, "setup", False):
+        from hpc_pilot.gateway import main as gateway_main
+        return gateway_main(["--setup"])
+
+    # Default: start
+    return _gateway_start(args, pid_path)
+
+
+def webui_command(args: argparse.Namespace) -> int:
+    """Launch the HPC Pilot Web UI (FastAPI)."""
+    try:
+        from hpc_pilot.webui import run_webui
+    except ImportError as exc:
+        print(f"Missing dependency: {exc}", file=sys.stderr)
+        print("Install with: pip install 'hpc-pilot[webui]'", file=sys.stderr)
+        return 1
+
+    port: int = getattr(args, "port", 0) or int(os.environ.get("HPC_PILOT_PORT", "8000"))
+    host: str = getattr(args, "host", "127.0.0.1")
+    run_webui(host=host, port=port)
+    return 0
+
+
+def _gateway_start(args: argparse.Namespace, pid_path: str) -> int:
+    """Start the gateway daemon. Writes PID file and runs the gateway loop."""
     from hpc_pilot.gateway import main as gateway_main
 
-    argv: list[str] = []
-    if getattr(args, "start", False):
-        argv.append("--start")
-    if getattr(args, "stop", False):
-        argv.append("--stop")
-    if getattr(args, "status", False):
-        argv.append("--status")
-    if getattr(args, "setup", False):
-        argv.append("--setup")
-    if not argv:
-        argv = ["--start"]
-    return gateway_main(argv)
+    # Check if already running
+    if os.path.exists(pid_path):
+        try:
+            with open(pid_path) as f:
+                old_pid = int(f.read().strip())
+            os.kill(old_pid, 0)
+            print(f"Gateway is already running (PID {old_pid}).", file=sys.stderr)
+            return 1
+        except (OSError, ValueError):
+            try:
+                os.remove(pid_path)
+            except OSError:
+                pass
+
+    # Write PID file
+    pid = os.getpid()
+    os.makedirs(os.path.dirname(pid_path), exist_ok=True)
+    with open(pid_path, "w") as f:
+        f.write(str(pid))
+
+    def _cleanup(signum=None, frame=None) -> None:
+        try:
+            if os.path.exists(pid_path):
+                os.remove(pid_path)
+        except OSError:
+            pass
+        sys.exit(0)
+
+    signal.signal(signal.SIGTERM, _cleanup)
+    signal.signal(signal.SIGINT, _cleanup)
+
+    try:
+        return gateway_main(["--start"])
+    finally:
+        _cleanup()
+
+
+def _gateway_stop(pid_path: str) -> int:
+    """Stop the gateway daemon by sending SIGTERM to the PID file process."""
+    if not os.path.exists(pid_path):
+        print("Gateway is not running (no PID file found).", file=sys.stderr)
+        return 1
+
+    try:
+        with open(pid_path) as f:
+            pid = int(f.read().strip())
+    except (ValueError, OSError) as exc:
+        print(f"Invalid PID file: {exc}", file=sys.stderr)
+        return 1
+
+    try:
+        os.kill(pid, signal.SIGTERM)
+    except PermissionError:
+        print(f"Permission denied: cannot send SIGTERM to PID {pid}.", file=sys.stderr)
+        return 1
+    except ProcessLookupError:
+        print(f"Gateway process (PID {pid}) not found; removing stale PID file.")
+        try:
+            os.remove(pid_path)
+        except OSError:
+            pass
+        return 1
+
+    # Wait up to 10s for graceful shutdown
+    for _ in range(100):
+        try:
+            os.kill(pid, 0)
+            time.sleep(0.1)
+        except OSError:
+            try:
+                os.remove(pid_path)
+            except OSError:
+                pass
+            print("Gateway stopped.")
+            return 0
+
+    # Escalate to SIGKILL
+    print("Gateway did not stop gracefully; sending SIGKILL.", file=sys.stderr)
+    try:
+        os.kill(pid, signal.SIGKILL)
+        time.sleep(0.5)
+        try:
+            os.remove(pid_path)
+        except OSError:
+            pass
+    except OSError:
+        pass
+    print("Gateway killed.")
+    return 0
+
+
+def _gateway_status(pid_path: str) -> int:
+    """Check if the gateway daemon is running."""
+    if not os.path.exists(pid_path):
+        print("Gateway: NOT RUNNING")
+        return 1
+
+    try:
+        with open(pid_path) as f:
+            pid = int(f.read().strip())
+        os.kill(pid, 0)
+        print(f"Gateway: RUNNING (PID {pid})")
+        return 0
+    except (OSError, ValueError):
+        print("Gateway: NOT RUNNING (stale PID file)")
+        return 1
+
+
+# ---------------------------------------------------------------------------
+# Approve subcommand
+# ---------------------------------------------------------------------------
+
+
+def approve_command(args: argparse.Namespace) -> int:
+    """Approve or reject out-of-band approval requests."""
+    from hpc_pilot.approvals import approve_request, list_pending, reject_request
+
+    ensure_home()
+
+    if getattr(args, "list_approvals", False):
+        pending = list_pending()
+        if not pending:
+            print("No pending approvals.")
+        else:
+            print(f"{'ID':<36} {'Tool':<30} {'Requester':<20} {'Risk Summary'}")
+            print("-" * 110)
+            for req in pending:
+                print(f"{req.id:<36} {req.tool:<30} {req.requester_actor:<20} {req.risk_summary}")
+        return 0
+
+    request_id = getattr(args, "request_id", None)
+    if not request_id:
+        print("approve: an approval ID is required (use --list to see pending).", file=sys.stderr)
+        print(f"Usage: hpc-pilot approve <approval-id> [--reject]", file=sys.stderr)
+        return 2
+
+    reject = getattr(args, "reject", False)
+    actor = _get_actor()
+
+    try:
+        if reject:
+            req = reject_request(request_id, actor)
+            print(f"Approval {request_id} rejected by {actor}.")
+        else:
+            req = approve_request(request_id, actor)
+            print(f"Approval {request_id} approved by {actor}.")
+            print(f"  Tool: {req.tool}")
+            print(f"  Cluster: {req.cluster}")
+    except ValueError as exc:
+        print(f"Error: {exc}", file=sys.stderr)
+        return 1
+
+    return 0
+
+
+def _resolve_cluster_flag(cluster_arg: str | None) -> str:
+    """Resolve the --cluster flag from CLI arg, env var, or fall back to 'default'."""
+    if cluster_arg:
+        return cluster_arg
+    env_val = os.environ.get("HPC_PILOT_CLUSTER")
+    if env_val:
+        return env_val
+    # Try config file for default_cluster
+    from hpc_pilot.clusters import _load_clusters
+    _clusters, default_name = _load_clusters()
+    return default_name
+
+
+def _inject_cluster(args: argparse.Namespace, tool_args: dict[str, Any]) -> dict[str, Any]:
+    """Add the cluster key to tool_args if not already present."""
+    if "cluster" not in tool_args:
+        cluster = _resolve_cluster_flag(getattr(args, "cluster", None))
+        tool_args["cluster"] = cluster
+    return tool_args
 
 
 def _invoke_cli(
@@ -230,9 +434,13 @@ def _invoke_cli(
     role: Role,
     actor: str,
     dry_run: bool = False,
+    cli_args: argparse.Namespace | None = None,
 ) -> tuple[str | None, int]:
     """Run a tool via dispatch.invoke; return (result_text, exit_code)."""
     from hpc_pilot.dispatch import invoke
+
+    if cli_args is not None:
+        _inject_cluster(cli_args, tool_args)
 
     try:
         return invoke(tool_name, tool_args, role=role, actor=actor, dry_run=dry_run), 0
@@ -249,7 +457,7 @@ def _invoke_cli(
 
 def health_command(args: argparse.Namespace) -> int:
     ensure_home()
-    result, code = _invoke_cli("hpc_cluster_health_check", {}, get_role(), _get_actor())
+    result, code = _invoke_cli("hpc_cluster_health_check", {}, get_role(), _get_actor(), cli_args=args)
     if result is not None:
         print(result)
     return code
@@ -259,7 +467,8 @@ def nodes_command(args: argparse.Namespace) -> int:
     ensure_home()
     node: str = getattr(args, "node", "") or ""
     result, code = _invoke_cli(
-        "hpc_slurm_node_status", {"node": node}, get_role(), _get_actor()
+        "hpc_slurm_node_status", {"node": node}, get_role(), _get_actor(),
+        cli_args=args,
     )
     if result is not None:
         if getattr(args, "json", False):
@@ -277,7 +486,7 @@ def queue_command(args: argparse.Namespace) -> int:
         tool_args["user"] = args.user
     if getattr(args, "partition", None):
         tool_args["partition"] = args.partition
-    result, code = _invoke_cli("hpc_slurm_queue", tool_args, get_role(), _get_actor())
+    result, code = _invoke_cli("hpc_slurm_queue", tool_args, get_role(), _get_actor(), cli_args=args)
     if result is not None:
         if getattr(args, "json", False):
             from hpc_pilot.tools import parse_slurm_queue
@@ -297,7 +506,7 @@ def qos_command(args: argparse.Namespace) -> int:
     tool_args: dict[str, Any] = {"name": args.name, "max_wall_min": max_wall, "dry_run": dry_run}
 
     if dry_run:
-        result, code = _invoke_cli("hpc_slurm_qos_modify", tool_args, role, _get_actor(), dry_run=True)
+        result, code = _invoke_cli("hpc_slurm_qos_modify", tool_args, role, _get_actor(), dry_run=True, cli_args=args)
         if result is not None:
             print(result)
             print("\nUse --apply to execute. Add --yes to skip confirmation.")
@@ -308,7 +517,7 @@ def qos_command(args: argparse.Namespace) -> int:
         return 0
 
     tool_args["dry_run"] = False
-    result, code = _invoke_cli("hpc_slurm_qos_modify", tool_args, role, _get_actor(), dry_run=False)
+    result, code = _invoke_cli("hpc_slurm_qos_modify", tool_args, role, _get_actor(), dry_run=False, cli_args=args)
     if result is not None:
         print(result)
     return code
@@ -316,7 +525,7 @@ def qos_command(args: argparse.Namespace) -> int:
 
 def warewulf_command(args: argparse.Namespace) -> int:
     ensure_home()
-    result, code = _invoke_cli("hpc_warewulf_node_status", {}, get_role(), _get_actor())
+    result, code = _invoke_cli("hpc_warewulf_node_status", {}, get_role(), _get_actor(), cli_args=args)
     if result is not None:
         if getattr(args, "json", False):
             from hpc_pilot.tools import parse_warewulf_nodes
@@ -334,11 +543,11 @@ def spack_command(args: argparse.Namespace) -> int:
     emit_json: bool = getattr(args, "json", False)
 
     if action == "find":
-        result, code = _invoke_cli("hpc_spack_find", {"env": args.env}, role, actor)
+        result, code = _invoke_cli("hpc_spack_find", {"env": args.env}, role, actor, cli_args=args)
     elif action == "compilers":
-        result, code = _invoke_cli("hpc_spack_compilers", {}, role, actor)
+        result, code = _invoke_cli("hpc_spack_compilers", {}, role, actor, cli_args=args)
     else:
-        result, code = _invoke_cli("hpc_spack_env_list", {}, role, actor)
+        result, code = _invoke_cli("hpc_spack_env_list", {}, role, actor, cli_args=args)
 
     if result is not None:
         if emit_json and action not in ("find", "compilers"):
@@ -362,7 +571,7 @@ def ansible_command(args: argparse.Namespace) -> int:
     }
 
     if dry_run:
-        result, code = _invoke_cli("hpc_ansible_playbook_run", tool_args, role, _get_actor(), dry_run=True)
+        result, code = _invoke_cli("hpc_ansible_playbook_run", tool_args, role, _get_actor(), dry_run=True, cli_args=args)
         if result is not None:
             print(result)
             print("\nUse --apply to execute. Add --yes to skip confirmation.")
@@ -373,7 +582,7 @@ def ansible_command(args: argparse.Namespace) -> int:
         return 0
 
     tool_args["dry_run"] = False
-    result, code = _invoke_cli("hpc_ansible_playbook_run", tool_args, role, _get_actor(), dry_run=False)
+    result, code = _invoke_cli("hpc_ansible_playbook_run", tool_args, role, _get_actor(), dry_run=False, cli_args=args)
     if result is not None:
         print(result)
     return code
@@ -386,7 +595,7 @@ def reservation_command(args: argparse.Namespace) -> int:
     action: str = getattr(args, "action", "list") or "list"
 
     if action == "list":
-        result, code = _invoke_cli("hpc_slurm_reservation_list", {}, role, actor)
+        result, code = _invoke_cli("hpc_slurm_reservation_list", {}, role, actor, cli_args=args)
     elif action == "create":
         tool_args: dict[str, Any] = {
             "name": args.name,
@@ -401,6 +610,7 @@ def reservation_command(args: argparse.Namespace) -> int:
         result, code = _invoke_cli(
             "hpc_slurm_reservation_create", tool_args, role, actor,
             dry_run=tool_args["dry_run"],
+            cli_args=args,
         )
         if result and tool_args["dry_run"]:
             print(result)
@@ -419,6 +629,7 @@ def reservation_command(args: argparse.Namespace) -> int:
         result, code = _invoke_cli(
             "hpc_slurm_reservation_update", tool_args, role, actor,
             dry_run=tool_args["dry_run"],
+            cli_args=args,
         )
         if result and tool_args["dry_run"]:
             print(result)
@@ -434,6 +645,7 @@ def reservation_command(args: argparse.Namespace) -> int:
             "hpc_slurm_reservation_delete",
             {"name": args.name, "dry_run": dry_run},
             role, actor, dry_run=dry_run,
+            cli_args=args,
         )
         if result and dry_run:
             print(result)
@@ -455,7 +667,7 @@ def account_command(args: argparse.Namespace) -> int:
     action: str = getattr(args, "action", "list") or "list"
 
     if action == "list":
-        result, code = _invoke_cli("hpc_slurm_account_list", {}, role, actor)
+        result, code = _invoke_cli("hpc_slurm_account_list", {}, role, actor, cli_args=args)
     elif action == "create":
         dry_run = not getattr(args, "apply", False)
         yes_flag = getattr(args, "yes", False)
@@ -467,7 +679,8 @@ def account_command(args: argparse.Namespace) -> int:
         }
         if dry_run:
             result, code = _invoke_cli(
-                "hpc_slurm_account_create", tool_args, role, actor, dry_run=True
+                "hpc_slurm_account_create", tool_args, role, actor, dry_run=True,
+                cli_args=args,
             )
             if result:
                 print(result)
@@ -477,7 +690,7 @@ def account_command(args: argparse.Namespace) -> int:
             print("Aborted.")
             return 0
         tool_args["dry_run"] = False
-        result, code = _invoke_cli("hpc_slurm_account_create", tool_args, role, actor)
+        result, code = _invoke_cli("hpc_slurm_account_create", tool_args, role, actor, cli_args=args)
     else:
         print(f"Unknown action: {action}", file=sys.stderr)
         return 1
@@ -496,7 +709,7 @@ def accounting_command(args: argparse.Namespace) -> int:
         "end": getattr(args, "end", "") or "",
         "state": getattr(args, "state", "") or "",
     }
-    result, code = _invoke_cli("hpc_slurm_accounting", tool_args, get_role(), _get_actor())
+    result, code = _invoke_cli("hpc_slurm_accounting", tool_args, get_role(), _get_actor(), cli_args=args)
     if result is not None:
         if getattr(args, "json", False):
             from hpc_pilot.tools import parse_sacct
@@ -508,7 +721,7 @@ def accounting_command(args: argparse.Namespace) -> int:
 
 def sdiag_command(args: argparse.Namespace) -> int:
     ensure_home()
-    result, code = _invoke_cli("hpc_slurm_sdiag", {}, get_role(), _get_actor())
+    result, code = _invoke_cli("hpc_slurm_sdiag", {}, get_role(), _get_actor(), cli_args=args)
     if result is not None:
         print(result)
     return code
@@ -535,6 +748,11 @@ def main(argv: list[str] | None = None) -> int:
         prog="hpc-pilot",
         description="HPC Pilot — AI agent for HPC cluster management",
     )
+    parser.add_argument(
+        "--cluster",
+        default=None,
+        help="Target cluster (default from config, or $HPC_PILOT_CLUSTER)",
+    )
     subs = parser.add_subparsers(dest="command", help="Available commands")
 
     # chat
@@ -545,6 +763,10 @@ def main(argv: list[str] | None = None) -> int:
     chat_p.add_argument(
         "--list-sessions", action="store_true", dest="list_sessions",
         help="List saved sessions",
+    )
+    chat_p.add_argument(
+        "--no-summarize", action="store_true", dest="no_summarize",
+        help="Disable conversation summarization",
     )
     chat_p.set_defaults(func=chat_command)
 
@@ -567,6 +789,13 @@ def main(argv: list[str] | None = None) -> int:
     gw_p.add_argument("--port", type=int, default=8000)
     gw_p.add_argument("--host", default="127.0.0.1")
     gw_p.set_defaults(func=gateway_command)
+
+    # webui
+    webui_p = subs.add_parser("webui", help="Launch web UI (FastAPI)")
+    webui_p.add_argument("--start", action="store_true", help="Start the web UI")
+    webui_p.add_argument("--port", type=int, default=0, help="Port (default: 8000, or $HPC_PILOT_PORT)")
+    webui_p.add_argument("--host", default="127.0.0.1", help="Host (default: 127.0.0.1)")
+    webui_p.set_defaults(func=webui_command)
 
     # setup
     setup_p = subs.add_parser("setup", help="Initialize configuration directory")
@@ -691,6 +920,13 @@ def main(argv: list[str] | None = None) -> int:
     # cron (NYI)
     cron_p = subs.add_parser("cron", help="[planned] Scheduled cluster monitoring")
     cron_p.set_defaults(func=cron_command)
+
+    # approve
+    approve_p = subs.add_parser("approve", help="Approve or reject out-of-band approval requests")
+    approve_p.add_argument("request_id", nargs="?", help="Approval request ID")
+    approve_p.add_argument("--reject", action="store_true", help="Reject instead of approve")
+    approve_p.add_argument("--list", action="store_true", dest="list_approvals", help="List pending approvals")
+    approve_p.set_defaults(func=approve_command)
 
     # version
     version_p = subs.add_parser("version", help="Show version")

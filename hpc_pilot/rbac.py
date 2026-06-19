@@ -41,6 +41,11 @@ class Role(str, Enum):
 TOOL_MIN_ROLE: dict[str, Role] = {
     # Read-only (VIEWER and above)
     "hpc_slurm_node_status": Role.VIEWER,
+    "hpc_metrics_prometheus_query": Role.VIEWER,
+    "hpc_metrics_prometheus_alerts": Role.VIEWER,
+    "hpc_metrics_node_summary": Role.VIEWER,
+    "hpc_storage_mounts": Role.VIEWER,
+    "hpc_logs_search": Role.VIEWER,
     "hpc_slurm_queue": Role.VIEWER,
     "hpc_slurm_job_status": Role.VIEWER,
     "hpc_slurm_reservation_list": Role.VIEWER,
@@ -73,6 +78,7 @@ TOOL_MIN_ROLE: dict[str, Role] = {
     "hpc_ansible_run_history": Role.VIEWER,
     "hpc_cluster_health_check": Role.VIEWER,
     "hpc_skill_describe": Role.VIEWER,
+    "hpc_multi_query": Role.VIEWER,
     # Mutating (OPERATOR and above)
     "hpc_slurm_node_state": Role.OPERATOR,
     "hpc_slurm_job_hold": Role.OPERATOR,
@@ -82,6 +88,12 @@ TOOL_MIN_ROLE: dict[str, Role] = {
     "hpc_skill_run": Role.OPERATOR,
     "hpc_ansible_drift_check": Role.OPERATOR,
     "hpc_warewulf_overlay_build": Role.OPERATOR,
+    "hpc_gpu_nvidia_smi": Role.OPERATOR,
+    "hpc_storage_lustre_status": Role.OPERATOR,
+    "hpc_fabric_ib_link_status": Role.OPERATOR,
+    "hpc_logs_slurmctld_tail": Role.OPERATOR,
+    "hpc_logs_slurmd_tail": Role.OPERATOR,
+    "hpc_logs_dmesg_xid": Role.OPERATOR,
     # Dangerous / cluster-wide (ADMIN and above)
     "hpc_slurm_qos_modify": Role.ADMIN,
     "hpc_slurm_qos_create": Role.ADMIN,
@@ -115,6 +127,7 @@ TOOL_MIN_ROLE: dict[str, Role] = {
     "hpc_spack_buildcache_update_index": Role.ADMIN,
     "hpc_spack_module_refresh": Role.ADMIN,
     "hpc_spack_compiler_find": Role.ADMIN,
+    "hpc_gpu_dcgm_diag": Role.ADMIN,
     # Accounting schema / bootstrap (SUPERADMIN only)
     "hpc_slurm_account_create": Role.SUPERADMIN,
     "hpc_slurm_association_create": Role.SUPERADMIN,

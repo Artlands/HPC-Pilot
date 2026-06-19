@@ -39,7 +39,7 @@ class TestGatewayHomeFunctions:
         result = init_home()
 
         assert result == "/test/hpc-pilot"
-        assert mock_makedirs.call_count == 6  # home + 5 subdirs
+        assert mock_makedirs.call_count == 7  # home + 6 subdirs
 
 
 class TestGatewayMain:

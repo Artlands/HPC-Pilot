@@ -40,6 +40,24 @@ from hpc_pilot.tools.ansible import (  # noqa: F401
 )
 from hpc_pilot.tools.health import hpc_cluster_health_check  # noqa: F401
 from hpc_pilot.tools.jobs import hpc_job_logs, hpc_job_status  # noqa: F401
+from hpc_pilot.tools.multi import hpc_multi_query  # noqa: F401
+from hpc_pilot.tools.metrics import (  # noqa: F401
+    _cluster_prometheus_url,
+    _redact_log_line,
+    _redact_output,
+    hpc_fabric_ib_link_status,
+    hpc_gpu_dcgm_diag,
+    hpc_gpu_nvidia_smi,
+    hpc_logs_dmesg_xid,
+    hpc_logs_search,
+    hpc_logs_slurmctld_tail,
+    hpc_logs_slurmd_tail,
+    hpc_metrics_node_summary,
+    hpc_metrics_prometheus_alerts,
+    hpc_metrics_prometheus_query,
+    hpc_storage_lustre_status,
+    hpc_storage_mounts,
+)
 from hpc_pilot.tools.slurm import (  # noqa: F401
     hpc_slurm_account_create,
     hpc_slurm_account_list,

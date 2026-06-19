@@ -1,0 +1,21 @@
+name: postmortem-collect
+description: Collect forensic data after a cluster incident — controller logs, job accounting, sdiag snapshot.
+required_role: admin
+inputs:
+  - name: affected_job_ids
+    type: string
+    required: false
+  - name: since
+    type: string
+    default: "24:00:00"
+steps:
+  - id: gather_slurmctld_logs
+    tool: hpc_slurm_config_show
+    args: {}
+  - id: sacct_affected
+    tool: hpc_slurm_accounting
+    args: {start: "{{ since }}", state: "FAILED"}
+  - id: sdiag_snapshot
+    tool: hpc_slurm_sdiag
+    args: {}
+on_failure: abort

@@ -5,7 +5,7 @@ import os
 
 HOME_ENV = "HPC_PILOT_HOME"
 _DEFAULT_HOME = "~/.hpc-pilot"
-_SUBDIRS = ("skills", "skills/runs", "sessions", "logs", "jobs")
+_SUBDIRS = ("skills", "skills/runs", "sessions", "logs", "jobs", "approvals")
 
 
 def default_home() -> str:
@@ -43,6 +43,14 @@ def skill_runs_dir() -> str:
 
 def jobs_dir() -> str:
     return os.path.join(get_home(), "jobs")
+
+
+def approvals_dir() -> str:
+    return os.path.join(get_home(), "approvals")
+
+
+def gateway_pid_path() -> str:
+    return os.path.join(get_home(), "gateway.pid")
 
 
 def ensure_layout() -> str:

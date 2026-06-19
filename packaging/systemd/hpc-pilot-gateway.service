@@ -1,0 +1,14 @@
+[Unit]
+Description=HPC Pilot Gateway
+After=network.target
+
+[Service]
+Type=simple
+User=hpc-pilot
+EnvironmentFile=/etc/hpc-pilot/gateway.env
+ExecStart=/usr/bin/hpc-pilot gateway --start
+Restart=on-failure
+RestartSec=10s
+
+[Install]
+WantedBy=multi-user.target

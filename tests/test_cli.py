@@ -47,7 +47,7 @@ class TestHomeDirFunctions:
         result = ensure_home()
 
         assert result == "/test/hpc-pilot"
-        assert mock_makedirs.call_count == 6  # home + 5 subdirs
+        assert mock_makedirs.call_count == 7  # home + 6 subdirs
 
 
 class TestDeprecatedShims:
@@ -120,7 +120,7 @@ class TestEnsureHomeDir:
         result = ensure_home()
 
         assert result == "/test/hpc-pilot"
-        assert mock_makedirs.call_count == 6  # home + 5 subdirs
+        assert mock_makedirs.call_count == 7  # home + 6 subdirs
 
 
 class TestNodesCommand:
@@ -312,20 +312,20 @@ class TestMain:
         mock_gw.assert_called_once_with(["--setup"])
         assert result == 0
 
-    def test_main_gateway_status_delegates(self):
-        """hpc-pilot gateway --status delegates to gateway.main with ['--status']."""
-        with patch("hpc_pilot.gateway.main") as mock_gw:
-            mock_gw.return_value = 0
+    def test_main_gateway_status_local(self):
+        """hpc-pilot gateway --status now handled locally (not delegating to gateway.main)."""
+        with patch("hpc_pilot.cli._gateway_status", return_value=0) as mock_status, \
+             patch("hpc_pilot.cli.ensure_home"):
             result = main(["gateway", "--status"])
-        mock_gw.assert_called_once_with(["--status"])
+        mock_status.assert_called_once()
         assert result == 0
 
-    def test_main_gateway_bare_starts(self):
-        """hpc-pilot gateway with no flags defaults to --start."""
-        with patch("hpc_pilot.gateway.main") as mock_gw:
-            mock_gw.return_value = 0
+    def test_main_gateway_bare_starts_local(self):
+        """hpc-pilot gateway with no flags calls _gateway_start."""
+        with patch("hpc_pilot.cli._gateway_start", return_value=0) as mock_start, \
+             patch("hpc_pilot.cli.ensure_home"):
             result = main(["gateway"])
-        mock_gw.assert_called_once_with(["--start"])
+        mock_start.assert_called_once()
         assert result == 0
 
 

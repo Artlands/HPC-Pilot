@@ -14,13 +14,13 @@ This document is the contract. Each phase is independently mergeable, has a test
 |---|---|---|---|---|
 | 0 — Foundations & contracts | ✅ Done | — | 2026-06-19 | All 11 sub-items complete |
 | 1 — Slurm full coverage | ✅ Done | — | 2026-06-19 | 23 new tools, 74 tests, health check upgraded |
-| 2 — Warewulf bootstrap & lifecycle | ⬜ Not started | — | — | |
-| 3 — Spack package lifecycle | ⬜ Not started | — | — | |
-| 4 — Ansible operations | ⬜ Not started | — | — | |
-| 5 — Observability & metrics | ⬜ Not started | — | — | |
-| 6 — Incident response & runbooks | ⬜ Not started | — | — | |
-| 7 — Multi-cluster federation | ⬜ Not started | — | — | |
-| 8 — Production hardening | ⬜ Not started | — | — | |
+| 2 — Warewulf bootstrap & lifecycle | ✅ Done | — | 2026-06-19 | 20 new tools, spec_hash cache, overlay git, DHCP/TFTP/NFS |
+| 3 — Spack package lifecycle | ✅ Done | — | 2026-06-19 | 13 new tools, async jobs.py, lockfile diff |
+| 4 — Ansible operations | ✅ Done | — | 2026-06-19 | 7 new tools, 4 drift playbooks, async refactor |
+| 5 — Observability & metrics | ✅ Done | — | 2026-06-19 | 13 new tools, health check v2, log redaction |
+| 6 — Incident response & runbooks | ✅ Done | — | 2026-06-19 | 7 built-in skills, pause/resume, persistent state |
+| 7 — Multi-cluster federation | ✅ Done | — | 2026-06-19 | hpc_multi_query, --cluster flag, SSH remote exec |
+| 8 — Production hardening | ✅ Done | — | 2026-06-19 | Approvals, daemon, audit sinks, web UI, secrets, systemd |
 
 **Legend:** ⬜ Not started · 🟡 In progress · 🔴 Blocked · ✅ Done
 

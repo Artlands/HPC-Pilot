@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 import os
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Any
 
 from hpc_pilot.paths import config_path, ensure_layout
@@ -13,11 +13,20 @@ DEFAULT_CONFIG = """\
 model:
   default: claude-opus-4-7
 
-hpc:
-  slurm_bin_dir: /usr/bin
-  warewulf_bin_dir: /usr/bin
-  spack_root: /opt/spack
-  ansible_dir: /etc/hpc-pilot/ansible
+# Multi-cluster configuration.  Add more named clusters as needed.
+clusters:
+  default:
+    slurm_bin_dir: /usr/bin
+    warewulf_bin_dir: /usr/bin
+    spack_root: /opt/spack
+    ansible_dir: /etc/hpc-pilot/ansible
+    # Optional SSH config when the Slurm controller is remote:
+    # ssh:
+    #   host: head01.example.com
+    #   user: hpcadmin
+    #   key: ~/.ssh/hpc-pilot
+
+default_cluster: default
 """
 
 
@@ -32,7 +41,10 @@ def init_config() -> None:
 
 @dataclass
 class Config:
+    """Legacy config object kept for compatibility. Tools now use Cluster directly."""
+
     model: str = "claude-opus-4-7"
+    # These fields mirror the default cluster's settings for backward compat.
     slurm_bin_dir: str = "/usr/bin"
     warewulf_bin_dir: str = "/usr/bin"
     spack_root: str = "/opt/spack"
@@ -55,18 +67,29 @@ class Config:
 
 
 def load_config() -> Config:
-    """Load config from YAML file; fall back to defaults on any error."""
+    """Load model and default-cluster settings from config.yaml."""
     path = config_path()
     if not os.path.exists(path):
         return Config()
     try:
         import yaml
+
         with open(path) as f:
             data: dict[str, Any] = yaml.safe_load(f) or {}
+
         model_cfg: dict[str, Any] = data.get("model", {}) or {}
-        hpc_cfg: dict[str, Any] = data.get("hpc", {}) or {}
+        model = str(model_cfg.get("default", Config.model))
+
+        # Read cluster config for the default cluster's bin paths.
+        clusters_raw = data.get("clusters")
+        default_name = str(data.get("default_cluster", "default"))
+        if clusters_raw and isinstance(clusters_raw, dict):
+            hpc_cfg = clusters_raw.get(default_name, {}) or {}
+        else:
+            hpc_cfg = data.get("hpc", {}) or {}
+
         return Config(
-            model=str(model_cfg.get("default", Config.model)),
+            model=model,
             slurm_bin_dir=str(hpc_cfg.get("slurm_bin_dir", Config.slurm_bin_dir)),
             warewulf_bin_dir=str(hpc_cfg.get("warewulf_bin_dir", Config.warewulf_bin_dir)),
             spack_root=str(hpc_cfg.get("spack_root", Config.spack_root)),

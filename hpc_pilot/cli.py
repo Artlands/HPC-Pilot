@@ -19,16 +19,16 @@ Direct cluster commands (no API key needed):
 """
 from __future__ import annotations
 
+import argparse
 import json
 import os
 import sys
-import argparse
-from typing import Any, Callable, Optional
-
 import warnings
+from collections.abc import Callable
+from typing import Any
 
-from hpc_pilot.paths import get_home as _get_home
 from hpc_pilot.config import init_config  # noqa: F401 — re-exported for tests
+from hpc_pilot.paths import get_home as _get_home
 from hpc_pilot.rbac import Role, get_role
 
 
@@ -83,7 +83,7 @@ def _confirm(prompt: str) -> bool:
     return answer == "y"
 
 
-def _make_agent(args: argparse.Namespace) -> "Any":
+def _make_agent(args: argparse.Namespace) -> Any:
     """Build an HpcAgent from CLI args; print a helpful error if anthropic is missing."""
     from hpc_pilot.agent import HpcAgent
 
@@ -119,6 +119,7 @@ def chat_command(args: argparse.Namespace) -> int:
     # --list-sessions doesn't require the API key
     if getattr(args, "list_sessions", False):
         import datetime
+
         from hpc_pilot.agent import list_sessions
         sessions = list_sessions()
         if not sessions:
@@ -394,7 +395,7 @@ def version_command(args: argparse.Namespace) -> int:
 # ---------------------------------------------------------------------------
 
 
-def main(argv: Optional[list[str]] = None) -> int:
+def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         prog="hpc-pilot",
         description="HPC Pilot — AI agent for HPC cluster management",
@@ -496,7 +497,7 @@ def main(argv: Optional[list[str]] = None) -> int:
     args = parser.parse_args(argv)
 
     if not args.command:
-        setattr(args, "func", chat_command)
+        args.func = chat_command
 
     func: Callable[[argparse.Namespace], int] | None = getattr(args, "func", None)
     if func is not None:

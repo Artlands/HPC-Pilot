@@ -22,13 +22,14 @@ from __future__ import annotations
 import json
 import os
 import time
-from typing import TYPE_CHECKING, Any, Callable, cast
+from collections.abc import Callable
+from typing import TYPE_CHECKING, Any, cast
 
 from hpc_pilot.paths import get_home
 from hpc_pilot.rbac import Role, get_role
 
 if TYPE_CHECKING:
-    from anthropic.types import Message, MessageParam, TextBlock, ToolUseBlock
+    pass
 
 # ---------------------------------------------------------------------------
 # Tool schemas (Anthropic format)
@@ -203,7 +204,53 @@ TOOL_SCHEMAS: list[dict[str, Any]] = [
             "Run a comprehensive health check across all installed cluster components "
             "(Slurm, Warewulf, Spack, Ansible). Reports status and any detected issues."
         ),
-        "input_schema": {"type": "object", "properties": {}},
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "cluster": {
+                    "type": "string",
+                    "description": "Target cluster name (default: 'default')",
+                },
+            },
+        },
+    },
+    {
+        "name": "hpc_skill_describe",
+        "description": "Return the YAML definition of a named runbook/skill.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "name": {
+                    "type": "string",
+                    "description": "Skill name (e.g. 'drain-and-patch-node')",
+                },
+            },
+            "required": ["name"],
+        },
+    },
+    {
+        "name": "hpc_skill_run",
+        "description": (
+            "Execute a named runbook/skill with the given inputs. "
+            "Returns a run record with step results and status. "
+            "Use resume_run_id to continue a paused run."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "name": {"type": "string", "description": "Skill name"},
+                "inputs": {
+                    "type": "object",
+                    "description": "Input key-value pairs required by the skill",
+                },
+                "cluster": {"type": "string", "description": "Target cluster (default: 'default')"},
+                "resume_run_id": {
+                    "type": "string",
+                    "description": "Run ID of a paused skill run to resume",
+                },
+            },
+            "required": ["name"],
+        },
     },
 ]
 
@@ -219,9 +266,10 @@ Operator : {actor}
 Role     : {role}
 
 Role permissions:
-• viewer   — read-only queries (node status, queue, health, Spack, Warewulf images)
-• operator — viewer + drain/resume nodes
-• admin    — operator + modify QOS, run Ansible playbooks, bootstrap Warewulf nodes
+• viewer     — read-only queries (node status, queue, health, Spack, Warewulf images)
+• operator   — viewer + drain/resume nodes, run skills
+• admin      — operator + modify QOS, run Ansible playbooks, bootstrap Warewulf nodes
+• superadmin — admin + Slurm reconfig, Warewulf bootstrap (DHCP/TFTP/NFS), accounting schema
 
 Interaction guidelines:
 1. When asked about cluster state, call the relevant tool immediately.
@@ -250,6 +298,31 @@ def _load_env() -> None:
         pass
 
 
+_MODEL_CONTEXT_TOKENS: dict[str, int] = {
+    "claude-opus-4-7": 200_000,
+    "claude-sonnet-4-6": 200_000,
+    "claude-haiku-4-5-20251001": 200_000,
+}
+_DEFAULT_CONTEXT_TOKENS = 200_000
+_SUMMARIZE_THRESHOLD = 0.80  # summarize when history > 80% of model context
+
+
+def _estimate_tokens(messages: list[Any]) -> int:
+    """Rough token estimate: 4 chars ≈ 1 token."""
+    total = 0
+    for msg in messages:
+        content = msg.get("content", "")
+        if isinstance(content, str):
+            total += len(content) // 4
+        elif isinstance(content, list):
+            for block in content:
+                if isinstance(block, dict):
+                    total += len(str(block.get("text", "") or block.get("content", ""))) // 4
+                else:
+                    total += len(str(getattr(block, "text", "") or "")) // 4
+    return total
+
+
 class HpcAgent:
     """Claude-powered agent that drives HPC cluster tool calls."""
 
@@ -258,15 +331,20 @@ class HpcAgent:
         model: str | None = None,
         role: Role | None = None,
         actor: str | None = None,
+        summarize: bool = True,
     ) -> None:
         _load_env()
         from anthropic import Anthropic  # imported lazily so tests can stub
+
         from hpc_pilot.config import load_config
 
         cfg = load_config()
         self.model = model or os.environ.get("HPC_PILOT_MODEL") or cfg.model
         self.role: Role = role if role is not None else get_role()
-        self.actor: str = actor or os.environ.get("HPC_PILOT_ACTOR", "agent")
+        self.actor: str = (
+            actor or os.environ.get("HPC_PILOT_ACTOR") or os.environ.get("USER", "cli")
+        )
+        self.summarize = summarize
         self._client = Anthropic()
 
     # ------------------------------------------------------------------
@@ -278,13 +356,72 @@ class HpcAgent:
         return [{"type": "text", "text": text, "cache_control": {"type": "ephemeral"}}]
 
     # ------------------------------------------------------------------
+    # Context budget management
+    # ------------------------------------------------------------------
+
+    def _context_limit(self) -> int:
+        return _MODEL_CONTEXT_TOKENS.get(self.model, _DEFAULT_CONTEXT_TOKENS)
+
+    def _maybe_summarize(self, messages: list[Any]) -> list[Any]:
+        """Summarize the oldest half of history if we're near the context limit."""
+        if not self.summarize:
+            return messages
+
+        limit = self._context_limit()
+        estimated = _estimate_tokens(messages)
+        if estimated < int(limit * _SUMMARIZE_THRESHOLD):
+            return messages
+
+        from hpc_pilot.audit import AuditEvent, log_audit
+
+        half = len(messages) // 2
+        to_summarize = messages[:half]
+        to_keep = messages[half:]
+
+        summary_prompt = (
+            "Summarize the following HPC Pilot conversation history into 1-2 paragraphs "
+            "that preserve tool calls, decisions, and cluster state changes. "
+            "Be concise but complete.\n\n"
+            + "\n".join(
+                f"{m['role']}: "
+                + (m["content"] if isinstance(m["content"], str) else "[tool messages]")
+                for m in to_summarize
+            )
+        )
+        try:
+            resp = self._client.messages.create(
+                model=self.model,
+                max_tokens=1024,
+                messages=[{"role": "user", "content": summary_prompt}],
+            )
+            summary_text = "".join(
+                block.text
+                for block in resp.content
+                if getattr(block, "type", "") == "text"
+            )
+            summary_msg: dict[str, Any] = {
+                "role": "user",
+                "content": f"[Summary of earlier conversation:] {summary_text}",
+            }
+            log_audit(AuditEvent(
+                tool="conversation_summarize",
+                actor=self.actor,
+                role=self.role.value,
+                args={"messages_summarized": half, "estimated_tokens_before": estimated},
+                dry_run=False,
+            ))
+            return [summary_msg] + to_keep
+        except Exception:
+            return messages  # summarization failure must not break the turn
+
+    # ------------------------------------------------------------------
     # Tool dispatch
     # ------------------------------------------------------------------
 
     def _call_tool(self, name: str, args: dict[str, Any]) -> str:
         """Dispatch to a real tool function by name (no RBAC/audit — call _execute_tool instead)."""
-        from hpc_pilot.dispatch import _dispatch
         from hpc_pilot import tools
+        from hpc_pilot.dispatch import _dispatch
         return _dispatch(name, args, tools)
 
     def _execute_tool(self, name: str, args: dict[str, Any]) -> str:
@@ -292,7 +429,10 @@ class HpcAgent:
         from hpc_pilot.dispatch import invoke
 
         try:
-            return invoke(name, args, role=self.role, actor=self.actor, dry_run=bool(args.get("dry_run", False)))
+            return invoke(
+                name, args, role=self.role, actor=self.actor,
+                dry_run=bool(args.get("dry_run", False)),
+            )
         except RuntimeError as exc:
             return f"[Tool error] {exc}"
         except ValueError as exc:
@@ -347,7 +487,7 @@ class HpcAgent:
                         if getattr(block, "type", "") == "text"
                     )
                     return text, msg
-            except transient as exc:
+            except transient:
                 if attempt == 2:
                     raise
                 time.sleep(delay)
@@ -384,6 +524,7 @@ class HpcAgent:
 
         # The Anthropic SDK accepts list[dict] for messages; cast satisfies mypy.
         messages: list[Any] = list(history) + [{"role": "user", "content": user_message}]
+        messages = self._maybe_summarize(messages)
         response_text = ""
         iterations = 0
 
@@ -498,7 +639,7 @@ def _serialize_message(msg: dict[str, Any]) -> dict[str, Any]:
 
 def save_session(
     history: list[dict[str, Any]],
-    agent: "HpcAgent",
+    agent: HpcAgent,
     session_id: str | None = None,
 ) -> str:
     """Persist *history* to ~/.hpc-pilot/sessions/<id>.json.
@@ -572,10 +713,9 @@ def list_sessions() -> list[dict[str, Any]]:
 
 def run_chat_loop(agent: HpcAgent, initial_history: list[dict[str, Any]] | None = None) -> int:
     """Run an interactive readline-based chat loop in the terminal."""
-    try:
+    import contextlib
+    with contextlib.suppress(ImportError):
         import readline  # noqa: F401  — enables Ctrl-A/E, history on supported platforms
-    except ImportError:
-        pass
 
     history: list[dict[str, Any]] = list(initial_history) if initial_history else []
     turn_start = len(history)  # messages present before this session's turns

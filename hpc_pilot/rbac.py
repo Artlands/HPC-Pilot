@@ -7,19 +7,34 @@ from enum import Enum
 
 from hpc_pilot.paths import auth_path
 
+_ORDER = {
+    "viewer": 0,
+    "operator": 1,
+    "admin": 2,
+    "superadmin": 3,
+}
+
 
 class Role(str, Enum):
     VIEWER = "viewer"
     OPERATOR = "operator"
     ADMIN = "admin"
+    SUPERADMIN = "superadmin"
 
-    def __ge__(self, other: "Role") -> bool:  # type: ignore[override]
-        _ORDER = {Role.VIEWER: 0, Role.OPERATOR: 1, Role.ADMIN: 2}
-        return _ORDER[self] >= _ORDER[other]
+    def _level(self) -> int:
+        return _ORDER[self.value]
 
-    def __gt__(self, other: "Role") -> bool:  # type: ignore[override]
-        _ORDER = {Role.VIEWER: 0, Role.OPERATOR: 1, Role.ADMIN: 2}
-        return _ORDER[self] > _ORDER[other]
+    def __lt__(self, other: Role) -> bool:  # type: ignore[override]
+        return self._level() < other._level()
+
+    def __le__(self, other: Role) -> bool:  # type: ignore[override]
+        return self._level() <= other._level()
+
+    def __ge__(self, other: Role) -> bool:  # type: ignore[override]
+        return self._level() >= other._level()
+
+    def __gt__(self, other: Role) -> bool:  # type: ignore[override]
+        return self._level() > other._level()
 
 
 # Minimum role required to invoke each named tool.
@@ -34,8 +49,10 @@ TOOL_MIN_ROLE: dict[str, Role] = {
     "hpc_spack_compilers": Role.VIEWER,
     "hpc_ansible_inventory_generate": Role.VIEWER,
     "hpc_cluster_health_check": Role.VIEWER,
+    "hpc_skill_describe": Role.VIEWER,
     # Mutating node state (OPERATOR and above)
     "hpc_slurm_node_state": Role.OPERATOR,
+    "hpc_skill_run": Role.OPERATOR,
     # Dangerous / cluster-wide (ADMIN only)
     "hpc_slurm_qos_modify": Role.ADMIN,
     "hpc_ansible_playbook_run": Role.ADMIN,

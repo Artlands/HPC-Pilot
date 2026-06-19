@@ -18,15 +18,14 @@ import argparse
 import asyncio
 import os
 import sys
-from typing import Any, Callable, Optional
+from typing import Any
+
+from hpc_pilot.audit import audit_tool
+from hpc_pilot.config import init_config  # noqa: F401
 
 # Local-name re-exports so existing tests can patch
 # `hpc_pilot.gateway.init_home` and `hpc_pilot.gateway.init_config`.
 from hpc_pilot.paths import ensure_layout as init_home  # noqa: F401
-from hpc_pilot.config import init_config  # noqa: F401
-from hpc_pilot.paths import get_home
-from hpc_pilot.audit import audit_tool
-
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -80,10 +79,10 @@ def _load_allowed_ids(env_var: str) -> set[int] | None:
     return allowed if allowed else None
 
 
-def _make_agent() -> Any:
+def _make_agent(actor: str = "agent") -> Any:
     from hpc_pilot.agent import HpcAgent
     model = os.environ.get("HPC_PILOT_MODEL", "claude-opus-4-7")
-    return HpcAgent(model=model)
+    return HpcAgent(model=model, actor=actor)
 
 
 # ---------------------------------------------------------------------------
@@ -97,24 +96,29 @@ class TelegramGateway:
     def __init__(
         self,
         token: str,
-        agent_factory: Callable[[], Any],
         allowed_chat_ids: set[int] | None = None,
     ) -> None:
         self.token = token
-        self.agent_factory = agent_factory
         self.allowed_chat_ids = allowed_chat_ids
+        # keyed by chat_id → (agent, history)
         self.sessions: dict[int, tuple[Any, list[dict[str, Any]]]] = {}
 
     def _is_allowed(self, chat_id: int) -> bool:
         return self.allowed_chat_ids is None or chat_id in self.allowed_chat_ids
 
+    def _make_session(self, chat_id: int, user_id: int) -> tuple[Any, list[Any]]:
+        actor = f"telegram:chat={chat_id}:user={user_id}"
+        return _make_agent(actor=actor), []
+
     async def _start(self, update: Any, context: Any) -> None:
         chat_id = update.effective_chat.id
+        user_id = update.effective_user.id if update.effective_user else 0
         if not self._is_allowed(chat_id):
-            with audit_tool("gateway_access_denied", f"telegram:{chat_id}", "none", {}, dry_run=False):
+            actor = f"telegram:chat={chat_id}:user={user_id}"
+            with audit_tool("gateway_access_denied", actor, "none", {}, dry_run=False):
                 pass
             return
-        self.sessions[chat_id] = (self.agent_factory(), [])
+        self.sessions[chat_id] = self._make_session(chat_id, user_id)
         await update.message.reply_text(
             "HPC Pilot connected.\n"
             "Ask me anything about your cluster: nodes, jobs, health, Spack, Ansible…\n"
@@ -123,19 +127,22 @@ class TelegramGateway:
 
     async def _reset(self, update: Any, context: Any) -> None:
         chat_id = update.effective_chat.id
+        user_id = update.effective_user.id if update.effective_user else 0
         if not self._is_allowed(chat_id):
             return
-        self.sessions[chat_id] = (self.agent_factory(), [])
+        self.sessions[chat_id] = self._make_session(chat_id, user_id)
         await update.message.reply_text("Conversation reset.")
 
     async def _handle_message(self, update: Any, context: Any) -> None:
         chat_id = update.effective_chat.id
+        user_id = update.effective_user.id if update.effective_user else 0
         if not self._is_allowed(chat_id):
-            with audit_tool("gateway_access_denied", f"telegram:{chat_id}", "none", {}, dry_run=False):
+            actor = f"telegram:chat={chat_id}:user={user_id}"
+            with audit_tool("gateway_access_denied", actor, "none", {}, dry_run=False):
                 pass
             return
         if chat_id not in self.sessions:
-            self.sessions[chat_id] = (self.agent_factory(), [])
+            self.sessions[chat_id] = self._make_session(chat_id, user_id)
         agent, history = self.sessions[chat_id]
 
         await update.message.chat.send_action("typing")
@@ -187,11 +194,9 @@ class DiscordGateway:
     def __init__(
         self,
         token: str,
-        agent_factory: Callable[[], Any],
         allowed_user_ids: set[int] | None = None,
     ) -> None:
         self.token = token
-        self.agent_factory = agent_factory
         self.allowed_user_ids = allowed_user_ids
         self.sessions: dict[int, tuple[Any, list[dict[str, Any]]]] = {}
 
@@ -205,7 +210,6 @@ class DiscordGateway:
         intents.message_content = True
         client = discord.Client(intents=intents)
         sessions = self.sessions
-        agent_factory = self.agent_factory
         is_allowed = self._is_allowed
 
         @client.event
@@ -222,12 +226,15 @@ class DiscordGateway:
 
             user_id = message.author.id
             if not is_allowed(user_id):
-                with audit_tool("gateway_access_denied", f"discord:{user_id}", "none", {}, dry_run=False):
+                with audit_tool(
+                    "gateway_access_denied", f"discord:user={user_id}", "none", {}, dry_run=False
+                ):
                     pass
                 return
 
             if user_id not in sessions:
-                sessions[user_id] = (agent_factory(), [])
+                actor = f"discord:user={user_id}"
+                sessions[user_id] = (_make_agent(actor=actor), [])
             agent, history = sessions[user_id]
 
             async with message.channel.typing():
@@ -272,7 +279,7 @@ async def _run_gateway_async() -> int:
 
     if tg_token:
         try:
-            gw = TelegramGateway(tg_token, _make_agent, allowed_chat_ids=tg_allowed)
+            gw = TelegramGateway(tg_token, allowed_chat_ids=tg_allowed)
             tasks.append(asyncio.create_task(gw.run_async(), name="telegram"))
         except ImportError:
             print(
@@ -283,7 +290,7 @@ async def _run_gateway_async() -> int:
 
     if dc_token:
         try:
-            gw_dc = DiscordGateway(dc_token, _make_agent, allowed_user_ids=dc_allowed)
+            gw_dc = DiscordGateway(dc_token, allowed_user_ids=dc_allowed)
             tasks.append(asyncio.create_task(gw_dc.run_async(), name="discord"))
         except ImportError:
             print(
@@ -312,7 +319,7 @@ async def _run_gateway_async() -> int:
 # ---------------------------------------------------------------------------
 
 
-def main(argv: Optional[list[str]] = None) -> int:
+def main(argv: list[str] | None = None) -> int:
     """Entry point for the hpc-pilot-gateway script and `hpc-pilot gateway`."""
     parser = argparse.ArgumentParser(
         prog="hpc-pilot-gateway",

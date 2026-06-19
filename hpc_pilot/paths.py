@@ -5,7 +5,7 @@ import os
 
 HOME_ENV = "HPC_PILOT_HOME"
 _DEFAULT_HOME = "~/.hpc-pilot"
-_SUBDIRS = ("skills", "sessions", "logs")
+_SUBDIRS = ("skills", "skills/runs", "sessions", "logs", "jobs")
 
 
 def default_home() -> str:
@@ -31,6 +31,18 @@ def sessions_dir() -> str:
 
 def auth_path() -> str:
     return os.path.join(get_home(), "auth.json")
+
+
+def skills_dir() -> str:
+    return os.path.join(get_home(), "skills")
+
+
+def skill_runs_dir() -> str:
+    return os.path.join(get_home(), "skills", "runs")
+
+
+def jobs_dir() -> str:
+    return os.path.join(get_home(), "jobs")
 
 
 def ensure_layout() -> str:

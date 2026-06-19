@@ -13,7 +13,6 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------
@@ -253,7 +252,6 @@ class TestRunTurn:
 
     def test_permission_error_returned_as_tool_result(self):
         """A PermissionError inside execute_tool is returned as a string to Claude."""
-        from hpc_pilot.rbac import Role
 
         agent = _make_agent(role_value="viewer")
         agent._client.messages.create.side_effect = [
@@ -336,7 +334,7 @@ class TestSessionPersistence:
 
     def test_new_session_id_unique(self, tmp_path):
         """_new_session_id returns a different name if the first one exists."""
-        from hpc_pilot.agent import _new_session_id, _session_path
+        from hpc_pilot.agent import _new_session_id
 
         with patch("hpc_pilot.paths.sessions_dir", return_value=str(tmp_path)):
             first = _new_session_id()
@@ -349,6 +347,7 @@ class TestSessionPersistence:
     def test_list_sessions_sorted_newest_first(self, tmp_path):
         """list_sessions returns sessions in descending timestamp order."""
         import time as _time
+
         from hpc_pilot.agent import list_sessions, save_session
 
         agent = _make_agent()
@@ -407,7 +406,6 @@ class TestSessionPersistence:
 
     def test_chat_list_sessions_cli(self, tmp_path, capsys):
         """hpc-pilot chat --list-sessions prints saved sessions."""
-        import time as _time
         from hpc_pilot.agent import save_session
 
         agent = _make_agent()
@@ -538,9 +536,8 @@ class TestRetryLogic:
             "rate limited", response=MagicMock(), body={}
         )
 
-        with patch("hpc_pilot.agent.time.sleep"):
-            with pytest.raises(anthropic.RateLimitError):
-                agent.run_turn("hi", [])
+        with patch("hpc_pilot.agent.time.sleep"), pytest.raises(anthropic.RateLimitError):
+            agent.run_turn("hi", [])
 
         assert agent._client.messages.create.call_count == 3
 

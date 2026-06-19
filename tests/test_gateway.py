@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 import os
-from unittest.mock import Mock, patch
+from unittest.mock import patch
 
 import pytest
 
@@ -39,7 +39,7 @@ class TestGatewayHomeFunctions:
         result = init_home()
 
         assert result == "/test/hpc-pilot"
-        assert mock_makedirs.call_count == 4  # home + 3 subdirs
+        assert mock_makedirs.call_count == 6  # home + 5 subdirs
 
 
 class TestGatewayMain:
@@ -115,7 +115,7 @@ class TestAllowlist:
         """TelegramGateway._is_allowed returns False for IDs not in the allowlist."""
         from hpc_pilot.gateway import TelegramGateway
 
-        gw = TelegramGateway("tok", lambda: None, allowed_chat_ids={42, 99})
+        gw = TelegramGateway("tok", allowed_chat_ids={42, 99})
         assert gw._is_allowed(42) is True
         assert gw._is_allowed(999) is False
 
@@ -123,7 +123,7 @@ class TestAllowlist:
         """DiscordGateway._is_allowed returns False for IDs not in the allowlist."""
         from hpc_pilot.gateway import DiscordGateway
 
-        gw = DiscordGateway("tok", lambda: None, allowed_user_ids={10, 20})
+        gw = DiscordGateway("tok", allowed_user_ids={10, 20})
         assert gw._is_allowed(10) is True
         assert gw._is_allowed(30) is False
 
@@ -131,7 +131,7 @@ class TestAllowlist:
         """allowed_chat_ids=None means no restriction."""
         from hpc_pilot.gateway import TelegramGateway
 
-        gw = TelegramGateway("tok", lambda: None, allowed_chat_ids=None)
+        gw = TelegramGateway("tok", allowed_chat_ids=None)
         assert gw._is_allowed(999999) is True
 
 

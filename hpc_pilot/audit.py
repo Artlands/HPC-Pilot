@@ -2,12 +2,12 @@
 from __future__ import annotations
 
 import json
-import os
 import re
 import time
+from collections.abc import Generator
 from contextlib import contextmanager
 from dataclasses import dataclass, field
-from typing import Any, Generator
+from typing import Any
 
 from hpc_pilot.paths import audit_log_path
 

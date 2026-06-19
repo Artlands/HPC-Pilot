@@ -15,7 +15,6 @@ from unittest.mock import patch
 
 import pytest
 
-
 # ---------------------------------------------------------------------------
 # rbac.py
 # ---------------------------------------------------------------------------
@@ -40,25 +39,25 @@ class TestRole:
 
 class TestCheckPermission:
     def test_viewer_denied_admin_tool(self):
-        from hpc_pilot.rbac import check_permission, Role
+        from hpc_pilot.rbac import Role, check_permission
 
         with pytest.raises(PermissionError, match="requires role 'admin'"):
             check_permission("hpc_slurm_qos_modify", Role.VIEWER)
 
     def test_viewer_denied_ansible(self):
-        from hpc_pilot.rbac import check_permission, Role
+        from hpc_pilot.rbac import Role, check_permission
 
         with pytest.raises(PermissionError, match="requires role 'admin'"):
             check_permission("hpc_ansible_playbook_run", Role.VIEWER)
 
     def test_operator_denied_admin_tool(self):
-        from hpc_pilot.rbac import check_permission, Role
+        from hpc_pilot.rbac import Role, check_permission
 
         with pytest.raises(PermissionError, match="requires role 'admin'"):
             check_permission("hpc_slurm_qos_modify", Role.OPERATOR)
 
     def test_admin_allowed_all(self):
-        from hpc_pilot.rbac import check_permission, Role
+        from hpc_pilot.rbac import Role, check_permission
 
         # Should not raise
         check_permission("hpc_slurm_qos_modify", Role.ADMIN)
@@ -66,21 +65,21 @@ class TestCheckPermission:
         check_permission("hpc_slurm_node_status", Role.ADMIN)
 
     def test_viewer_allowed_read_tools(self):
-        from hpc_pilot.rbac import check_permission, Role
+        from hpc_pilot.rbac import Role, check_permission
 
         for tool in ("hpc_slurm_node_status", "hpc_slurm_queue", "hpc_cluster_health_check",
                      "hpc_warewulf_node_status", "hpc_spack_env_list"):
             check_permission(tool, Role.VIEWER)  # must not raise
 
     def test_operator_allowed_node_state(self):
-        from hpc_pilot.rbac import check_permission, Role
+        from hpc_pilot.rbac import Role, check_permission
 
         check_permission("hpc_slurm_node_state", Role.OPERATOR)  # must not raise
 
 
 class TestGetRole:
     def test_env_var_sets_role(self):
-        from hpc_pilot.rbac import get_role, Role
+        from hpc_pilot.rbac import Role, get_role
 
         os.environ["HPC_PILOT_ROLE"] = "admin"
         try:
@@ -89,7 +88,7 @@ class TestGetRole:
             del os.environ["HPC_PILOT_ROLE"]
 
     def test_env_var_operator(self):
-        from hpc_pilot.rbac import get_role, Role
+        from hpc_pilot.rbac import Role, get_role
 
         os.environ["HPC_PILOT_ROLE"] = "operator"
         try:
@@ -98,7 +97,7 @@ class TestGetRole:
             del os.environ["HPC_PILOT_ROLE"]
 
     def test_default_is_viewer(self):
-        from hpc_pilot.rbac import get_role, Role
+        from hpc_pilot.rbac import Role, get_role
 
         if "HPC_PILOT_ROLE" in os.environ:
             del os.environ["HPC_PILOT_ROLE"]
@@ -107,7 +106,7 @@ class TestGetRole:
             assert get_role() == Role.VIEWER
 
     def test_auth_json_sets_role(self, tmp_path):
-        from hpc_pilot.rbac import get_role, Role
+        from hpc_pilot.rbac import Role, get_role
 
         if "HPC_PILOT_ROLE" in os.environ:
             del os.environ["HPC_PILOT_ROLE"]
@@ -121,7 +120,7 @@ class TestGetRole:
         assert role == Role.OPERATOR
 
     def test_auth_json_invalid_falls_back_to_viewer(self, tmp_path):
-        from hpc_pilot.rbac import get_role, Role
+        from hpc_pilot.rbac import Role, get_role
 
         if "HPC_PILOT_ROLE" in os.environ:
             del os.environ["HPC_PILOT_ROLE"]
@@ -142,7 +141,7 @@ class TestGetRole:
 
 class TestLogAudit:
     def test_writes_one_jsonl_line(self, tmp_path):
-        from hpc_pilot.audit import log_audit, AuditEvent
+        from hpc_pilot.audit import AuditEvent, log_audit
 
         audit_file = tmp_path / "audit.jsonl"
         event = AuditEvent(
@@ -167,7 +166,7 @@ class TestLogAudit:
         assert "duration_ms" in record
 
     def test_appends_multiple_lines(self, tmp_path):
-        from hpc_pilot.audit import log_audit, AuditEvent
+        from hpc_pilot.audit import AuditEvent, log_audit
 
         audit_file = tmp_path / "audit.jsonl"
         with patch("hpc_pilot.audit.audit_log_path", return_value=str(audit_file)):
@@ -180,7 +179,7 @@ class TestLogAudit:
         assert len(lines) == 3
 
     def test_secrets_redacted(self, tmp_path):
-        from hpc_pilot.audit import log_audit, AuditEvent
+        from hpc_pilot.audit import AuditEvent, log_audit
 
         audit_file = tmp_path / "audit.jsonl"
         event = AuditEvent(
@@ -200,7 +199,7 @@ class TestLogAudit:
         assert record["args"]["node"] == "n01"  # non-secret preserved
 
     def test_io_error_silently_dropped(self):
-        from hpc_pilot.audit import log_audit, AuditEvent
+        from hpc_pilot.audit import AuditEvent, log_audit
 
         event = AuditEvent(tool="t", actor="u", role="viewer", args={}, dry_run=False)
         with patch("hpc_pilot.audit.audit_log_path", return_value="/nonexistent/path/audit.jsonl"):
@@ -237,6 +236,28 @@ class TestAuditToolContextManager:
         record = json.loads(lines[0])
         assert record["returncode"] == 1
         assert "sacctmgr" in record["error"]
+
+    def test_permission_denial_is_audited(self, tmp_path):
+        """Permission denials must be logged with returncode=126 before re-raising."""
+        from hpc_pilot.dispatch import invoke
+        from hpc_pilot.rbac import Role
+
+        audit_file = tmp_path / "audit.jsonl"
+        with patch("hpc_pilot.audit.audit_log_path", return_value=str(audit_file)):
+            with pytest.raises(PermissionError):
+                invoke(
+                    "hpc_slurm_qos_modify",
+                    {"name": "gpu"},
+                    role=Role.VIEWER,
+                    actor="intruder",
+                )
+
+        lines = audit_file.read_text().strip().splitlines()
+        assert len(lines) == 1
+        record = json.loads(lines[0])
+        assert record["returncode"] == 126
+        assert record["error"].startswith("permission_denied")
+        assert record["actor"] == "intruder"
 
 
 # ---------------------------------------------------------------------------

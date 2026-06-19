@@ -1,0 +1,31 @@
+name: drain-and-patch-node
+description: Safely drain a node, apply OS patches via Ansible, reboot, verify, and resume.
+required_role: admin
+inputs:
+  - name: node
+    type: string
+    required: true
+  - name: reason
+    type: string
+    default: "scheduled-patch"
+steps:
+  - id: snapshot_state
+    tool: hpc_slurm_node_status
+    args: {node: "{{ node }}"}
+  - id: drain
+    tool: hpc_slurm_node_state
+    args: {node: "{{ node }}", target: drain, reason: "{{ reason }}"}
+    approval: required
+  - id: patch
+    tool: hpc_ansible_playbook_run
+    args: {playbook: /etc/hpc-pilot/playbooks/os-patch.yml, limit: "{{ node }}"}
+  - id: reboot
+    tool: hpc_warewulf_power_reset
+    args: {node: "{{ node }}"}
+  - id: verify
+    tool: hpc_cluster_health_check
+    args: {}
+  - id: resume
+    tool: hpc_slurm_node_state
+    args: {node: "{{ node }}", target: resume}
+on_failure: pause

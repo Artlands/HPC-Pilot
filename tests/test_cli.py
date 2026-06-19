@@ -5,7 +5,7 @@ import argparse
 import os
 import sys
 from io import StringIO
-from unittest.mock import MagicMock, Mock, patch
+from unittest.mock import patch
 
 import pytest
 
@@ -47,7 +47,7 @@ class TestHomeDirFunctions:
         result = ensure_home()
 
         assert result == "/test/hpc-pilot"
-        assert mock_makedirs.call_count == 4  # home + 3 subdirs
+        assert mock_makedirs.call_count == 6  # home + 5 subdirs
 
 
 class TestDeprecatedShims:
@@ -120,7 +120,7 @@ class TestEnsureHomeDir:
         result = ensure_home()
 
         assert result == "/test/hpc-pilot"
-        assert mock_makedirs.call_count == 4  # home + 3 subdirs
+        assert mock_makedirs.call_count == 6  # home + 5 subdirs
 
 
 class TestNodesCommand:

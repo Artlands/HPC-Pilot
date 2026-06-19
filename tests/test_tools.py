@@ -6,7 +6,6 @@ from unittest.mock import Mock, patch
 
 import pytest
 
-
 # ---------------------------------------------------------------------------
 # Availability probes
 # ---------------------------------------------------------------------------
@@ -111,11 +110,11 @@ class TestParseSlurmNodes:
         """hpc_cluster_health_check flags DOWN nodes when scontrol output contains one."""
         from hpc_pilot.tools import hpc_cluster_health_check
 
-        with patch("hpc_pilot.tools.check_slurm_available", return_value=True), \
-             patch("hpc_pilot.tools.check_warewulf_available", return_value=False), \
-             patch("hpc_pilot.tools.check_spack_available", return_value=False), \
-             patch("hpc_pilot.tools.check_ansible_available", return_value=False), \
-             patch("hpc_pilot.tools._run", return_value=_SCONTROL_TWO_NODES):
+        with patch("hpc_pilot.tools.health.check_slurm_available", return_value=True), \
+             patch("hpc_pilot.tools.health.check_warewulf_available", return_value=False), \
+             patch("hpc_pilot.tools.health.check_spack_available", return_value=False), \
+             patch("hpc_pilot.tools.health.check_ansible_available", return_value=False), \
+             patch("hpc_pilot.tools.health._run", return_value=_SCONTROL_TWO_NODES):
 
             result = hpc_cluster_health_check()
 
@@ -402,11 +401,11 @@ class TestAnsibleFunctions:
 
 
 class TestClusterHealthCheck:
-    @patch("hpc_pilot.tools.check_slurm_available", return_value=True)
-    @patch("hpc_pilot.tools.check_warewulf_available", return_value=False)
-    @patch("hpc_pilot.tools.check_spack_available", return_value=False)
-    @patch("hpc_pilot.tools.check_ansible_available", return_value=False)
-    @patch("hpc_pilot.tools._run")
+    @patch("hpc_pilot.tools.health.check_slurm_available", return_value=True)
+    @patch("hpc_pilot.tools.health.check_warewulf_available", return_value=False)
+    @patch("hpc_pilot.tools.health.check_spack_available", return_value=False)
+    @patch("hpc_pilot.tools.health.check_ansible_available", return_value=False)
+    @patch("hpc_pilot.tools.health._run")
     def test_healthy_cluster(self, mock_run, *_checks):
         from hpc_pilot.tools import hpc_cluster_health_check
 
@@ -417,10 +416,10 @@ class TestClusterHealthCheck:
         assert "slurm" in result["components"]
         assert result["overall"] == "healthy"
 
-    @patch("hpc_pilot.tools.check_slurm_available", return_value=False)
-    @patch("hpc_pilot.tools.check_warewulf_available", return_value=False)
-    @patch("hpc_pilot.tools.check_spack_available", return_value=False)
-    @patch("hpc_pilot.tools.check_ansible_available", return_value=False)
+    @patch("hpc_pilot.tools.health.check_slurm_available", return_value=False)
+    @patch("hpc_pilot.tools.health.check_warewulf_available", return_value=False)
+    @patch("hpc_pilot.tools.health.check_spack_available", return_value=False)
+    @patch("hpc_pilot.tools.health.check_ansible_available", return_value=False)
     def test_no_tools_available(self, *_checks):
         from hpc_pilot.tools import hpc_cluster_health_check
 

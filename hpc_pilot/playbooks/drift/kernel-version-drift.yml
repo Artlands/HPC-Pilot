@@ -1,0 +1,15 @@
+---
+# kernel-version-drift.yml — check uname -r across all hosts
+- name: Kernel version drift check
+  hosts: all
+  gather_facts: no
+  tasks:
+    - name: Get kernel version
+      ansible.builtin.command:
+        cmd: uname -r
+      register: kernel_out
+      changed_when: false
+
+    - name: Display kernel version
+      ansible.builtin.debug:
+        msg: "{{ kernel_out.stdout }}"

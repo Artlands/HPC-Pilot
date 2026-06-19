@@ -6,6 +6,7 @@ import shlex
 
 _NAME_RE = re.compile(r"^[a-zA-Z0-9][a-zA-Z0-9_\[\],.-]*$")
 _USER_RE = re.compile(r"^[a-zA-Z0-9][a-zA-Z0-9_.-]*$")
+_SPACK_ENV_RE = re.compile(r"^[a-zA-Z0-9_][a-zA-Z0-9_.-]{0,63}$")
 
 
 def _validate(value: str, field: str, pattern: re.Pattern[str] = _NAME_RE) -> None:

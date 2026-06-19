@@ -28,10 +28,18 @@ from hpc_pilot.tools._validation import (  # noqa: F401
     _validate,
 )
 from hpc_pilot.tools.ansible import (  # noqa: F401
+    hpc_ansible_drift_check,
+    hpc_ansible_inventory_from_truth,
     hpc_ansible_inventory_generate,
+    hpc_ansible_playbook_check,
+    hpc_ansible_playbook_list,
     hpc_ansible_playbook_run,
+    hpc_ansible_role_list,
+    hpc_ansible_run_history,
+    hpc_ansible_vault_decrypt,
 )
 from hpc_pilot.tools.health import hpc_cluster_health_check  # noqa: F401
+from hpc_pilot.tools.jobs import hpc_job_logs, hpc_job_status  # noqa: F401
 from hpc_pilot.tools.slurm import (  # noqa: F401
     hpc_slurm_account_create,
     hpc_slurm_account_list,
@@ -72,14 +80,47 @@ from hpc_pilot.tools.slurm_parsers import (  # noqa: F401
     parse_sshare,
 )
 from hpc_pilot.tools.spack import (  # noqa: F401
+    hpc_spack_buildcache_push,
+    hpc_spack_buildcache_update_index,
+    hpc_spack_compiler_find,
     hpc_spack_compilers,
+    hpc_spack_env_concretize,
+    hpc_spack_env_create,
+    hpc_spack_env_delete,
+    hpc_spack_env_install,
     hpc_spack_env_list,
+    hpc_spack_env_status,
     hpc_spack_find,
+    hpc_spack_install_spec,
+    hpc_spack_mirror_add,
+    hpc_spack_mirror_list,
+    hpc_spack_module_refresh,
+    hpc_spack_uninstall,
     parse_spack_envs,
 )
 from hpc_pilot.tools.warewulf import (  # noqa: F401
+    hpc_warewulf_configure_dhcp,
+    hpc_warewulf_configure_nfs,
+    hpc_warewulf_configure_tftp,
+    hpc_warewulf_image_build,
+    hpc_warewulf_image_delete,
+    hpc_warewulf_image_import,
     hpc_warewulf_image_list,
+    hpc_warewulf_node_add,
+    hpc_warewulf_node_delete,
+    hpc_warewulf_node_set,
+    hpc_warewulf_node_show,
     hpc_warewulf_node_status,
+    hpc_warewulf_overlay_build,
+    hpc_warewulf_overlay_edit,
+    hpc_warewulf_overlay_list,
+    hpc_warewulf_overlay_revert,
+    hpc_warewulf_power_off,
+    hpc_warewulf_power_on,
     hpc_warewulf_power_reset,
+    hpc_warewulf_power_status,
+    hpc_warewulf_profile_list,
+    hpc_warewulf_profile_set,
+    hpc_warewulf_server_status,
     parse_warewulf_nodes,
 )

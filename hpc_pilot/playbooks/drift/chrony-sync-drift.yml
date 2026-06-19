@@ -1,0 +1,16 @@
+---
+# chrony-sync-drift.yml — check NTP offset
+- name: Chrony sync check
+  hosts: all
+  gather_facts: no
+  tasks:
+    - name: Check chronyc tracking
+      ansible.builtin.command:
+        cmd: chronyc tracking
+      register: chronyc_out
+      changed_when: false
+      ignore_errors: yes
+
+    - name: Parse and report NTP offset
+      ansible.builtin.debug:
+        msg: "{{ chronyc_out.stdout_lines if chronyc_out.rc == 0 else 'chronyc not available' }}"

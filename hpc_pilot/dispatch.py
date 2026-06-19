@@ -213,22 +213,205 @@ _DISPATCH: dict[str, Callable[[dict[str, Any], Any], str]] = {
         bool(args.get("dry_run", True)),
         cluster=_cl(args),
     ),
+    "hpc_warewulf_image_import": lambda args, t: t.hpc_warewulf_image_import(
+        args["name"], args["source"], cluster=_cl(args), dry_run=_dr(args)
+    ),
+    "hpc_warewulf_image_build": lambda args, t: json.dumps(
+        t.hpc_warewulf_image_build(
+            args["name"], args.get("base", ""),
+            exec_steps=args.get("exec_steps"),
+            gpu=bool(args.get("gpu", False)),
+            cluster=_cl(args), dry_run=_dr(args),
+        ), indent=2, default=str,
+    ),
+    "hpc_warewulf_image_delete": lambda args, t: t.hpc_warewulf_image_delete(
+        args["name"], cluster=_cl(args), dry_run=_dr(args)
+    ),
+    "hpc_warewulf_node_show": lambda args, t: t.hpc_warewulf_node_show(
+        args["name"], cluster=_cl(args)
+    ),
+    "hpc_warewulf_node_add": lambda args, t: t.hpc_warewulf_node_add(
+        args["name"], args["mac"], args["ipaddr"],
+        profile=args.get("profile"), cluster=_cl(args), dry_run=_dr(args)
+    ),
+    "hpc_warewulf_node_set": lambda args, t: t.hpc_warewulf_node_set(
+        args["name"],
+        **{k: v for k, v in args.items() if k not in ("name", "cluster", "dry_run")},
+        cluster=_cl(args), dry_run=_dr(args),
+    ),
+    "hpc_warewulf_node_delete": lambda args, t: t.hpc_warewulf_node_delete(
+        args["name"], cluster=_cl(args), dry_run=_dr(args)
+    ),
+    "hpc_warewulf_profile_list": lambda args, t: t.hpc_warewulf_profile_list(
+        cluster=_cl(args)
+    ),
+    "hpc_warewulf_profile_set": lambda args, t: t.hpc_warewulf_profile_set(
+        args["name"],
+        **{k: v for k, v in args.items() if k not in ("name", "cluster", "dry_run")},
+        cluster=_cl(args), dry_run=_dr(args),
+    ),
+    "hpc_warewulf_overlay_list": lambda args, t: t.hpc_warewulf_overlay_list(
+        cluster=_cl(args)
+    ),
+    "hpc_warewulf_overlay_edit": lambda args, t: json.dumps(
+        t.hpc_warewulf_overlay_edit(
+            args["overlay"], args["path"], args["content"],
+            cluster=_cl(args), dry_run=_dr(args),
+        ), indent=2, default=str,
+    ),
+    "hpc_warewulf_overlay_build": lambda args, t: t.hpc_warewulf_overlay_build(
+        args["overlay"], cluster=_cl(args), dry_run=_dr(args)
+    ),
+    "hpc_warewulf_overlay_revert": lambda args, t: json.dumps(
+        t.hpc_warewulf_overlay_revert(
+            args["overlay"], commit=args.get("commit", "HEAD"),
+            cluster=_cl(args), dry_run=_dr(args),
+        ), indent=2, default=str,
+    ),
+    "hpc_warewulf_configure_dhcp": lambda args, t: json.dumps(
+        t.hpc_warewulf_configure_dhcp(
+            range_start=args.get("range_start"),
+            range_end=args.get("range_end"),
+            template=args.get("template"),
+            cluster=_cl(args), dry_run=_dr(args),
+        ), indent=2, default=str,
+    ),
+    "hpc_warewulf_configure_tftp": lambda args, t: json.dumps(
+        t.hpc_warewulf_configure_tftp(cluster=_cl(args), dry_run=_dr(args)),
+        indent=2, default=str,
+    ),
+    "hpc_warewulf_configure_nfs": lambda args, t: json.dumps(
+        t.hpc_warewulf_configure_nfs(cluster=_cl(args), dry_run=_dr(args)),
+        indent=2, default=str,
+    ),
+    "hpc_warewulf_server_status": lambda args, t: json.dumps(
+        t.hpc_warewulf_server_status(cluster=_cl(args)),
+        indent=2, default=str,
+    ),
+    "hpc_warewulf_power_status": lambda args, t: t.hpc_warewulf_power_status(
+        args["node"], cluster=_cl(args)
+    ),
+    "hpc_warewulf_power_on": lambda args, t: t.hpc_warewulf_power_on(
+        args["node"], cluster=_cl(args), dry_run=_dr(args)
+    ),
+    "hpc_warewulf_power_off": lambda args, t: t.hpc_warewulf_power_off(
+        args["node"], cluster=_cl(args), dry_run=_dr(args)
+    ),
     # ---- Spack ----
     "hpc_spack_env_list": lambda args, t: t.hpc_spack_env_list(cluster=_cl(args)),
     "hpc_spack_find": lambda args, t: t.hpc_spack_find(
         args["env"], cluster=_cl(args)
     ),
     "hpc_spack_compilers": lambda args, t: t.hpc_spack_compilers(cluster=_cl(args)),
+    "hpc_spack_env_create": lambda args, t: t.hpc_spack_env_create(
+        args["name"], manifest=args.get("manifest"), cluster=_cl(args), dry_run=_dr(args)
+    ),
+    "hpc_spack_env_delete": lambda args, t: t.hpc_spack_env_delete(
+        args["name"], cluster=_cl(args), dry_run=_dr(args)
+    ),
+    "hpc_spack_env_concretize": lambda args, t: json.dumps(
+        t.hpc_spack_env_concretize(args["env"], cluster=_cl(args), dry_run=_dr(args)),
+        indent=2, default=str,
+    ),
+    "hpc_spack_env_install": lambda args, t: json.dumps(
+        t.hpc_spack_env_install(args["env"], cluster=_cl(args), dry_run=_dr(args)),
+        indent=2, default=str,
+    ),
+    "hpc_spack_env_status": lambda args, t: json.dumps(
+        t.hpc_spack_env_status(args["env"], cluster=_cl(args)),
+        indent=2, default=str,
+    ),
+    "hpc_spack_install_spec": lambda args, t: t.hpc_spack_install_spec(
+        args["spec"], cluster=_cl(args), dry_run=_dr(args)
+    ),
+    "hpc_spack_uninstall": lambda args, t: t.hpc_spack_uninstall(
+        args["spec"],
+        dependents=bool(args.get("dependents", False)),
+        cluster=_cl(args), dry_run=_dr(args, default=True),
+    ),
+    "hpc_spack_mirror_list": lambda args, t: t.hpc_spack_mirror_list(cluster=_cl(args)),
+    "hpc_spack_mirror_add": lambda args, t: t.hpc_spack_mirror_add(
+        args["name"], args["url"], cluster=_cl(args), dry_run=_dr(args)
+    ),
+    "hpc_spack_buildcache_push": lambda args, t: t.hpc_spack_buildcache_push(
+        args["mirror_name"],
+        spec=args.get("spec"),
+        gpg_key=args.get("gpg_key"),
+        cluster=_cl(args), dry_run=_dr(args),
+    ),
+    "hpc_spack_buildcache_update_index": lambda args, t: t.hpc_spack_buildcache_update_index(
+        args["mirror_name"], cluster=_cl(args), dry_run=_dr(args)
+    ),
+    "hpc_spack_module_refresh": lambda args, t: t.hpc_spack_module_refresh(
+        cluster=_cl(args), dry_run=_dr(args)
+    ),
+    "hpc_spack_compiler_find": lambda args, t: t.hpc_spack_compiler_find(
+        cluster=_cl(args), dry_run=_dr(args)
+    ),
+    # Job management (Phase 3)
+    "hpc_job_status": lambda args, t: json.dumps(
+        t.hpc_job_status(args["run_id"]), indent=2, default=str
+    ),
+    "hpc_job_logs": lambda args, t: t.hpc_job_logs(
+        args["run_id"], tail=int(args.get("tail", 200))
+    ),
     # ---- Ansible ----
-    "hpc_ansible_playbook_run": lambda args, t: t.hpc_ansible_playbook_run(
-        args["playbook"],
-        args.get("limit") or None,
-        bool(args.get("check", False)),
-        _dr(args, default=True),
-        cluster=_cl(args),
+    "hpc_ansible_playbook_run": lambda args, t: json.dumps(
+        t.hpc_ansible_playbook_run(
+            args["playbook"],
+            args.get("limit") or None,
+            bool(args.get("check", False)),
+            _dr(args, default=True),
+            cluster=_cl(args),
+        ),
+        indent=2,
+        default=str,
     ),
     "hpc_ansible_inventory_generate": lambda args, t: t.hpc_ansible_inventory_generate(
         cluster=_cl(args)
+    ),
+    "hpc_ansible_playbook_check": lambda args, t: json.dumps(
+        t.hpc_ansible_playbook_check(
+            args["playbook"],
+            args.get("limit") or None,
+            cluster=_cl(args),
+            dry_run=_dr(args, default=True),
+        ),
+        indent=2,
+        default=str,
+    ),
+    "hpc_ansible_playbook_list": lambda args, t: json.dumps(
+        t.hpc_ansible_playbook_list(cluster=_cl(args)),
+        indent=2,
+        default=str,
+    ),
+    "hpc_ansible_role_list": lambda args, t: json.dumps(
+        t.hpc_ansible_role_list(cluster=_cl(args)),
+        indent=2,
+        default=str,
+    ),
+    "hpc_ansible_inventory_from_truth": lambda args, t: json.dumps(
+        t.hpc_ansible_inventory_from_truth(cluster=_cl(args)),
+        indent=2,
+        default=str,
+    ),
+    "hpc_ansible_drift_check": lambda args, t: json.dumps(
+        t.hpc_ansible_drift_check(
+            args.get("which", "all"),
+            cluster=_cl(args),
+        ),
+        indent=2,
+        default=str,
+    ),
+    "hpc_ansible_vault_decrypt": lambda args, t: t.hpc_ansible_vault_decrypt(
+        args["path"],
+        cluster=_cl(args),
+        dry_run=_dr(args, default=True),
+    ),
+    "hpc_ansible_run_history": lambda args, t: json.dumps(
+        t.hpc_ansible_run_history(cluster=_cl(args)),
+        indent=2,
+        default=str,
     ),
     # ---- Health ----
     "hpc_cluster_health_check": lambda args, t: json.dumps(

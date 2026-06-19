@@ -142,6 +142,298 @@ TOOL_SCHEMAS: list[dict[str, Any]] = [
             "required": ["node"],
         },
     },
+    # ---- Phase 2: Warewulf bootstrap & node lifecycle ----
+    {
+        "name": "hpc_warewulf_image_import",
+        "description": "Import a container image into Warewulf (wwctl image import).",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "name": {"type": "string", "description": "Image name"},
+                "source": {"type": "string", "description": "Source path/URL of the image"},
+                "dry_run": {"type": "boolean"},
+                "cluster": {"type": "string"},
+            },
+            "required": ["name", "source"],
+        },
+    },
+    {
+        "name": "hpc_warewulf_image_build",
+        "description": (
+            "Build a Warewulf container image. Computes a spec_hash from the build "
+            "parameters and caches results in ~/.hpc-pilot/warewulf/builds/."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "name": {"type": "string", "description": "Image name to build"},
+                "base": {"type": "string", "description": "Base image name"},
+                "exec_steps": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "Build execution steps/commands",
+                },
+                "gpu": {
+                    "type": "boolean",
+                    "description": "Include GPU support (default: false)",
+                },
+                "dry_run": {"type": "boolean"},
+                "cluster": {"type": "string"},
+            },
+            "required": ["name", "base"],
+        },
+    },
+    {
+        "name": "hpc_warewulf_image_delete",
+        "description": "Delete a Warewulf image (wwctl image delete).",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "name": {"type": "string", "description": "Image name to delete"},
+                "dry_run": {"type": "boolean"},
+                "cluster": {"type": "string"},
+            },
+            "required": ["name"],
+        },
+    },
+    {
+        "name": "hpc_warewulf_node_show",
+        "description": "Show detailed Warewulf node configuration (wwctl node show).",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "name": {"type": "string", "description": "Node name"},
+                "cluster": {"type": "string"},
+            },
+            "required": ["name"],
+        },
+    },
+    {
+        "name": "hpc_warewulf_node_add",
+        "description": "Add a new Warewulf node definition.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "name": {"type": "string", "description": "Node name"},
+                "mac": {"type": "string", "description": "MAC address of the node"},
+                "ipaddr": {"type": "string", "description": "IP address of the node"},
+                "profile": {"type": "string", "description": "Profile to assign to the node"},
+                "dry_run": {"type": "boolean"},
+                "cluster": {"type": "string"},
+            },
+            "required": ["name", "mac", "ipaddr"],
+        },
+    },
+    {
+        "name": "hpc_warewulf_node_set",
+        "description": (
+            "Update a Warewulf node definition (wwctl node set). "
+            "Pass any node property as a keyword argument (mac, ipaddr, profile, image, etc)."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "name": {"type": "string", "description": "Node name"},
+                "mac": {"type": "string", "description": "MAC address"},
+                "ipaddr": {"type": "string", "description": "IP address"},
+                "profile": {"type": "string", "description": "Profile name"},
+                "image": {"type": "string", "description": "Image name"},
+                "dry_run": {"type": "boolean"},
+                "cluster": {"type": "string"},
+            },
+            "required": ["name"],
+        },
+    },
+    {
+        "name": "hpc_warewulf_node_delete",
+        "description": "Remove a Warewulf node definition (wwctl node delete).",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "name": {"type": "string", "description": "Node name to delete"},
+                "dry_run": {"type": "boolean"},
+                "cluster": {"type": "string"},
+            },
+            "required": ["name"],
+        },
+    },
+    {
+        "name": "hpc_warewulf_profile_list",
+        "description": "List Warewulf profiles (wwctl profile list).",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "cluster": {"type": "string"},
+            },
+        },
+    },
+    {
+        "name": "hpc_warewulf_profile_set",
+        "description": (
+            "Update a Warewulf profile (wwctl profile set). "
+            "Pass any profile property as a keyword argument."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "name": {"type": "string", "description": "Profile name"},
+                "image": {"type": "string", "description": "Default image for nodes using this profile"},
+                "network": {"type": "string", "description": "Network configuration"},
+                "dry_run": {"type": "boolean"},
+                "cluster": {"type": "string"},
+            },
+            "required": ["name"],
+        },
+    },
+    {
+        "name": "hpc_warewulf_overlay_list",
+        "description": "List Warewulf overlays (wwctl overlay list).",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "cluster": {"type": "string"},
+            },
+        },
+    },
+    {
+        "name": "hpc_warewulf_overlay_edit",
+        "description": (
+            "Edit a file inside a Warewulf overlay. Writes content to the overlay staging "
+            "directory, commits to git, and rebuilds the overlay. Returns status dict."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "overlay": {"type": "string", "description": "Overlay name"},
+                "path": {"type": "string", "description": "File path within the overlay"},
+                "content": {"type": "string", "description": "File content to write"},
+                "dry_run": {"type": "boolean"},
+                "cluster": {"type": "string"},
+            },
+            "required": ["overlay", "path", "content"],
+        },
+    },
+    {
+        "name": "hpc_warewulf_overlay_build",
+        "description": "Build a Warewulf overlay (wwctl overlay build).",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "overlay": {"type": "string", "description": "Overlay name"},
+                "dry_run": {"type": "boolean"},
+                "cluster": {"type": "string"},
+            },
+            "required": ["overlay"],
+        },
+    },
+    {
+        "name": "hpc_warewulf_overlay_revert",
+        "description": (
+            "Revert an overlay to a prior git commit and rebuild. "
+            "The overlay must have git history (created by overlay_edit)."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "overlay": {"type": "string", "description": "Overlay name"},
+                "commit": {
+                    "type": "string",
+                    "description": "Git commit ref to revert to (default: HEAD)",
+                },
+                "dry_run": {"type": "boolean"},
+                "cluster": {"type": "string"},
+            },
+            "required": ["overlay"],
+        },
+    },
+    {
+        "name": "hpc_warewulf_configure_dhcp",
+        "description": (
+            "Configure Warewulf DHCP. Reads managed warewulf.conf, applies "
+            "updates, copies to /etc/warewulf/warewulf.conf atomically, "
+            "then runs wwctl configure dhcp. Superadmin only."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "range_start": {"type": "string", "description": "DHCP range start IP"},
+                "range_end": {"type": "string", "description": "DHCP range end IP"},
+                "template": {"type": "string", "description": "DHCP config template path"},
+                "dry_run": {"type": "boolean"},
+                "cluster": {"type": "string"},
+            },
+        },
+    },
+    {
+        "name": "hpc_warewulf_configure_tftp",
+        "description": "Configure Warewulf TFTP (wwctl configure tftp). Superadmin only.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "dry_run": {"type": "boolean"},
+                "cluster": {"type": "string"},
+            },
+        },
+    },
+    {
+        "name": "hpc_warewulf_configure_nfs",
+        "description": "Configure Warewulf NFS exports (wwctl configure nfs). Superadmin only.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "dry_run": {"type": "boolean"},
+                "cluster": {"type": "string"},
+            },
+        },
+    },
+    {
+        "name": "hpc_warewulf_server_status",
+        "description": "Return Warewulf server status (wwctl server status + systemctl is-active warewulfd).",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "cluster": {"type": "string"},
+            },
+        },
+    },
+    {
+        "name": "hpc_warewulf_power_status",
+        "description": "Return power status of a Warewulf node (wwctl power status).",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "node": {"type": "string", "description": "Node name"},
+                "cluster": {"type": "string"},
+            },
+            "required": ["node"],
+        },
+    },
+    {
+        "name": "hpc_warewulf_power_on",
+        "description": "Power on a Warewulf node (wwctl power on).",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "node": {"type": "string", "description": "Node name"},
+                "dry_run": {"type": "boolean"},
+                "cluster": {"type": "string"},
+            },
+            "required": ["node"],
+        },
+    },
+    {
+        "name": "hpc_warewulf_power_off",
+        "description": "Power off a Warewulf node (wwctl power off).",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "node": {"type": "string", "description": "Node name"},
+                "dry_run": {"type": "boolean"},
+                "cluster": {"type": "string"},
+            },
+            "required": ["node"],
+        },
+    },
     {
         "name": "hpc_spack_env_list",
         "description": "List all Spack environments on the cluster.",
@@ -196,6 +488,95 @@ TOOL_SCHEMAS: list[dict[str, Any]] = [
     {
         "name": "hpc_ansible_inventory_generate",
         "description": "Generate and display the current Ansible inventory.",
+        "input_schema": {"type": "object", "properties": {}},
+    },
+    {
+        "name": "hpc_ansible_playbook_check",
+        "description": (
+            "Run ansible-playbook --check --diff to preview changes without applying them. "
+            "Returns per-host structured diff output (JSON). "
+            "Use dry_run=true to preview the command without executing."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "playbook": {
+                    "type": "string",
+                    "description": "Absolute path to the YAML playbook file",
+                },
+                "limit": {
+                    "type": "string",
+                    "description": "Ansible host limit pattern (e.g. 'gpu_nodes')",
+                },
+                "dry_run": {
+                    "type": "boolean",
+                    "description": "Preview the command without executing (default: true)",
+                },
+            },
+            "required": ["playbook"],
+        },
+    },
+    {
+        "name": "hpc_ansible_playbook_list",
+        "description": "List all Ansible playbooks in the cluster's playbook directory with metadata.",
+        "input_schema": {"type": "object", "properties": {}},
+    },
+    {
+        "name": "hpc_ansible_role_list",
+        "description": "List all Ansible role directories on the cluster.",
+        "input_schema": {"type": "object", "properties": {}},
+    },
+    {
+        "name": "hpc_ansible_inventory_from_truth",
+        "description": (
+            "Build an Ansible inventory YAML from Warewulf and Slurm source of truth. "
+            "Queries wwctl node list and scontrol show nodes, then writes a "
+            "YAML inventory with groups for gpu_nodes, cpu_nodes, and partitions."
+        ),
+        "input_schema": {"type": "object", "properties": {}},
+    },
+    {
+        "name": "hpc_ansible_drift_check",
+        "description": (
+            "Run curated drift-check playbooks to detect configuration drift. "
+            "Checks available: slurm-config, chrony-sync, mount, kernel-version. "
+            "Pass which='all' (default) to run all, or specify a single check (e.g. 'mount')."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "which": {
+                    "type": "string",
+                    "description": "Which drift check to run ('all' or specific check name)",
+                },
+            },
+        },
+    },
+    {
+        "name": "hpc_ansible_vault_decrypt",
+        "description": (
+            "Decrypt and view an Ansible Vault file. "
+            "Content is never logged to the audit trail. "
+            "Use dry_run=true to preview the path."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "path": {
+                    "type": "string",
+                    "description": "Path to the encrypted Ansible vault file",
+                },
+                "dry_run": {
+                    "type": "boolean",
+                    "description": "Preview without executing (default: true)",
+                },
+            },
+            "required": ["path"],
+        },
+    },
+    {
+        "name": "hpc_ansible_run_history",
+        "description": "Show the history of past Ansible playbook runs from the run log.",
         "input_schema": {"type": "object", "properties": {}},
     },
     {
@@ -556,6 +937,432 @@ TOOL_SCHEMAS: list[dict[str, Any]] = [
         "input_schema": {
             "type": "object",
             "properties": {"cluster": {"type": "string"}},
+        },
+    },
+    # ---- Phase 2: Warewulf bootstrap & node lifecycle ----
+    {
+        "name": "hpc_warewulf_image_import",
+        "description": "Import a container image into Warewulf for node provisioning.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "name": {"type": "string", "description": "Image name"},
+                "source": {"type": "string", "description": "Container image source URI"},
+                "dry_run": {"type": "boolean"},
+                "cluster": {"type": "string"},
+            },
+            "required": ["name", "source"],
+        },
+    },
+    {
+        "name": "hpc_warewulf_image_build",
+        "description": "Build a Warewulf container image. Uses spec_hash caching — identical inputs skip rebuild.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "name": {"type": "string", "description": "Image name"},
+                "base": {"type": "string", "description": "Base image name"},
+                "exec_steps": {"type": "array", "items": {"type": "string"}, "description": "Shell commands to run inside the container"},
+                "gpu": {"type": "boolean", "description": "Include GPU/CUDA steps"},
+                "dry_run": {"type": "boolean"},
+                "cluster": {"type": "string"},
+            },
+            "required": ["name"],
+        },
+    },
+    {
+        "name": "hpc_warewulf_image_delete",
+        "description": "Delete a Warewulf container image.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "name": {"type": "string"},
+                "dry_run": {"type": "boolean"},
+                "cluster": {"type": "string"},
+            },
+            "required": ["name"],
+        },
+    },
+    {
+        "name": "hpc_warewulf_node_show",
+        "description": "Show detailed Warewulf node configuration.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "name": {"type": "string", "description": "Node name"},
+            },
+            "required": ["name"],
+        },
+    },
+    {
+        "name": "hpc_warewulf_node_add",
+        "description": "Add a new node to Warewulf provisioning.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "name": {"type": "string"},
+                "mac": {"type": "string", "description": "MAC address"},
+                "ipaddr": {"type": "string", "description": "IP address"},
+                "profile": {"type": "string", "description": "Warewulf profile to assign"},
+                "dry_run": {"type": "boolean"},
+                "cluster": {"type": "string"},
+            },
+            "required": ["name", "mac", "ipaddr"],
+        },
+    },
+    {
+        "name": "hpc_warewulf_node_set",
+        "description": "Update a Warewulf node's configuration properties.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "name": {"type": "string"},
+                "dry_run": {"type": "boolean"},
+                "cluster": {"type": "string"},
+            },
+            "required": ["name"],
+        },
+    },
+    {
+        "name": "hpc_warewulf_node_delete",
+        "description": "Remove a node from Warewulf provisioning.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "name": {"type": "string"},
+                "dry_run": {"type": "boolean"},
+                "cluster": {"type": "string"},
+            },
+            "required": ["name"],
+        },
+    },
+    {
+        "name": "hpc_warewulf_profile_list",
+        "description": "List all Warewulf profiles.",
+        "input_schema": {"type": "object", "properties": {}},
+    },
+    {
+        "name": "hpc_warewulf_profile_set",
+        "description": "Update a Warewulf profile's configuration.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "name": {"type": "string"},
+                "dry_run": {"type": "boolean"},
+                "cluster": {"type": "string"},
+            },
+            "required": ["name"],
+        },
+    },
+    {
+        "name": "hpc_warewulf_overlay_list",
+        "description": "List Warewulf overlays.",
+        "input_schema": {"type": "object", "properties": {}},
+    },
+    {
+        "name": "hpc_warewulf_overlay_edit",
+        "description": "Edit a file in a Warewulf overlay with git versioning and rebuild.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "overlay": {"type": "string", "description": "Overlay name"},
+                "path": {"type": "string", "description": "File path within the overlay"},
+                "content": {"type": "string", "description": "File content"},
+                "dry_run": {"type": "boolean"},
+                "cluster": {"type": "string"},
+            },
+            "required": ["overlay", "path", "content"],
+        },
+    },
+    {
+        "name": "hpc_warewulf_overlay_build",
+        "description": "Build/rebuild a Warewulf overlay.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "overlay": {"type": "string"},
+                "dry_run": {"type": "boolean"},
+                "cluster": {"type": "string"},
+            },
+            "required": ["overlay"],
+        },
+    },
+    {
+        "name": "hpc_warewulf_overlay_revert",
+        "description": "Revert overlay files to a prior git commit and rebuild.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "overlay": {"type": "string"},
+                "commit": {"type": "string", "description": "Git commit ref (default: HEAD)"},
+                "dry_run": {"type": "boolean"},
+                "cluster": {"type": "string"},
+            },
+            "required": ["overlay"],
+        },
+    },
+    {
+        "name": "hpc_warewulf_configure_dhcp",
+        "description": "Configure Warewulf DHCP. Applies updates to managed warewulf.conf and runs wwctl configure dhcp.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "range_start": {"type": "string", "description": "DHCP range start"},
+                "range_end": {"type": "string", "description": "DHCP range end"},
+                "template": {"type": "string", "description": "DHCP template name"},
+                "dry_run": {"type": "boolean"},
+                "cluster": {"type": "string"},
+            },
+        },
+    },
+    {
+        "name": "hpc_warewulf_configure_tftp",
+        "description": "Configure Warewulf TFTP service (wwctl configure tftp).",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "dry_run": {"type": "boolean"},
+                "cluster": {"type": "string"},
+            },
+        },
+    },
+    {
+        "name": "hpc_warewulf_configure_nfs",
+        "description": "Configure Warewulf NFS exports (wwctl configure nfs).",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "dry_run": {"type": "boolean"},
+                "cluster": {"type": "string"},
+            },
+        },
+    },
+    {
+        "name": "hpc_warewulf_server_status",
+        "description": "Return Warewulf server status (wwctl server + systemctl).",
+        "input_schema": {"type": "object", "properties": {}},
+    },
+    {
+        "name": "hpc_warewulf_power_status",
+        "description": "Return power status of a Warewulf node.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "node": {"type": "string"},
+            },
+            "required": ["node"],
+        },
+    },
+    {
+        "name": "hpc_warewulf_power_on",
+        "description": "Power on a Warewulf node (IPMI).",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "node": {"type": "string"},
+                "dry_run": {"type": "boolean"},
+                "cluster": {"type": "string"},
+            },
+            "required": ["node"],
+        },
+    },
+    {
+        "name": "hpc_warewulf_power_off",
+        "description": "Power off a Warewulf node (IPMI).",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "node": {"type": "string"},
+                "dry_run": {"type": "boolean"},
+                "cluster": {"type": "string"},
+            },
+            "required": ["node"],
+        },
+    },
+    # ---- Phase 3: Spack package lifecycle ----
+    {
+        "name": "hpc_spack_env_create",
+        "description": "Create a new Spack environment.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "name": {"type": "string"},
+                "manifest": {"type": "string", "description": "Optional path to a spack.yaml manifest"},
+                "dry_run": {"type": "boolean"},
+                "cluster": {"type": "string"},
+            },
+            "required": ["name"],
+        },
+    },
+    {
+        "name": "hpc_spack_env_delete",
+        "description": "Delete a Spack environment.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "name": {"type": "string"},
+                "dry_run": {"type": "boolean"},
+                "cluster": {"type": "string"},
+            },
+            "required": ["name"],
+        },
+    },
+    {
+        "name": "hpc_spack_env_concretize",
+        "description": "Concretize a Spack environment and return the lockfile diff (added/removed/changed specs).",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "env": {"type": "string", "description": "Environment name"},
+                "dry_run": {"type": "boolean"},
+                "cluster": {"type": "string"},
+            },
+            "required": ["env"],
+        },
+    },
+    {
+        "name": "hpc_spack_env_install",
+        "description": "Install a Spack environment asynchronously. Returns a run_id for status polling.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "env": {"type": "string"},
+                "dry_run": {"type": "boolean"},
+                "cluster": {"type": "string"},
+            },
+            "required": ["env"],
+        },
+    },
+    {
+        "name": "hpc_spack_env_status",
+        "description": "Show the specs installed in a Spack environment.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "env": {"type": "string"},
+                "cluster": {"type": "string"},
+            },
+            "required": ["env"],
+        },
+    },
+    {
+        "name": "hpc_spack_install_spec",
+        "description": "Install a single Spack spec outside of an environment.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "spec": {"type": "string", "description": "Spack spec string (e.g. 'gcc@12')"},
+                "dry_run": {"type": "boolean"},
+                "cluster": {"type": "string"},
+            },
+            "required": ["spec"],
+        },
+    },
+    {
+        "name": "hpc_spack_uninstall",
+        "description": "Uninstall a Spack package. dry_run is mandatory by default.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "spec": {"type": "string", "description": "Spack spec to uninstall"},
+                "dependents": {"type": "boolean", "description": "Also remove dependents"},
+                "dry_run": {"type": "boolean"},
+                "cluster": {"type": "string"},
+            },
+            "required": ["spec"],
+        },
+    },
+    {
+        "name": "hpc_spack_mirror_list",
+        "description": "List configured Spack mirrors.",
+        "input_schema": {"type": "object", "properties": {"cluster": {"type": "string"}}},
+    },
+    {
+        "name": "hpc_spack_mirror_add",
+        "description": "Add a Spack mirror URL.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "name": {"type": "string"},
+                "url": {"type": "string"},
+                "dry_run": {"type": "boolean"},
+                "cluster": {"type": "string"},
+            },
+            "required": ["name", "url"],
+        },
+    },
+    {
+        "name": "hpc_spack_buildcache_push",
+        "description": "Push packages to a Spack build cache mirror.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "mirror_name": {"type": "string"},
+                "spec": {"type": "string", "description": "Optional spec to push"},
+                "gpg_key": {"type": "string", "description": "GPG key fingerprint"},
+                "dry_run": {"type": "boolean"},
+                "cluster": {"type": "string"},
+            },
+            "required": ["mirror_name"],
+        },
+    },
+    {
+        "name": "hpc_spack_buildcache_update_index",
+        "description": "Update the build cache index for a mirror.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "mirror_name": {"type": "string"},
+                "dry_run": {"type": "boolean"},
+                "cluster": {"type": "string"},
+            },
+            "required": ["mirror_name"],
+        },
+    },
+    {
+        "name": "hpc_spack_module_refresh",
+        "description": "Refresh Spack-generated LMOD module files.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "dry_run": {"type": "boolean"},
+                "cluster": {"type": "string"},
+            },
+        },
+    },
+    {
+        "name": "hpc_spack_compiler_find",
+        "description": "Register compilers with Spack (spack compiler find).",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "paths": {"type": "array", "items": {"type": "string"}, "description": "Paths to search for compilers"},
+                "dry_run": {"type": "boolean"},
+                "cluster": {"type": "string"},
+            },
+        },
+    },
+    {
+        "name": "hpc_job_status",
+        "description": "Check the status of a background job (Spack install, Ansible run).",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "run_id": {"type": "string", "description": "Job run ID"},
+            },
+            "required": ["run_id"],
+        },
+    },
+    {
+        "name": "hpc_job_logs",
+        "description": "View the last N lines of a background job's log.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "run_id": {"type": "string"},
+                "tail": {"type": "integer", "description": "Number of lines to show (default: 200)"},
+            },
+            "required": ["run_id"],
         },
     },
 ]

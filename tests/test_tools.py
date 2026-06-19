@@ -355,6 +355,8 @@ class TestSpackFunctions:
 # Ansible
 # ---------------------------------------------------------------------------
 
+from hpc_pilot.tools.ansible import _try_import_jobs
+
 
 class TestAnsibleFunctions:
     @patch("hpc_pilot.tools.subprocess.run")
@@ -364,14 +366,16 @@ class TestAnsibleFunctions:
         mock_run.return_value = Mock(returncode=0)
         assert check_ansible_available() is True
 
+    @patch("hpc_pilot.tools.ansible._try_import_jobs", return_value=None)
     @patch("hpc_pilot.tools.subprocess.run")
-    def test_playbook_run(self, mock_run):
+    def test_playbook_run(self, mock_run, mock_jobs):
         from hpc_pilot.tools import hpc_ansible_playbook_run
 
         mock_run.return_value = Mock(returncode=0, stdout="PLAY RECAP", stderr="")
         assert "PLAY RECAP" in hpc_ansible_playbook_run("/path/to/playbook.yml")
 
-    def test_playbook_dry_run(self):
+    @patch("hpc_pilot.tools.ansible._try_import_jobs", return_value=None)
+    def test_playbook_dry_run(self, mock_jobs):
         from hpc_pilot.tools import hpc_ansible_playbook_run
 
         with patch("hpc_pilot.tools.subprocess.run") as mock_run:
@@ -381,18 +385,36 @@ class TestAnsibleFunctions:
         assert "DRY-RUN" in result
         assert "ansible-playbook" in result
 
-    def test_empty_playbook_rejected(self):
+    @patch("hpc_pilot.tools.ansible._try_import_jobs", return_value=None)
+    def test_empty_playbook_rejected(self, mock_jobs):
         from hpc_pilot.tools import hpc_ansible_playbook_run
 
         with pytest.raises(ValueError, match="playbook path must not be empty"):
             hpc_ansible_playbook_run("")
 
+    @patch("hpc_pilot.tools.ansible._try_import_jobs", return_value=None)
     @patch("hpc_pilot.tools.subprocess.run")
-    def test_inventory_generate(self, mock_run):
+    def test_inventory_generate(self, mock_run, mock_jobs):
         from hpc_pilot.tools import hpc_ansible_inventory_generate
 
         mock_run.return_value = Mock(returncode=0, stdout='{"all": {"hosts": {}}}', stderr="")
         assert "all" in hpc_ansible_inventory_generate()
+
+    @patch("hpc_pilot.tools.ansible._try_import_jobs")
+    @patch("hpc_pilot.jobs.subprocess.Popen")
+    def test_playbook_run_async(self, mock_popen, mock_try_import):
+        """When jobs.py exists, playbook_run returns a run_id dict via async."""
+        from hpc_pilot.tools import hpc_ansible_playbook_run
+        import hpc_pilot.jobs as jobs_mod
+
+        mock_try_import.return_value = jobs_mod
+        mock_proc = Mock()
+        mock_proc.pid = 12345
+        mock_popen.return_value = mock_proc
+
+        result = hpc_ansible_playbook_run("/path/to/playbook.yml")
+        assert isinstance(result, dict)
+        assert "run_id" in result
 
 
 # ---------------------------------------------------------------------------

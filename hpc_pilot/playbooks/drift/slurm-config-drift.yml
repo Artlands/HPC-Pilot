@@ -1,0 +1,22 @@
+---
+# slurm-config-drift.yml — check /etc/slurm/slurm.conf existence and content hash
+- name: Slurm config drift check
+  hosts: all
+  gather_facts: no
+  tasks:
+    - name: Stat slurm.conf
+      ansible.builtin.stat:
+        path: /etc/slurm/slurm.conf
+      register: slurm_conf_stat
+
+    - name: Compute SHA256 of slurm.conf
+      ansible.builtin.slurp:
+        src: /etc/slurm/slurm.conf
+      register: slurm_conf_b64
+      when: slurm_conf_stat.stat.exists
+
+    - name: Display result
+      ansible.builtin.debug:
+        msg:
+          - "slurm.conf exists: {{ slurm_conf_stat.stat.exists | default(false) }}"
+          - "sha256: {{ slurm_conf_b64.content | b64decode | hash('sha256') if slurm_conf_stat.stat.exists else 'N/A' }}"

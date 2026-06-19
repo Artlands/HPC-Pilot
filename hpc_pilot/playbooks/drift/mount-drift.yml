@@ -1,0 +1,27 @@
+---
+# mount-drift.yml — check /home, /scratch, /apps mounts
+- name: Mount drift check
+  hosts: all
+  gather_facts: no
+  vars:
+    mount_points:
+      - /home
+      - /scratch
+      - /apps
+  tasks:
+    - name: Check mount presence
+      ansible.builtin.shell:
+        cmd: mount | grep -w {{ item }}
+      loop: "{{ mount_points }}"
+      register: mount_results
+      changed_when: false
+      ignore_errors: yes
+
+    - name: Display mount status
+      ansible.builtin.debug:
+        msg:
+          - "path: {{ item.item }}"
+          - "mounted: {{ item.rc == 0 }}"
+          - "detail: {{ item.stdout_lines | default([]) }}"
+      loop: "{{ mount_results.results }}"
+      when: mount_results.results is defined

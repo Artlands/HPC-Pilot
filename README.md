@@ -103,6 +103,8 @@ hpc-pilot warewulf                          # Warewulf node list
 hpc-pilot spack list|find ENV|compilers     # Spack queries
 hpc-pilot ansible PLAYBOOK [--apply]        # Ansible playbook
 hpc-pilot setup-hermes                      # install Hermes Agent plugin
+hpc-pilot self-evolve [args]                # generate a new tool locally
+hpc-pilot self-evolve-create-pr [args]      # push an evolved tool and open PR
 hpc-pilot version                           # version info
 ```
 
@@ -178,12 +180,41 @@ again after `git pull` to refresh.
 ### How it works
 
 1. Hermes Agent loads the `hpc-pilot` plugin at startup
-2. The plugin registers 93+ tools (`hpc_slurm_*`, `hpc_warewulf_*`, etc.)
+2. The plugin registers 100+ tools (`hpc_slurm_*`, `hpc_warewulf_*`, etc.)
    as a Hermes toolset named `"hpc"`
 3. Each tool call flows through: Hermes dispatch → RBAC check →
    audit logging → tool execution
 4. Tool availability checks are mapped to subsystem probes
    (`check_slurm_available`, etc.)
+
+---
+
+## Self-Evolve
+
+HPC-Pilot can **generate new tools on-demand** when it encounters an operation
+no existing tool handles:
+
+```
+You: We need to check InfiniBand partition keys on compute nodes.
+
+Agent: No existing tool handles this. I can evolve a new one.
+       Shall I generate hpc_network_ib_list_partitions?
+
+       hpc_self_evolve(tool_name="hpc_network_ib_list_partitions", ...)
+       → generates tool code + tests + patches registration
+       → runs pytest (all pass)
+       → asks: "Create a PR to contribute this upstream?"
+
+       hpc_self_evolve_create_pr(...)   # optional — push + PR
+```
+
+| Step | Tool | What it does |
+|------|------|-------------|
+| Generate | `hpc_self_evolve` | Creates tool `.py`, test `.py`, patches `__init__.py`, `agent.py`, `dispatch.py`, `rbac.py`, runs `pytest` |
+| PR (optional) | `hpc_self_evolve_create_pr` | Commits, pushes to new branch, opens GitHub PR via API |
+
+Generated tools land in `hpc_pilot/tools/evolved/`, keeping them cleanly
+separated from hand-written tools. Requires `GITHUB_TOKEN` for PR creation.
 
 ---
 

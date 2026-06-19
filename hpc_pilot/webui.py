@@ -241,6 +241,7 @@ def create_app() -> Any:
         if not message:
             raise HTTPException(status_code=400, detail="message is required")
 
+        import asyncio
         from hpc_pilot.agent import HpcAgent
 
         agent = HpcAgent()
@@ -264,12 +265,9 @@ def create_app() -> Any:
                 events.append({"type": "tool_result", "content": result})
 
             try:
-                agent.run_turn(
-                    message,
-                    history=[],
-                    on_text=on_text,
-                    on_tool=on_tool,
-                    on_result=on_result,
+                await asyncio.to_thread(
+                    agent.run_turn, message, [],
+                    on_text=on_text, on_tool=on_tool, on_result=on_result,
                 )
             except Exception as exc:
                 events.append({"type": "error", "content": str(exc)})

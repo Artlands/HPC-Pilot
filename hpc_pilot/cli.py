@@ -26,7 +26,6 @@ import os
 import signal
 import sys
 import time
-import warnings
 from collections.abc import Callable
 from typing import Any
 
@@ -46,25 +45,6 @@ def config_file() -> str:
 def ensure_home() -> str:
     from hpc_pilot.paths import ensure_layout
     return ensure_layout()
-
-
-# ---------------------------------------------------------------------------
-# Deprecated shims — kept for backward compatibility
-# ---------------------------------------------------------------------------
-
-def get_hermes_home() -> str:
-    warnings.warn("get_hermes_home() is deprecated; use home_dir()", DeprecationWarning, stacklevel=2)
-    return home_dir()
-
-
-def get_config_path() -> str:
-    warnings.warn("get_config_path() is deprecated; use config_file()", DeprecationWarning, stacklevel=2)
-    return config_file()
-
-
-def ensure_home_dir() -> str:
-    warnings.warn("ensure_home_dir() is deprecated; use ensure_home()", DeprecationWarning, stacklevel=2)
-    return ensure_home()
 
 
 # ---------------------------------------------------------------------------
@@ -754,6 +734,42 @@ def setup_hermes_command(args: argparse.Namespace) -> int:
 # ---------------------------------------------------------------------------
 
 
+def self_evolve_command(args: argparse.Namespace) -> int:
+    """CLI handler for ``hpc-pilot self-evolve``."""
+    from hpc_pilot.tools.evolve import hpc_self_evolve
+
+    try:
+        schema = json.loads(args.schema)
+    except json.JSONDecodeError as exc:
+        print(f"Invalid --schema JSON: {exc}", file=sys.stderr)
+        return 1
+
+    result = hpc_self_evolve(
+        tool_name=args.tool_name,
+        description=args.description,
+        code=args.code,
+        test_code=args.test_code,
+        schema=schema,
+        required_role=args.role,
+        dry_run=args.dry_run,
+    )
+    print(result)
+    return 0
+
+
+def self_evolve_create_pr_command(args: argparse.Namespace) -> int:
+    """CLI handler for ``hpc-pilot self-evolve-create-pr``."""
+    from hpc_pilot.tools.evolve import hpc_self_evolve_create_pr
+
+    result = hpc_self_evolve_create_pr(
+        tool_name=args.tool_name,
+        description=args.description,
+        dry_run=args.dry_run,
+    )
+    print(result)
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         prog="hpc-pilot",
@@ -942,6 +958,29 @@ def main(argv: list[str] | None = None) -> int:
     # version
     version_p = subs.add_parser("version", help="Show version")
     version_p.set_defaults(func=version_command)
+
+    # self-evolve — generate a new tool locally
+    evolve_p = subs.add_parser(
+        "self-evolve",
+        help="Generate a new tool, register it, and run tests (no git/PR)",
+    )
+    evolve_p.add_argument("tool_name", help="Name for the new tool (e.g. hpc_network_ib_list_partitions)")
+    evolve_p.add_argument("--description", required=True, help="Human-readable description")
+    evolve_p.add_argument("--code", required=True, help="Python function body for the tool")
+    evolve_p.add_argument("--test-code", required=True, dest="test_code", help="Pytest test code")
+    evolve_p.add_argument("--schema", default="{}", help="JSON schema for the tool's input parameters")
+    evolve_p.add_argument("--role", default="VIEWER", help="RBAC role (VIEWER/OPERATOR/ADMIN/SUPERADMIN)")
+    evolve_p.add_argument("--dry-run", action="store_true", dest="dry_run", help="Preview without writing")
+    evolve_p.set_defaults(func=self_evolve_command)
+    # self-evolve create-pr — push and PR already-generated files
+    evolve_pr_p = subs.add_parser(
+        "self-evolve-create-pr",
+        help="Commit, push, and open a PR for an evolved tool",
+    )
+    evolve_pr_p.add_argument("tool_name", help="Name of the evolved tool")
+    evolve_pr_p.add_argument("--description", default="", help="Human-readable description for the PR body")
+    evolve_pr_p.add_argument("--dry-run", action="store_true", dest="dry_run", help="Preview without pushing")
+    evolve_pr_p.set_defaults(func=self_evolve_create_pr_command)
 
     # setup-hermes
     setup_hermes_p = subs.add_parser(

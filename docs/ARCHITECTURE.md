@@ -36,6 +36,9 @@
 │  ┌──────────┐ ┌──────────┐ ┌──────────┐ ┌──────────┐ ┌──────────┐  │
 │  │ slurm.py │ │warewulf  │ │ansible.py│ │ spack.py │ │health.py │  │
 │  └──────────┘ └──────────┘ └──────────┘ └──────────┘ └──────────┘  │
+│  ┌──────────┐ ┌──────────┐                                           │
+│  │evolve.py │ │evolved/  │ (auto-generated tools)                    │
+│  └──────────┘ └──────────┘                                           │
 │  ┌──────────────────┐  ┌──────────────────────────────────────────┐  │
 │  │  _run.py         │  │  _validation.py                          │  │
 │  │  (SSH-aware run) │  │  (_NAME_RE, _USER_RE, _validate)         │  │
@@ -71,6 +74,9 @@
 | `tools/spack.py` | `hpc_spack_*` tools + `parse_spack_*` parsers |
 | `tools/ansible.py` | `hpc_ansible_*` tools |
 | `tools/health.py` | `hpc_cluster_health_check` (composes all subsystems) |
+| `tools/system.py` | System admin tools: user mgmt, service lifecycle, storage, audit query, config backup |
+| `tools/evolve.py` | Self-evolve meta-tool: `hpc_self_evolve`, `hpc_self_evolve_create_pr` |
+| `tools/evolved/` | Auto-generated tools created by `hpc_self_evolve` (not hand-written) |
 | `skills/__init__.py` | Skills package |
 | `skills/runner.py` | `SkillRunner`, YAML skill loader, step execution, pause/resume |
 | `skills/builtin/` | Built-in runbook YAML files |
@@ -90,7 +96,7 @@ viewer < operator < admin < superadmin
 | `viewer` | Read-only across all subsystems |
 | `operator` | + node state, job hold/release, run skills |
 | `admin` | + QOS, partitions, Ansible playbooks, Warewulf provisioning |
-| `superadmin` | + Slurm reconfig, Warewulf bootstrap (DHCP/TFTP/NFS), accounting schema |
+| `superadmin` | + Slurm reconfig, Warewulf bootstrap (DHCP/TFTP/NFS), accounting schema, self-evolve (`hpc_self_evolve`) |
 
 ## Multi-cluster support
 

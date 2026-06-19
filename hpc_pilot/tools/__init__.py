@@ -163,3 +163,4 @@ from hpc_pilot.tools.system import (  # noqa: F401
     hpc_usage_vs_budget,
     hpc_warewulf_image_build_from_env,
 )
+from hpc_pilot.tools.evolve import hpc_self_evolve, hpc_self_evolve_create_pr  # noqa: F401

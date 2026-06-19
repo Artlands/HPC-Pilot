@@ -50,37 +50,10 @@ class TestHomeDirFunctions:
         assert mock_makedirs.call_count == 7  # home + 6 subdirs
 
 
-class TestDeprecatedShims:
-    """Deprecated shims still work but emit DeprecationWarning."""
+class TestHomeDir:
+    """Tests for ``home_dir()``."""
 
-    def test_get_hermes_home_warns(self):
-        from hpc_pilot.cli import get_hermes_home
-
-        with pytest.warns(DeprecationWarning, match="get_hermes_home"):
-            result = get_hermes_home()
-        assert result == os.path.expanduser("~/.hpc-pilot")
-
-    def test_get_config_path_warns(self):
-        from hpc_pilot.cli import get_config_path
-
-        with pytest.warns(DeprecationWarning, match="get_config_path"):
-            result = get_config_path()
-        assert result.endswith("config.yaml")
-
-    def test_ensure_home_dir_warns(self):
-        from hpc_pilot.cli import ensure_home_dir
-
-        with patch("hpc_pilot.paths.os.makedirs"), \
-             patch("hpc_pilot.paths.get_home", return_value="/test/hpc-pilot"), \
-             pytest.warns(DeprecationWarning, match="ensure_home_dir"):
-            result = ensure_home_dir()
-        assert result == "/test/hpc-pilot"
-
-
-class TestGetHermesHome:
-    """Legacy class name kept so existing external tests that import it don't break."""
-
-    def test_get_hermes_home_default(self):
+    def test_home_dir_default(self):
         from hpc_pilot.cli import home_dir
 
         if "HPC_PILOT_HOME" in os.environ:
@@ -88,7 +61,7 @@ class TestGetHermesHome:
 
         assert home_dir() == os.path.expanduser("~/.hpc-pilot")
 
-    def test_get_hermes_home_env_var(self):
+    def test_home_dir_env_var(self):
         from hpc_pilot.cli import home_dir
 
         test_path = "/test/path/hpc-pilot"
@@ -99,8 +72,8 @@ class TestGetHermesHome:
             del os.environ["HPC_PILOT_HOME"]
 
 
-class TestGetConfigPath:
-    """Legacy class name — delegates to config_file."""
+class TestConfigFile:
+    """Tests for ``config_file()``."""
 
     def test_get_config_path(self):
         from hpc_pilot.cli import config_file
@@ -109,8 +82,8 @@ class TestGetConfigPath:
             assert config_file() == "/test/hpc-pilot/config.yaml"
 
 
-class TestEnsureHomeDir:
-    """Legacy class name — delegates to ensure_home."""
+class TestEnsureHome:
+    """Tests for ``ensure_home()``."""
 
     @patch("hpc_pilot.paths.os.makedirs")
     @patch("hpc_pilot.paths.get_home", return_value="/test/hpc-pilot")

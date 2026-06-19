@@ -290,9 +290,11 @@ def hpc_storage_lustre_status(*, cluster: str = "default") -> dict[str, Any]:
     }
 
     # Check OSS / OST targets
+    # lctl is a Lustre utility, not a Slurm utility — use absolute path
+    _LCTL = "/usr/sbin/lctl"
     try:
         ost_output = _run(
-            [cl.slurm("lctl"), "get_param", "obdfilter.*.state"],
+            [_LCTL, "get_param", "obdfilter.*.state"],
             cluster=cl, timeout=30,
         )
         for line in ost_output.strip().splitlines():
@@ -305,7 +307,7 @@ def hpc_storage_lustre_status(*, cluster: str = "default") -> dict[str, Any]:
     # Check MDT targets
     try:
         mdt_output = _run(
-            [cl.slurm("lctl"), "get_param", "mdt.*.state"],
+            [_LCTL, "get_param", "mdt.*.state"],
             cluster=cl, timeout=30,
         )
         for line in mdt_output.strip().splitlines():

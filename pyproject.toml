@@ -64,7 +64,3 @@ ignore_missing_imports = true
 testpaths = ["tests"]
 addopts = "-q"
 
-[tool.hpc-pilot]
-default_cluster = "prod"
-gateway_port = 8000
-platforms = ["telegram", "discord"]

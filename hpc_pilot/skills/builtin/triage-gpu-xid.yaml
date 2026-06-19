@@ -10,14 +10,14 @@ inputs:
     required: false
 steps:
   - id: identify_xid
-    tool: hpc_slurm_node_status
+    tool: hpc_logs_dmesg_xid
     args: {node: "{{ node }}"}
-  - id: dmesg_xid
-    tool: hpc_slurm_node_status
+  - id: gpu_status
+    tool: hpc_gpu_nvidia_smi
     args: {node: "{{ node }}"}
   - id: dcgm_diag
-    tool: hpc_cluster_health_check
-    args: {}
+    tool: hpc_gpu_dcgm_diag
+    args: {node: "{{ node }}"}
   - id: recommend
     builtin: for_each
     args: {}

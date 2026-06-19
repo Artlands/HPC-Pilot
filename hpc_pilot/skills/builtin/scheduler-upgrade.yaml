@@ -11,20 +11,21 @@ inputs:
     description: Package names to upgrade
 steps:
   - id: hold_pending
-    tool: hpc_slurm_usage_report
+    tool: hpc_slurm_job_hold
     args:
-      report_type: cluster
-      start: "now-1hour"
+      job_id: ALL
+  - id: check_uptime
+    tool: hpc_slurm_sdiag
+    args: {}
   - id: stop_slurmctld
     tool: hpc_slurm_service
     args:
       service: slurmctld
       action: stop
   - id: upgrade_packages
-    tool: hpc_slurm_service
+    tool: hpc_ansible_playbook_run
     args:
-      service: slurmctld
-      action: status
+      playbook: upgrade-slurm.yml
   - id: start_slurmctld
     tool: hpc_slurm_service
     args:
@@ -39,6 +40,7 @@ steps:
     tool: hpc_slurm_reconfigure
     args: {}
   - id: release_held
-    tool: hpc_slurm_sdiag
-    args: {}
+    tool: hpc_slurm_job_release
+    args:
+      job_id: ALL
 on_failure: pause

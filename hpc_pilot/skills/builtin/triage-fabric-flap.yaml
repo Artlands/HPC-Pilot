@@ -7,11 +7,11 @@ inputs:
     required: true
 steps:
   - id: ibstatus
-    tool: hpc_slurm_node_status
+    tool: hpc_fabric_ib_link_status
     args: {node: "{{ node }}"}
   - id: delta_60s
-    tool: hpc_cluster_health_check
-    args: {}
+    tool: hpc_fabric_ib_link_status
+    args: {node: "{{ node }}"}
   - id: recommend
     builtin: for_each
     args: {}

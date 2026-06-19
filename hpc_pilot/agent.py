@@ -1025,247 +1025,6 @@ TOOL_SCHEMAS: list[dict[str, Any]] = [
             "required": ["tool", "args", "clusters"],
         },
     },
-    # ---- Phase 2: Warewulf bootstrap & node lifecycle (duplicate entries ----
-    #       kept for backward compatibility with the Hermes plugin)
-    {
-        "name": "hpc_warewulf_image_import",
-        "description": "Import a container image into Warewulf for node provisioning.",
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "name": {"type": "string", "description": "Image name"},
-                "source": {"type": "string", "description": "Container image source URI"},
-                "dry_run": {"type": "boolean"},
-                "cluster": {"type": "string"},
-            },
-            "required": ["name", "source"],
-        },
-    },
-    {
-        "name": "hpc_warewulf_image_build",
-        "description": "Build a Warewulf container image. Uses spec_hash caching — identical inputs skip rebuild.",
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "name": {"type": "string", "description": "Image name"},
-                "base": {"type": "string", "description": "Base image name"},
-                "exec_steps": {"type": "array", "items": {"type": "string"}, "description": "Shell commands to run inside the container"},
-                "gpu": {"type": "boolean", "description": "Include GPU/CUDA steps"},
-                "dry_run": {"type": "boolean"},
-                "cluster": {"type": "string"},
-            },
-            "required": ["name"],
-        },
-    },
-    {
-        "name": "hpc_warewulf_image_delete",
-        "description": "Delete a Warewulf container image.",
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "name": {"type": "string"},
-                "dry_run": {"type": "boolean"},
-                "cluster": {"type": "string"},
-            },
-            "required": ["name"],
-        },
-    },
-    {
-        "name": "hpc_warewulf_node_show",
-        "description": "Show detailed Warewulf node configuration.",
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "name": {"type": "string", "description": "Node name"},
-            },
-            "required": ["name"],
-        },
-    },
-    {
-        "name": "hpc_warewulf_node_add",
-        "description": "Add a new node to Warewulf provisioning.",
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "name": {"type": "string"},
-                "mac": {"type": "string", "description": "MAC address"},
-                "ipaddr": {"type": "string", "description": "IP address"},
-                "profile": {"type": "string", "description": "Warewulf profile to assign"},
-                "dry_run": {"type": "boolean"},
-                "cluster": {"type": "string"},
-            },
-            "required": ["name", "mac", "ipaddr"],
-        },
-    },
-    {
-        "name": "hpc_warewulf_node_set",
-        "description": "Update a Warewulf node's configuration properties.",
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "name": {"type": "string"},
-                "dry_run": {"type": "boolean"},
-                "cluster": {"type": "string"},
-            },
-            "required": ["name"],
-        },
-    },
-    {
-        "name": "hpc_warewulf_node_delete",
-        "description": "Remove a node from Warewulf provisioning.",
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "name": {"type": "string"},
-                "dry_run": {"type": "boolean"},
-                "cluster": {"type": "string"},
-            },
-            "required": ["name"],
-        },
-    },
-    {
-        "name": "hpc_warewulf_profile_list",
-        "description": "List all Warewulf profiles.",
-        "input_schema": {"type": "object", "properties": {}},
-    },
-    {
-        "name": "hpc_warewulf_profile_set",
-        "description": "Update a Warewulf profile's configuration.",
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "name": {"type": "string"},
-                "dry_run": {"type": "boolean"},
-                "cluster": {"type": "string"},
-            },
-            "required": ["name"],
-        },
-    },
-    {
-        "name": "hpc_warewulf_overlay_list",
-        "description": "List Warewulf overlays.",
-        "input_schema": {"type": "object", "properties": {}},
-    },
-    {
-        "name": "hpc_warewulf_overlay_edit",
-        "description": "Edit a file in a Warewulf overlay with git versioning and rebuild.",
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "overlay": {"type": "string", "description": "Overlay name"},
-                "path": {"type": "string", "description": "File path within the overlay"},
-                "content": {"type": "string", "description": "File content"},
-                "dry_run": {"type": "boolean"},
-                "cluster": {"type": "string"},
-            },
-            "required": ["overlay", "path", "content"],
-        },
-    },
-    {
-        "name": "hpc_warewulf_overlay_build",
-        "description": "Build/rebuild a Warewulf overlay.",
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "overlay": {"type": "string"},
-                "dry_run": {"type": "boolean"},
-                "cluster": {"type": "string"},
-            },
-            "required": ["overlay"],
-        },
-    },
-    {
-        "name": "hpc_warewulf_overlay_revert",
-        "description": "Revert overlay files to a prior git commit and rebuild.",
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "overlay": {"type": "string"},
-                "commit": {"type": "string", "description": "Git commit ref (default: HEAD)"},
-                "dry_run": {"type": "boolean"},
-                "cluster": {"type": "string"},
-            },
-            "required": ["overlay"],
-        },
-    },
-    {
-        "name": "hpc_warewulf_configure_dhcp",
-        "description": "Configure Warewulf DHCP. Applies updates to managed warewulf.conf and runs wwctl configure dhcp.",
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "range_start": {"type": "string", "description": "DHCP range start"},
-                "range_end": {"type": "string", "description": "DHCP range end"},
-                "template": {"type": "string", "description": "DHCP template name"},
-                "dry_run": {"type": "boolean"},
-                "cluster": {"type": "string"},
-            },
-        },
-    },
-    {
-        "name": "hpc_warewulf_configure_tftp",
-        "description": "Configure Warewulf TFTP service (wwctl configure tftp).",
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "dry_run": {"type": "boolean"},
-                "cluster": {"type": "string"},
-            },
-        },
-    },
-    {
-        "name": "hpc_warewulf_configure_nfs",
-        "description": "Configure Warewulf NFS exports (wwctl configure nfs).",
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "dry_run": {"type": "boolean"},
-                "cluster": {"type": "string"},
-            },
-        },
-    },
-    {
-        "name": "hpc_warewulf_server_status",
-        "description": "Return Warewulf server status (wwctl server + systemctl).",
-        "input_schema": {"type": "object", "properties": {}},
-    },
-    {
-        "name": "hpc_warewulf_power_status",
-        "description": "Return power status of a Warewulf node.",
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "node": {"type": "string"},
-            },
-            "required": ["node"],
-        },
-    },
-    {
-        "name": "hpc_warewulf_power_on",
-        "description": "Power on a Warewulf node (IPMI).",
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "node": {"type": "string"},
-                "dry_run": {"type": "boolean"},
-                "cluster": {"type": "string"},
-            },
-            "required": ["node"],
-        },
-    },
-    {
-        "name": "hpc_warewulf_power_off",
-        "description": "Power off a Warewulf node (IPMI).",
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "node": {"type": "string"},
-                "dry_run": {"type": "boolean"},
-                "cluster": {"type": "string"},
-            },
-            "required": ["node"],
-        },
-    },
     # ---- Phase 3: Spack package lifecycle ----
     {
         "name": "hpc_spack_env_create",
@@ -1948,6 +1707,89 @@ TOOL_SCHEMAS: list[dict[str, Any]] = [
                 "dry_run": {"type": "boolean"},
             },
             "required": ["source_cluster", "target_cluster"],
+        },
+    },
+    # ---- Self-evolve meta-tool ----
+    {
+        "name": "hpc_self_evolve",
+        "description": (
+            "Generate a new HPC-Pilot tool, register it, run tests, commit, "
+            "push, and open a pull request. Use when no existing tool can "
+            "handle the user's request. Requires superadmin."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "tool_name": {
+                    "type": "string",
+                    "description": "Name for the new tool (e.g. hpc_network_ib_list_partitions)",
+                },
+                "description": {
+                    "type": "string",
+                    "description": "Human-readable description of what the tool does",
+                },
+                "code": {
+                    "type": "string",
+                    "description": (
+                        "Python function body for the tool. "
+                        "Must define a function named matching tool_name. "
+                        "Use _validate(), _resolve_cluster(), _run() helpers."
+                    ),
+                },
+                "test_code": {
+                    "type": "string",
+                    "description": (
+                        "Pytest test code for the new tool. "
+                        "Must include at minimum a happy-path test that patches "
+                        "_run and _resolve_cluster."
+                    ),
+                },
+                "schema": {
+                    "type": "object",
+                    "description": (
+                        "JSON Schema dict for the tool's input parameters. "
+                        "Must include 'type', 'properties', and optionally 'required'."
+                    ),
+                },
+                "required_role": {
+                    "type": "string",
+                    "enum": ["VIEWER", "OPERATOR", "ADMIN", "SUPERADMIN"],
+                    "description": "Minimum RBAC role (default: VIEWER)",
+                },
+                "dry_run": {
+                    "type": "boolean",
+                    "description": "Preview changes without writing (default: true)",
+                },
+                "cluster": {"type": "string"},
+            },
+            "required": ["tool_name", "description", "code", "test_code"],
+        },
+    },
+    {
+        "name": "hpc_self_evolve_create_pr",
+        "description": (
+            "Commit, push, and open a GitHub PR for a tool previously generated "
+            "by hpc_self_evolve. Requires GITHUB_TOKEN in the environment. "
+            "Use this when the user wants to contribute the new tool back upstream."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "tool_name": {
+                    "type": "string",
+                    "description": "Name of the evolved tool to PR (e.g. hpc_network_ib_list_partitions)",
+                },
+                "description": {
+                    "type": "string",
+                    "description": "Human-readable description for the PR body",
+                },
+                "dry_run": {
+                    "type": "boolean",
+                    "description": "Show what would be done without pushing (default: false)",
+                },
+                "cluster": {"type": "string"},
+            },
+            "required": ["tool_name"],
         },
     },
 ]

@@ -467,6 +467,33 @@ from backup. Regular config backups should exist.
 
 ---
 
+## Scenario 21 — Self-Evolve: Generate a Missing Tool On-Demand
+
+**Trigger**: A user requests an operation that no existing tool handles —
+e.g., "check InfiniBand partition key configuration on compute nodes."
+The AI agent recognizes this is outside its tool set.
+
+**Desired outcome**:
+1. The AI agent determines what new tool is needed and its interface.
+2. `hpc_self_evolve` generates the tool Python file, test file, and patches
+   all registration files (`__init__.py`, schemas, dispatch, RBAC).
+3. `pytest` runs to verify the new tool and its tests pass.
+4. If the user agrees, `hpc_self_evolve_create_pr` commits, pushes, and
+   opens a GitHub pull request with the generated code.
+
+**HPC-Pilot evaluation**: FULLY COVERED (new in 2026-06-19)
+- ✅ `hpc_self_evolve` — generates tool code + tests, patches all 4
+  registration files, runs pytest, reports results
+- ✅ `hpc_self_evolve_create_pr` — commits, pushes to a new branch, and
+  opens a GitHub PR via API (requires `GITHUB_TOKEN`)
+- ✅ Dry-run mode on both tools for safe preview
+- ✅ Generated tools land in `hpc_pilot/tools/evolved/` — cleanly separated
+  from hand-written tools
+- ✅ Schema validation (`test_schema_names_match_tool_functions`) auto-validates
+  the new tool after generation
+
+---
+
 ## Gap Analysis Summary
 
 | Domain | Fully Covered | Partially | Minimal | Not Covered |
@@ -487,6 +514,7 @@ from backup. Regular config backups should exist.
 | Login Node Management | 1 (S18) | 0 | 0 | 0 |
 | Backup/Disaster | 1 (S19) | 0 | 0 | 0 |
 | Multi-Cluster | 1 (S20) | 0 | 0 | 0 |
+| Self-Evolve | 1 (S21) | 0 | 0 | 0 |
 
 **Legend**:
 - **Fully Covered**: All desired outcomes achievable with existing tools/runbooks
@@ -498,7 +526,10 @@ from backup. Regular config backups should exist.
 
 The following gaps were addressed in this update:
 
-1. ✅ **S1: Group onboarding** — `GrpTRES` support added to QOS create/modify.
+1. ✅ **S21: Self-evolve** — New `hpc_self_evolve` tool generates tool code,
+   tests, patches registration, runs tests. New `hpc_self_evolve_create_pr`
+   commits, pushes, and opens a GitHub PR. All auto-generated.
+2. ✅ **S1: Group onboarding** — `GrpTRES` support added to QOS create/modify.
    New `onboard-group` runbook chains account creation → QOS → user associations.
    New `hpc_usage_vs_budget` tool for used-vs-allocated tracking.
    New `hpc_notify` tool for gateway notifications.

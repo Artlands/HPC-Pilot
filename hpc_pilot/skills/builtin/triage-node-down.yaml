@@ -13,17 +13,17 @@ steps:
     tool: hpc_slurm_sdiag
     args: {}
   - id: slurmctld_tail
-    tool: hpc_slurm_config_show
+    tool: hpc_logs_slurmctld_tail
     args: {}
   - id: slurmd_tail
-    tool: hpc_slurm_node_status
+    tool: hpc_logs_slurmd_tail
     args: {node: "{{ node }}"}
   - id: dmesg
-    tool: hpc_warewulf_node_status
+    tool: hpc_logs_dmesg_xid
     args: {node: "{{ node }}"}
   - id: fabric
-    tool: hpc_cluster_health_check
-    args: {}
+    tool: hpc_fabric_ib_link_status
+    args: {node: "{{ node }}"}
   - id: recommendation
     builtin: for_each
     args: {}

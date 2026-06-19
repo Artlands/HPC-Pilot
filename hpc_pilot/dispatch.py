@@ -610,6 +610,23 @@ _DISPATCH: dict[str, Callable[[dict[str, Any], Any], str]] = {
         args["target_cluster"],
         dry_run=_dr(args, default=True),
     ),
+    # ---- Self-evolve meta-tool ----
+    "hpc_self_evolve": lambda args, t: t.hpc_self_evolve(
+        args["tool_name"],
+        args["description"],
+        args["code"],
+        args["test_code"],
+        args.get("schema", {}),
+        required_role=args.get("required_role", "VIEWER"),
+        dry_run=bool(args.get("dry_run", True)),
+        cluster=_cl(args),
+    ),
+    "hpc_self_evolve_create_pr": lambda args, t: t.hpc_self_evolve_create_pr(
+        args["tool_name"],
+        description=args.get("description", ""),
+        dry_run=bool(args.get("dry_run", False)),
+        cluster=_cl(args),
+    ),
 }
 
 

@@ -157,6 +157,9 @@ TOOL_MIN_ROLE: dict[str, Role] = {
     "hpc_storage_scrub_orphans": Role.ADMIN,
     "hpc_slurm_job_step_metrics": Role.VIEWER,
     "hpc_multi_migration_plan": Role.VIEWER,
+    # Self-evolve meta-tools
+    "hpc_self_evolve": Role.SUPERADMIN,
+    "hpc_self_evolve_create_pr": Role.SUPERADMIN,
 }
 
 

@@ -12,7 +12,7 @@ from hpc_pilot.tools._run import (
     check_spack_available,
     check_warewulf_available,
 )
-from hpc_pilot.tools.slurm import parse_slurm_nodes
+from hpc_pilot.tools.slurm import parse_node_state_histogram, parse_slurm_nodes
 
 
 def hpc_cluster_health_check(*, cluster: str = "default") -> dict[str, Any]:
@@ -23,62 +23,106 @@ def hpc_cluster_health_check(*, cluster: str = "default") -> dict[str, Any]:
         "components": {},
         "overall": "healthy",
         "issues": [],
+        "recommendations": [],
     }
 
     # --- Slurm ---
     slurm_ok = check_slurm_available(cl)
-    health["components"]["slurm"] = {
+    slurm_info: dict[str, Any] = {
         "available": slurm_ok,
         "status": "unknown" if not slurm_ok else "checking",
     }
+    health["components"]["slurm"] = slurm_info
+
     if slurm_ok:
         try:
             output = _run([cl.slurm("scontrol"), "show", "nodes"], cluster=cl, timeout=90)
-            nodes_status = parse_slurm_nodes(output)
-            health["components"]["slurm"]["nodes"] = len(nodes_status)
-            health["components"]["slurm"]["status"] = "healthy"
+            nodes_map = parse_slurm_nodes(output)
+            histogram = parse_node_state_histogram(nodes_map)
+            slurm_info["node_count"] = len(nodes_map)
+            slurm_info["node_states"] = histogram
+            slurm_info["status"] = "healthy"
             down = [
                 name
-                for name, info in nodes_status.items()
+                for name, info in nodes_map.items()
                 if "down" in info.get("NodeState", "").lower()
             ]
+            drained = [
+                name
+                for name, info in nodes_map.items()
+                if "drain" in info.get("NodeState", "").lower()
+                and "idle" not in info.get("NodeState", "").lower()
+            ]
             if down:
-                health["components"]["slurm"]["status"] = "degraded"
+                slurm_info["down_nodes"] = down
+                slurm_info["status"] = "degraded"
                 health["issues"].append(f"Down nodes: {', '.join(down)}")
                 health["overall"] = "degraded"
+            if drained:
+                slurm_info["drained_nodes"] = drained
         except Exception as exc:
-            health["components"]["slurm"]["status"] = "error"
-            health["issues"].append(f"Slurm check error: {exc}")
+            slurm_info["status"] = "error"
+            health["issues"].append(f"Slurm node check error: {exc}")
             health["overall"] = "degraded"
+
+        # sdiag — scheduler diagnostics
+        try:
+            from hpc_pilot.tools.slurm_parsers import parse_sdiag
+            sdiag_out = _run([cl.slurm("sdiag")], cluster=cl, timeout=30)
+            sdiag = parse_sdiag(sdiag_out)
+            slurm_info["sdiag"] = sdiag
+
+            # Surface scheduler health issues
+            sched = sdiag.get("main_schedule_statistics", sdiag.get("schedule_statistics", {}))
+            backfill = sdiag.get("backfilling_stats", sdiag.get("backfill_statistics", {}))
+            if isinstance(sched, dict):
+                cycle_str = sched.get("last_cycle", sched.get("last_cycle_time", ""))
+                if cycle_str and cycle_str.isdigit() and int(cycle_str) > 60000:
+                    health["issues"].append(
+                        f"Slurm scheduler last cycle was {cycle_str} ms (> 60 s)"
+                    )
+                    health["recommendations"].append(
+                        "Check slurmctld logs; consider scontrol reconfigure."
+                    )
+            if isinstance(backfill, dict):
+                queue_depth = backfill.get("queue_length", backfill.get("depth_try", ""))
+                if queue_depth and str(queue_depth).isdigit() and int(str(queue_depth)) > 500:
+                    health["issues"].append(
+                        f"Slurm backfill queue depth is {queue_depth}"
+                    )
+        except Exception:
+            pass  # sdiag failure is non-fatal for the health check
 
     # --- Warewulf ---
     ww_ok = check_warewulf_available(cl)
-    health["components"]["warewulf"] = {
+    ww_info: dict[str, Any] = {
         "available": ww_ok,
         "status": "unknown" if not ww_ok else "checking",
     }
+    health["components"]["warewulf"] = ww_info
     if ww_ok:
         try:
             _run([cl.warewulf("wwctl"), "node", "list"], cluster=cl)
-            health["components"]["warewulf"]["status"] = "healthy"
+            ww_info["status"] = "healthy"
         except Exception as exc:
-            health["components"]["warewulf"]["status"] = "error"
+            ww_info["status"] = "error"
             health["issues"].append(f"Warewulf check error: {exc}")
             if health["overall"] == "healthy":
                 health["overall"] = "degraded"
 
     # --- Spack ---
     spack_ok = check_spack_available(cl)
-    health["components"]["spack"] = {
+    spack_info: dict[str, Any] = {
         "available": spack_ok,
         "status": "unknown" if not spack_ok else "checking",
     }
+    health["components"]["spack"] = spack_info
     if spack_ok:
         try:
             _run([cl.spack(), "env", "list"], cluster=cl)
-            health["components"]["spack"]["status"] = "healthy"
+            spack_info["status"] = "healthy"
         except Exception as exc:
-            health["components"]["spack"]["status"] = "error"
+            spack_info["status"] = "error"
             health["issues"].append(f"Spack check error: {exc}")
             if health["overall"] == "healthy":
                 health["overall"] = "degraded"

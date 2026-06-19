@@ -252,6 +252,312 @@ TOOL_SCHEMAS: list[dict[str, Any]] = [
             "required": ["name"],
         },
     },
+    # ---- Phase 1: Slurm full coverage ----
+    {
+        "name": "hpc_slurm_job_status",
+        "description": "Show detailed status for a single Slurm job (scontrol show job).",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "job_id": {"type": "string", "description": "Slurm job ID (e.g. '12345')"},
+                "cluster": {"type": "string"},
+            },
+            "required": ["job_id"],
+        },
+    },
+    {
+        "name": "hpc_slurm_job_hold",
+        "description": "Put a pending Slurm job on hold so it does not start.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "job_id": {"type": "string", "description": "Slurm job ID"},
+                "dry_run": {"type": "boolean"},
+                "cluster": {"type": "string"},
+            },
+            "required": ["job_id"],
+        },
+    },
+    {
+        "name": "hpc_slurm_job_release",
+        "description": "Release a held Slurm job so it may be scheduled.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "job_id": {"type": "string", "description": "Slurm job ID"},
+                "dry_run": {"type": "boolean"},
+                "cluster": {"type": "string"},
+            },
+            "required": ["job_id"],
+        },
+    },
+    {
+        "name": "hpc_slurm_job_requeue",
+        "description": "Requeue a running or failed Slurm job.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "job_id": {"type": "string", "description": "Slurm job ID"},
+                "dry_run": {"type": "boolean"},
+                "cluster": {"type": "string"},
+            },
+            "required": ["job_id"],
+        },
+    },
+    {
+        "name": "hpc_slurm_job_cancel",
+        "description": (
+            "Cancel a Slurm job. Operators may only cancel jobs they own; "
+            "admins may cancel any job."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "job_id": {"type": "string", "description": "Slurm job ID"},
+                "dry_run": {"type": "boolean"},
+                "cluster": {"type": "string"},
+            },
+            "required": ["job_id"],
+        },
+    },
+    {
+        "name": "hpc_slurm_reservation_list",
+        "description": "List all active Slurm reservations.",
+        "input_schema": {
+            "type": "object",
+            "properties": {"cluster": {"type": "string"}},
+        },
+    },
+    {
+        "name": "hpc_slurm_reservation_create",
+        "description": (
+            "Create a Slurm reservation for scheduled maintenance or events. "
+            "Use dry_run=true to preview the scontrol command first."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "name": {"type": "string", "description": "Reservation name"},
+                "nodes": {"type": "string", "description": "Node list or range, e.g. node[01-04]"},
+                "start": {"type": "string", "description": "Start time, e.g. 'now'"},
+                "duration": {"type": "string", "description": "Duration, e.g. '4:00:00'"},
+                "users": {"type": "string", "description": "Comma-separated allowed users"},
+                "accounts": {"type": "string", "description": "Comma-separated allowed accounts"},
+                "flags": {"type": "string", "description": "Flags, e.g. 'MAINT,IGNORE_JOBS'"},
+                "dry_run": {"type": "boolean"},
+                "cluster": {"type": "string"},
+            },
+            "required": ["name", "nodes", "start", "duration"],
+        },
+    },
+    {
+        "name": "hpc_slurm_reservation_update",
+        "description": "Update an existing Slurm reservation. Use dry_run=true to preview.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "name": {"type": "string", "description": "Reservation name"},
+                "nodes": {"type": "string"},
+                "start": {"type": "string"},
+                "duration": {"type": "string"},
+                "users": {"type": "string"},
+                "flags": {"type": "string"},
+                "dry_run": {"type": "boolean"},
+                "cluster": {"type": "string"},
+            },
+            "required": ["name"],
+        },
+    },
+    {
+        "name": "hpc_slurm_reservation_delete",
+        "description": "Delete a Slurm reservation. Use dry_run=true to preview.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "name": {"type": "string", "description": "Reservation name"},
+                "dry_run": {"type": "boolean"},
+                "cluster": {"type": "string"},
+            },
+            "required": ["name"],
+        },
+    },
+    {
+        "name": "hpc_slurm_partition_list",
+        "description": "List all Slurm partitions with their configuration.",
+        "input_schema": {
+            "type": "object",
+            "properties": {"cluster": {"type": "string"}},
+        },
+    },
+    {
+        "name": "hpc_slurm_partition_update",
+        "description": (
+            "Update a Slurm partition setting (state, max time). "
+            "Always use dry_run=true first — this is cluster-wide."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "name": {"type": "string", "description": "Partition name"},
+                "state": {
+                    "type": "string",
+                    "enum": ["up", "down", "drain", "inactive"],
+                    "description": "New partition state",
+                },
+                "max_time": {"type": "string", "description": "Max wall time, e.g. '7-00:00:00'"},
+                "dry_run": {"type": "boolean"},
+                "cluster": {"type": "string"},
+            },
+            "required": ["name"],
+        },
+    },
+    {
+        "name": "hpc_slurm_account_list",
+        "description": "List Slurm accounting accounts.",
+        "input_schema": {
+            "type": "object",
+            "properties": {"cluster": {"type": "string"}},
+        },
+    },
+    {
+        "name": "hpc_slurm_account_create",
+        "description": "Create a Slurm accounting account (sacctmgr add account). Superadmin only.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "name": {"type": "string", "description": "Account name"},
+                "description": {"type": "string"},
+                "organization": {"type": "string"},
+                "dry_run": {"type": "boolean"},
+                "cluster": {"type": "string"},
+            },
+            "required": ["name"],
+        },
+    },
+    {
+        "name": "hpc_slurm_association_list",
+        "description": "List Slurm user-account associations, optionally filtered.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "account": {"type": "string"},
+                "user": {"type": "string"},
+                "cluster": {"type": "string"},
+            },
+        },
+    },
+    {
+        "name": "hpc_slurm_association_create",
+        "description": "Associate a user with a Slurm account (sacctmgr add user). Superadmin.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "user": {"type": "string"},
+                "account": {"type": "string"},
+                "dry_run": {"type": "boolean"},
+                "cluster": {"type": "string"},
+            },
+            "required": ["user", "account"],
+        },
+    },
+    {
+        "name": "hpc_slurm_qos_list",
+        "description": "List all Slurm QOS entries with their limits.",
+        "input_schema": {
+            "type": "object",
+            "properties": {"cluster": {"type": "string"}},
+        },
+    },
+    {
+        "name": "hpc_slurm_qos_create",
+        "description": "Create a new Slurm QOS entry (sacctmgr add qos). Requires admin.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "name": {"type": "string"},
+                "max_wall_min": {"type": "integer", "description": "Max wall time in minutes"},
+                "dry_run": {"type": "boolean"},
+                "cluster": {"type": "string"},
+            },
+            "required": ["name"],
+        },
+    },
+    {
+        "name": "hpc_slurm_fairshare",
+        "description": "Show Slurm fairshare usage (sshare -Pl).",
+        "input_schema": {
+            "type": "object",
+            "properties": {"cluster": {"type": "string"}},
+        },
+    },
+    {
+        "name": "hpc_slurm_accounting",
+        "description": (
+            "Query Slurm job accounting history (sacct). "
+            "Filter by user, account, time range, or job state."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "user": {"type": "string"},
+                "account": {"type": "string"},
+                "start": {"type": "string", "description": "Start time, e.g. '2026-06-01'"},
+                "end": {"type": "string", "description": "End time"},
+                "state": {"type": "string", "description": "State filter, e.g. 'FAILED,TIMEOUT'"},
+                "cluster": {"type": "string"},
+            },
+        },
+    },
+    {
+        "name": "hpc_slurm_usage_report",
+        "description": "Generate a Slurm usage report (sreport). type: cluster, account, or user.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "report_type": {
+                    "type": "string",
+                    "enum": ["cluster", "account", "user"],
+                    "description": "Type of usage report",
+                },
+                "start": {"type": "string", "description": "Start date, e.g. '2026-06-01'"},
+                "end": {"type": "string", "description": "End date"},
+                "cluster": {"type": "string"},
+            },
+        },
+    },
+    {
+        "name": "hpc_slurm_sdiag",
+        "description": (
+            "Show Slurm scheduler diagnostics (sdiag): cycle times, backfill depth, DBD state. "
+            "Use to diagnose scheduling slowness."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {"cluster": {"type": "string"}},
+        },
+    },
+    {
+        "name": "hpc_slurm_reconfigure",
+        "description": (
+            "Signal the Slurm controller to reload its configuration (scontrol reconfigure). "
+            "Requires superadmin. Use dry_run=true to preview."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "dry_run": {"type": "boolean"},
+                "cluster": {"type": "string"},
+            },
+        },
+    },
+    {
+        "name": "hpc_slurm_config_show",
+        "description": "Show the active Slurm controller configuration (scontrol show config).",
+        "input_schema": {
+            "type": "object",
+            "properties": {"cluster": {"type": "string"}},
+        },
+    },
 ]
 
 # ---------------------------------------------------------------------------

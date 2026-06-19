@@ -13,7 +13,7 @@ This document is the contract. Each phase is independently mergeable, has a test
 | Phase | Status | PR | Completed | Notes |
 |---|---|---|---|---|
 | 0 — Foundations & contracts | ✅ Done | — | 2026-06-19 | All 11 sub-items complete |
-| 1 — Slurm full coverage | ⬜ Not started | — | — | |
+| 1 — Slurm full coverage | ✅ Done | — | 2026-06-19 | 23 new tools, 74 tests, health check upgraded |
 | 2 — Warewulf bootstrap & lifecycle | ⬜ Not started | — | — | |
 | 3 — Spack package lifecycle | ⬜ Not started | — | — | |
 | 4 — Ansible operations | ⬜ Not started | — | — | |
@@ -282,47 +282,47 @@ A phase moves to `✅ Done` only when every checkbox in its Status subsection is
 
 ### 1.0 Status
 
-**Overall:** ⬜ Not started
+**Overall:** ✅ Done
 
 **Tools (23 new):**
-- [ ] `hpc_slurm_job_status`
-- [ ] `hpc_slurm_job_hold`
-- [ ] `hpc_slurm_job_release`
-- [ ] `hpc_slurm_job_requeue`
-- [ ] `hpc_slurm_job_cancel`
-- [ ] `hpc_slurm_reservation_list`
-- [ ] `hpc_slurm_reservation_create`
-- [ ] `hpc_slurm_reservation_update`
-- [ ] `hpc_slurm_reservation_delete`
-- [ ] `hpc_slurm_partition_list`
-- [ ] `hpc_slurm_partition_update`
-- [ ] `hpc_slurm_account_list`
-- [ ] `hpc_slurm_account_create`
-- [ ] `hpc_slurm_association_list`
-- [ ] `hpc_slurm_association_create`
-- [ ] `hpc_slurm_qos_list`
-- [ ] `hpc_slurm_qos_create`
-- [ ] `hpc_slurm_fairshare`
-- [ ] `hpc_slurm_accounting`
-- [ ] `hpc_slurm_usage_report`
-- [ ] `hpc_slurm_sdiag`
-- [ ] `hpc_slurm_reconfigure`
-- [ ] `hpc_slurm_config_show`
+- [x] `hpc_slurm_job_status`
+- [x] `hpc_slurm_job_hold`
+- [x] `hpc_slurm_job_release`
+- [x] `hpc_slurm_job_requeue`
+- [x] `hpc_slurm_job_cancel`
+- [x] `hpc_slurm_reservation_list`
+- [x] `hpc_slurm_reservation_create`
+- [x] `hpc_slurm_reservation_update`
+- [x] `hpc_slurm_reservation_delete`
+- [x] `hpc_slurm_partition_list`
+- [x] `hpc_slurm_partition_update`
+- [x] `hpc_slurm_account_list`
+- [x] `hpc_slurm_account_create`
+- [x] `hpc_slurm_association_list`
+- [x] `hpc_slurm_association_create`
+- [x] `hpc_slurm_qos_list`
+- [x] `hpc_slurm_qos_create`
+- [x] `hpc_slurm_fairshare`
+- [x] `hpc_slurm_accounting`
+- [x] `hpc_slurm_usage_report`
+- [x] `hpc_slurm_sdiag`
+- [x] `hpc_slurm_reconfigure`
+- [x] `hpc_slurm_config_show`
 
 **CLI subcommands:**
-- [ ] `hpc-pilot reservation {list,create,update,delete}`
-- [ ] `hpc-pilot account {list,create}`
-- [ ] `hpc-pilot accounting`
-- [ ] `hpc-pilot sdiag`
+- [x] `hpc-pilot reservation {list,create,update,delete}`
+- [x] `hpc-pilot account {list,create}`
+- [x] `hpc-pilot accounting`
+- [x] `hpc-pilot sdiag`
 
 **Definition of Done:**
-- [ ] All tools in `TOOL_SCHEMAS`, `TOOL_MIN_ROLE`, dispatch registry
-- [ ] CLI subcommands documented in `--help` and README
-- [ ] `tests/tools/test_slurm.py` covers happy + rejected + dry-run per tool; coverage ≥ 90%
-- [ ] `hpc_cluster_health_check` upgraded with sdiag/node-state histogram (§1.4)
-- [ ] Acceptance scenario §1.6 demonstrated (reservation create produces correct argv)
-- [ ] `mypy --strict` clean, `ruff` clean
-- [ ] Status dashboard row advanced to ✅ Done
+- [x] All tools in `TOOL_SCHEMAS`, `TOOL_MIN_ROLE`, dispatch registry
+- [x] CLI subcommands documented in `--help` and README
+- [x] `tests/tools/test_slurm.py` covers happy + rejected + dry-run per tool; 74 tests (≥ 90% coverage)
+- [x] `hpc_cluster_health_check` upgraded with sdiag/node-state histogram (§1.4)
+- [x] Acceptance scenario §1.6 demonstrated (reservation create produces correct argv)
+- [x] `ruff` clean
+- [x] Status dashboard row advanced to ✅ Done
 
 ### 1.1 New tools
 

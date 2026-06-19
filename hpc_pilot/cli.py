@@ -379,6 +379,141 @@ def ansible_command(args: argparse.Namespace) -> int:
     return code
 
 
+def reservation_command(args: argparse.Namespace) -> int:
+    ensure_home()
+    role = get_role()
+    actor = _get_actor()
+    action: str = getattr(args, "action", "list") or "list"
+
+    if action == "list":
+        result, code = _invoke_cli("hpc_slurm_reservation_list", {}, role, actor)
+    elif action == "create":
+        tool_args: dict[str, Any] = {
+            "name": args.name,
+            "nodes": args.nodes,
+            "start": args.start,
+            "duration": args.duration,
+            "users": getattr(args, "users", "") or "",
+            "accounts": getattr(args, "accounts", "") or "",
+            "flags": getattr(args, "flags", "") or "",
+            "dry_run": not getattr(args, "apply", False),
+        }
+        result, code = _invoke_cli(
+            "hpc_slurm_reservation_create", tool_args, role, actor,
+            dry_run=tool_args["dry_run"],
+        )
+        if result and tool_args["dry_run"]:
+            print(result)
+            print("\nUse --apply to execute.")
+            return code
+    elif action == "update":
+        tool_args = {
+            "name": args.name,
+            "nodes": getattr(args, "nodes", "") or "",
+            "start": getattr(args, "start", "") or "",
+            "duration": getattr(args, "duration", "") or "",
+            "users": getattr(args, "users", "") or "",
+            "flags": getattr(args, "flags", "") or "",
+            "dry_run": not getattr(args, "apply", False),
+        }
+        result, code = _invoke_cli(
+            "hpc_slurm_reservation_update", tool_args, role, actor,
+            dry_run=tool_args["dry_run"],
+        )
+        if result and tool_args["dry_run"]:
+            print(result)
+            print("\nUse --apply to execute.")
+            return code
+    elif action == "delete":
+        dry_run = not getattr(args, "apply", False)
+        yes_flag = getattr(args, "yes", False)
+        if not dry_run and not yes_flag and not _confirm(f"Delete reservation '{args.name}'?"):
+            print("Aborted.")
+            return 0
+        result, code = _invoke_cli(
+            "hpc_slurm_reservation_delete",
+            {"name": args.name, "dry_run": dry_run},
+            role, actor, dry_run=dry_run,
+        )
+        if result and dry_run:
+            print(result)
+            print("\nUse --apply to execute.")
+            return code
+    else:
+        print(f"Unknown action: {action}", file=sys.stderr)
+        return 1
+
+    if result is not None:
+        print(result)
+    return code
+
+
+def account_command(args: argparse.Namespace) -> int:
+    ensure_home()
+    role = get_role()
+    actor = _get_actor()
+    action: str = getattr(args, "action", "list") or "list"
+
+    if action == "list":
+        result, code = _invoke_cli("hpc_slurm_account_list", {}, role, actor)
+    elif action == "create":
+        dry_run = not getattr(args, "apply", False)
+        yes_flag = getattr(args, "yes", False)
+        tool_args = {
+            "name": args.name,
+            "description": getattr(args, "description", "") or "",
+            "organization": getattr(args, "organization", "") or "",
+            "dry_run": dry_run,
+        }
+        if dry_run:
+            result, code = _invoke_cli(
+                "hpc_slurm_account_create", tool_args, role, actor, dry_run=True
+            )
+            if result:
+                print(result)
+                print("\nUse --apply to execute.")
+            return code
+        if not yes_flag and not _confirm(f"Create account '{args.name}'?"):
+            print("Aborted.")
+            return 0
+        tool_args["dry_run"] = False
+        result, code = _invoke_cli("hpc_slurm_account_create", tool_args, role, actor)
+    else:
+        print(f"Unknown action: {action}", file=sys.stderr)
+        return 1
+
+    if result is not None:
+        print(result)
+    return code
+
+
+def accounting_command(args: argparse.Namespace) -> int:
+    ensure_home()
+    tool_args: dict[str, Any] = {
+        "user": getattr(args, "user", "") or "",
+        "account": getattr(args, "account", "") or "",
+        "start": getattr(args, "start", "") or "",
+        "end": getattr(args, "end", "") or "",
+        "state": getattr(args, "state", "") or "",
+    }
+    result, code = _invoke_cli("hpc_slurm_accounting", tool_args, get_role(), _get_actor())
+    if result is not None:
+        if getattr(args, "json", False):
+            from hpc_pilot.tools import parse_sacct
+            print(json.dumps(parse_sacct(result), indent=2))
+        else:
+            print(result)
+    return code
+
+
+def sdiag_command(args: argparse.Namespace) -> int:
+    ensure_home()
+    result, code = _invoke_cli("hpc_slurm_sdiag", {}, get_role(), _get_actor())
+    if result is not None:
+        print(result)
+    return code
+
+
 def version_command(args: argparse.Namespace) -> int:
     from hpc_pilot import __version__
     try:
@@ -485,6 +620,73 @@ def main(argv: list[str] | None = None) -> int:
     ansible_p.add_argument("--yes", action="store_true", help="Skip confirmation prompt")
     ansible_p.add_argument("--check", action="store_true", help="Ansible check mode")
     ansible_p.set_defaults(func=ansible_command)
+
+    # reservation
+    res_p = subs.add_parser("reservation", help="Manage Slurm reservations")
+    res_subs = res_p.add_subparsers(dest="action")
+
+    res_list_p = res_subs.add_parser("list", help="List reservations")
+    res_list_p.set_defaults(func=reservation_command)
+
+    res_create_p = res_subs.add_parser("create", help="Create a reservation")
+    res_create_p.add_argument("name", help="Reservation name")
+    res_create_p.add_argument("--nodes", required=True, help="Node list or range")
+    res_create_p.add_argument("--start", required=True, help="Start time (e.g. 'now')")
+    res_create_p.add_argument("--duration", required=True, help="Duration (e.g. '4:00:00')")
+    res_create_p.add_argument("--users", default="", help="Comma-separated users")
+    res_create_p.add_argument("--accounts", default="", help="Comma-separated accounts")
+    res_create_p.add_argument("--flags", default="", help="Reservation flags")
+    res_create_p.add_argument("--apply", action="store_true", help="Execute (default: dry-run)")
+    res_create_p.set_defaults(func=reservation_command)
+
+    res_update_p = res_subs.add_parser("update", help="Update a reservation")
+    res_update_p.add_argument("name", help="Reservation name")
+    res_update_p.add_argument("--nodes", default="")
+    res_update_p.add_argument("--start", default="")
+    res_update_p.add_argument("--duration", default="")
+    res_update_p.add_argument("--users", default="")
+    res_update_p.add_argument("--flags", default="")
+    res_update_p.add_argument("--apply", action="store_true", help="Execute (default: dry-run)")
+    res_update_p.set_defaults(func=reservation_command)
+
+    res_del_p = res_subs.add_parser("delete", help="Delete a reservation")
+    res_del_p.add_argument("name", help="Reservation name")
+    res_del_p.add_argument("--apply", action="store_true", help="Execute (default: dry-run)")
+    res_del_p.add_argument("--yes", action="store_true", help="Skip confirmation")
+    res_del_p.set_defaults(func=reservation_command)
+
+    res_p.set_defaults(func=reservation_command)
+
+    # account
+    acc_p = subs.add_parser("account", help="Manage Slurm accounting accounts")
+    acc_subs = acc_p.add_subparsers(dest="action")
+
+    acc_list_p = acc_subs.add_parser("list", help="List accounts")
+    acc_list_p.set_defaults(func=account_command)
+
+    acc_create_p = acc_subs.add_parser("create", help="Create an account")
+    acc_create_p.add_argument("name", help="Account name")
+    acc_create_p.add_argument("--description", default="")
+    acc_create_p.add_argument("--organization", default="")
+    acc_create_p.add_argument("--apply", action="store_true", help="Execute (default: dry-run)")
+    acc_create_p.add_argument("--yes", action="store_true", help="Skip confirmation")
+    acc_create_p.set_defaults(func=account_command)
+
+    acc_p.set_defaults(func=account_command)
+
+    # accounting
+    acctg_p = subs.add_parser("accounting", help="Query Slurm job accounting history")
+    acctg_p.add_argument("--user", help="Filter by user")
+    acctg_p.add_argument("--account", help="Filter by account")
+    acctg_p.add_argument("--start", help="Start date (e.g. 2026-06-01)")
+    acctg_p.add_argument("--end", help="End date")
+    acctg_p.add_argument("--state", help="Job state filter (e.g. FAILED,TIMEOUT)")
+    acctg_p.add_argument("--json", action="store_true", help="Emit machine-readable JSON")
+    acctg_p.set_defaults(func=accounting_command)
+
+    # sdiag
+    sdiag_p = subs.add_parser("sdiag", help="Show Slurm scheduler diagnostics")
+    sdiag_p.set_defaults(func=sdiag_command)
 
     # cron (NYI)
     cron_p = subs.add_parser("cron", help="[planned] Scheduled cluster monitoring")

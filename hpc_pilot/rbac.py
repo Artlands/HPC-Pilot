@@ -42,6 +42,17 @@ TOOL_MIN_ROLE: dict[str, Role] = {
     # Read-only (VIEWER and above)
     "hpc_slurm_node_status": Role.VIEWER,
     "hpc_slurm_queue": Role.VIEWER,
+    "hpc_slurm_job_status": Role.VIEWER,
+    "hpc_slurm_reservation_list": Role.VIEWER,
+    "hpc_slurm_partition_list": Role.VIEWER,
+    "hpc_slurm_account_list": Role.VIEWER,
+    "hpc_slurm_association_list": Role.VIEWER,
+    "hpc_slurm_qos_list": Role.VIEWER,
+    "hpc_slurm_fairshare": Role.VIEWER,
+    "hpc_slurm_accounting": Role.VIEWER,
+    "hpc_slurm_usage_report": Role.VIEWER,
+    "hpc_slurm_sdiag": Role.VIEWER,
+    "hpc_slurm_config_show": Role.VIEWER,
     "hpc_warewulf_node_status": Role.VIEWER,
     "hpc_warewulf_image_list": Role.VIEWER,
     "hpc_spack_env_list": Role.VIEWER,
@@ -50,13 +61,26 @@ TOOL_MIN_ROLE: dict[str, Role] = {
     "hpc_ansible_inventory_generate": Role.VIEWER,
     "hpc_cluster_health_check": Role.VIEWER,
     "hpc_skill_describe": Role.VIEWER,
-    # Mutating node state (OPERATOR and above)
+    # Mutating (OPERATOR and above)
     "hpc_slurm_node_state": Role.OPERATOR,
+    "hpc_slurm_job_hold": Role.OPERATOR,
+    "hpc_slurm_job_release": Role.OPERATOR,
+    "hpc_slurm_job_requeue": Role.OPERATOR,
+    "hpc_slurm_job_cancel": Role.OPERATOR,
     "hpc_skill_run": Role.OPERATOR,
-    # Dangerous / cluster-wide (ADMIN only)
+    # Dangerous / cluster-wide (ADMIN and above)
     "hpc_slurm_qos_modify": Role.ADMIN,
+    "hpc_slurm_qos_create": Role.ADMIN,
+    "hpc_slurm_reservation_create": Role.ADMIN,
+    "hpc_slurm_reservation_update": Role.ADMIN,
+    "hpc_slurm_reservation_delete": Role.ADMIN,
+    "hpc_slurm_partition_update": Role.ADMIN,
     "hpc_ansible_playbook_run": Role.ADMIN,
     "hpc_warewulf_power_reset": Role.ADMIN,
+    # Accounting schema / bootstrap (SUPERADMIN only)
+    "hpc_slurm_account_create": Role.SUPERADMIN,
+    "hpc_slurm_association_create": Role.SUPERADMIN,
+    "hpc_slurm_reconfigure": Role.SUPERADMIN,
 }
 
 

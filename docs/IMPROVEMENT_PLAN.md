@@ -404,7 +404,7 @@ every claim. Push the change to `main`.**
 | A | Regression triage | P0 | Done | claude-code | 2026-06-19 | d08f88d |
 | B | Audit / observability integrity | P1 | Done | claude-code | 2026-06-19 | d08f88d |
 | C | Multi-cluster correctness | P1 | Done | claude-code | 2026-06-19 | 0a15688 |
-| D | Agent + chat memory | P2 | Not started |  |  |  |
+| D | Agent + chat memory | P2 | In progress | claude-code | 2026-06-19 |  |
 | E | Tooling & modularization | P2 | Not started |  |  |  |
 | F | Self-evolve hardening | P3 | Not started |  |  |  |
 | G | Operational polish | P3 | Not started |  |  |  |

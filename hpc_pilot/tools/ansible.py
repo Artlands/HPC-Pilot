@@ -79,24 +79,13 @@ def hpc_ansible_playbook_check(
     if limit:
         cmd_parts.extend(["--limit", limit])
 
-    result = subprocess.run(
-        cmd_parts,
-        capture_output=True,
-        text=True,
-        env=env,
-        timeout=600,
-    )
-    if result.returncode != 0:
-        stderr = (result.stderr or "").strip()
-        raise RuntimeError(
-            f"ansible-playbook --check exited {result.returncode}: {stderr or '(no stderr)'}"
-        )
+    output = _run(cmd_parts, cluster=cl, timeout=600, env=env)
 
     try:
-        data = json.loads(result.stdout)
+        data = json.loads(output)
     except json.JSONDecodeError:
         # Fallback: wrap raw output
-        return {"raw_output": result.stdout.strip(), "parsed": False}
+        return {"raw_output": output.strip(), "parsed": False}
 
     # Per-host structured diff
     host_stats: dict[str, Any] = data.get("stats", {}) if isinstance(data, dict) else {}
@@ -211,19 +200,13 @@ def hpc_ansible_inventory_from_truth(*, cluster: str = "default") -> dict[str, A
     scontrol_output = ""
 
     try:
-        ww_cmd = [cl.warewulf("wwctl"), "node", "list"]
-        ww_r = subprocess.run(ww_cmd, capture_output=True, text=True, timeout=30)
-        if ww_r.returncode == 0:
-            ww_output = ww_r.stdout
+        ww_output = _run([cl.warewulf("wwctl"), "node", "list"], cluster=cl, timeout=30)
     except Exception:
         pass
 
     # Query Slurm nodes
     try:
-        scontrol_cmd = [cl.slurm("scontrol"), "show", "nodes"]
-        scontrol_r = subprocess.run(scontrol_cmd, capture_output=True, text=True, timeout=30)
-        if scontrol_r.returncode == 0:
-            scontrol_output = scontrol_r.stdout
+        scontrol_output = _run([cl.slurm("scontrol"), "show", "nodes"], cluster=cl, timeout=30)
     except Exception:
         pass
 
@@ -432,26 +415,15 @@ def hpc_ansible_drift_check(
             pb_path,
         ]
         try:
-            r = subprocess.run(
-                cmd_parts,
-                capture_output=True,
-                text=True,
-                env=env,
-                timeout=300,
-            )
+            stdout = _run(cmd_parts, cluster=cl, timeout=300, env=env)
             pb_data: dict[str, Any] = {"check": key, "playbook": pb_path}
-            if r.returncode != 0:
-                # Even with non-zero, JSON callback may have useful output
-                pb_data["returncode"] = r.returncode
             try:
-                parsed = json.loads(r.stdout)
+                parsed = json.loads(stdout)
                 pb_data["plays"] = parsed.get("plays", [])
                 pb_data["stats"] = parsed.get("stats", {})
             except json.JSONDecodeError:
-                pb_data["raw_output"] = r.stdout.strip()
+                pb_data["raw_output"] = stdout.strip()
             results.append(pb_data)
-        except subprocess.TimeoutExpired:
-            results.append({"check": key, "playbook": pb_path, "error": "timeout"})
         except RuntimeError as exc:
             results.append({"check": key, "playbook": pb_path, "error": str(exc)})
 
@@ -494,14 +466,7 @@ def hpc_ansible_vault_decrypt(
         return f"DRY-RUN: ansible-vault view {path}"
 
     cmd = [cl.ansible_playbook().replace("ansible-playbook", "ansible-vault"), "view", path]
-    result = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
-    if result.returncode != 0:
-        stderr = (result.stderr or "").strip()
-        raise RuntimeError(
-            f"ansible-vault view exited {result.returncode}: {stderr or '(no stderr)'}"
-        )
-
-    return result.stdout
+    return _run(cmd, cluster=cl, timeout=60)
 
 
 # ---------------------------------------------------------------------------

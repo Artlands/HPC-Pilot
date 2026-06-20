@@ -861,11 +861,7 @@ def hpc_notify(
             return "Notification not sent: TELEGRAM_BOT_TOKEN not found in .env"
         url = f"https://api.telegram.org/bot{token}/sendMessage"
         data = f"chat_id={target}&text={message}"
-        subprocess.run(
-            ["curl", "-s", "-X", "POST", url, "-d", data],
-            capture_output=True,
-            timeout=15,
-        )
+        _run(["curl", "-s", "-X", "POST", url, "-d", data], timeout=15)
         return f"Notification sent via Telegram to {target}: {message[:100]}..."
 
     if platform == "discord":
@@ -881,7 +877,7 @@ def hpc_notify(
             return "Notification not sent: DISCORD_BOT_TOKEN not found in .env"
         # Discord webhook or REST
         data = f'{{"content":"{message}"}}'
-        subprocess.run(
+        _run(
             [
                 "curl",
                 "-s",
@@ -895,7 +891,6 @@ def hpc_notify(
                 "-d",
                 data,
             ],
-            capture_output=True,
             timeout=15,
         )
         return f"Notification sent via Discord to {target}: {message[:100]}..."

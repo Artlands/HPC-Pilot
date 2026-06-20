@@ -162,14 +162,8 @@ def register(ctx) -> None:
     from hpc_pilot.agent import TOOL_SCHEMAS
 
     registered = 0
-    seen: set[str] = set()
     for entry in TOOL_SCHEMAS:
         tool_name = entry["name"]
-
-        # Skip duplicates (TOOL_SCHEMAS contains 20 duplicate Warewulf entries)
-        if tool_name in seen:
-            continue
-        seen.add(tool_name)
 
         schema = _to_openai_schema(entry)
         handler = _make_handler(tool_name)

@@ -108,13 +108,19 @@ class TestHpcMultiQuery:
         assert "hpc_multi_query" in names
 
     def test_dispatch_entry_present(self):
-        """_DISPATCH has an entry for hpc_multi_query."""
-        from hpc_pilot.dispatch import _DISPATCH
+        """_DISPATCH (lazily loaded from registry) has an entry for hpc_multi_query."""
+        import hpc_pilot.tools.multi  # noqa: F401 — trigger @hpc_tool registration
+        from hpc_pilot.dispatch import _DISPATCH, _ensure_dispatch
+
+        _ensure_dispatch()
         assert "hpc_multi_query" in _DISPATCH
 
     def test_rbac_entry_present(self):
         """TOOL_MIN_ROLE has an entry for hpc_multi_query at VIEWER level."""
-        from hpc_pilot.rbac import TOOL_MIN_ROLE, Role
+        import hpc_pilot.tools.multi  # noqa: F401 — trigger @hpc_tool registration
+        from hpc_pilot.rbac import TOOL_MIN_ROLE, Role, _ensure_role_map
+
+        _ensure_role_map()
         assert "hpc_multi_query" in TOOL_MIN_ROLE
         assert TOOL_MIN_ROLE["hpc_multi_query"] == Role.VIEWER
 

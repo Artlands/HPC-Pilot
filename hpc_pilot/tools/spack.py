@@ -1,4 +1,5 @@
 """Spack tools and output parsers."""
+
 from __future__ import annotations
 
 import hashlib
@@ -7,16 +8,44 @@ import os
 import time
 from typing import Any
 
+from hpc_pilot.rbac import Role
+from hpc_pilot.tools._registry import hpc_tool
 from hpc_pilot.tools._run import _resolve_cluster, _run
 from hpc_pilot.tools._validation import _SPACK_ENV_RE, _validate
 
 
+@hpc_tool(
+    name="hpc_spack_env_list",
+    role=Role.VIEWER,
+    schema={
+        "name": "hpc_spack_env_list",
+        "description": "List all Spack environments on the cluster.",
+        "input_schema": {
+            "type": "object",
+            "properties": {},
+            "required": [],
+        },
+    },
+)
 def hpc_spack_env_list(*, cluster: str = "default") -> str:
     """Return spack env list output."""
     cl = _resolve_cluster(cluster)
     return _run([cl.spack(), "env", "list"], cluster=cl)
 
 
+@hpc_tool(
+    name="hpc_spack_find",
+    role=Role.VIEWER,
+    schema={
+        "name": "hpc_spack_find",
+        "description": "List installed software packages inside a Spack environment.",
+        "input_schema": {
+            "type": "object",
+            "properties": {"env": {"type": "string", "description": "Spack environment name"}},
+            "required": ["env"],
+        },
+    },
+)
 def hpc_spack_find(env: str, *, cluster: str = "default") -> str:
     """Return installed specs in a Spack environment."""
     _validate(env, "environment name", _SPACK_ENV_RE)
@@ -24,6 +53,19 @@ def hpc_spack_find(env: str, *, cluster: str = "default") -> str:
     return _run([cl.spack(), "find", "-l", "-N", "-d", "-e", env], cluster=cl, timeout=60)
 
 
+@hpc_tool(
+    name="hpc_spack_compilers",
+    role=Role.VIEWER,
+    schema={
+        "name": "hpc_spack_compilers",
+        "description": "List available compilers registered in Spack.",
+        "input_schema": {
+            "type": "object",
+            "properties": {},
+            "required": [],
+        },
+    },
+)
 def hpc_spack_compilers(*, cluster: str = "default") -> str:
     """Return the list of available Spack compilers."""
     cl = _resolve_cluster(cluster)
@@ -35,7 +77,28 @@ def hpc_spack_compilers(*, cluster: str = "default") -> str:
 # ---------------------------------------------------------------------------
 
 
-def hpc_spack_env_create(name: str, manifest: str | None = None, *, cluster: str = "default", dry_run: bool = False) -> str:
+@hpc_tool(
+    name="hpc_spack_env_create",
+    role=Role.ADMIN,
+    schema={
+        "name": "hpc_spack_env_create",
+        "description": "Create a new Spack environment.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "name": {"type": "string"},
+                "manifest": {
+                    "type": "string",
+                    "description": "Optional path to a spack.yaml manifest",
+                },
+            },
+            "required": ["name"],
+        },
+    },
+)
+def hpc_spack_env_create(
+    name: str, manifest: str | None = None, *, cluster: str = "default", dry_run: bool = False
+) -> str:
     """Create a new Spack environment."""
     _validate(name, "environment name", _SPACK_ENV_RE)
     cl = _resolve_cluster(cluster)
@@ -45,6 +108,19 @@ def hpc_spack_env_create(name: str, manifest: str | None = None, *, cluster: str
     return _run(cmd, cluster=cl, dry_run=dry_run)
 
 
+@hpc_tool(
+    name="hpc_spack_env_delete",
+    role=Role.ADMIN,
+    schema={
+        "name": "hpc_spack_env_delete",
+        "description": "Delete a Spack environment.",
+        "input_schema": {
+            "type": "object",
+            "properties": {"name": {"type": "string"}},
+            "required": ["name"],
+        },
+    },
+)
 def hpc_spack_env_delete(name: str, *, cluster: str = "default", dry_run: bool = False) -> str:
     """Delete a Spack environment."""
     _validate(name, "environment name", _SPACK_ENV_RE)
@@ -52,7 +128,22 @@ def hpc_spack_env_delete(name: str, *, cluster: str = "default", dry_run: bool =
     return _run([cl.spack(), "env", "remove", name], cluster=cl, dry_run=dry_run)
 
 
-def hpc_spack_env_concretize(env: str, *, cluster: str = "default", dry_run: bool = False) -> dict[str, Any]:
+@hpc_tool(
+    name="hpc_spack_env_concretize",
+    role=Role.ADMIN,
+    schema={
+        "name": "hpc_spack_env_concretize",
+        "description": "Concretize a Spack environment and return the lockfile diff (added/removed/changed specs).",
+        "input_schema": {
+            "type": "object",
+            "properties": {"env": {"type": "string", "description": "Environment name"}},
+            "required": ["env"],
+        },
+    },
+)
+def hpc_spack_env_concretize(
+    env: str, *, cluster: str = "default", dry_run: bool = False
+) -> dict[str, Any]:
     """Concretize a Spack environment and return the lockfile diff."""
     _validate(env, "environment name", _SPACK_ENV_RE)
     cl = _resolve_cluster(cluster)
@@ -93,10 +184,7 @@ def hpc_spack_env_concretize(env: str, *, cluster: str = "default", dry_run: boo
     post_keys = set(post_specs.keys())
     added = sorted(post_keys - pre_keys)
     removed = sorted(pre_keys - post_keys)
-    changed = sorted(
-        k for k in (pre_keys & post_keys)
-        if pre_specs.get(k) != post_specs.get(k)
-    )
+    changed = sorted(k for k in (pre_keys & post_keys) if pre_specs.get(k) != post_specs.get(k))
 
     return {
         "env": env,
@@ -107,7 +195,22 @@ def hpc_spack_env_concretize(env: str, *, cluster: str = "default", dry_run: boo
     }
 
 
-def hpc_spack_env_install(env: str, *, cluster: str = "default", dry_run: bool = False) -> dict[str, Any]:
+@hpc_tool(
+    name="hpc_spack_env_install",
+    role=Role.ADMIN,
+    schema={
+        "name": "hpc_spack_env_install",
+        "description": "Install a Spack environment asynchronously. Returns a run_id for status polling.",
+        "input_schema": {
+            "type": "object",
+            "properties": {"env": {"type": "string"}},
+            "required": ["env"],
+        },
+    },
+)
+def hpc_spack_env_install(
+    env: str, *, cluster: str = "default", dry_run: bool = False
+) -> dict[str, Any]:
     """Install a Spack environment asynchronously.
 
     Returns a run_id that can be polled via hpc_job_status.
@@ -131,6 +234,19 @@ def hpc_spack_env_install(env: str, *, cluster: str = "default", dry_run: bool =
     return {"run_id": record.run_id, "status": record.status, "log_path": record.log_path}
 
 
+@hpc_tool(
+    name="hpc_spack_env_status",
+    role=Role.VIEWER,
+    schema={
+        "name": "hpc_spack_env_status",
+        "description": "Show the specs installed in a Spack environment.",
+        "input_schema": {
+            "type": "object",
+            "properties": {"env": {"type": "string"}},
+            "required": ["env"],
+        },
+    },
+)
 def hpc_spack_env_status(env: str, *, cluster: str = "default") -> dict[str, Any]:
     """Return parsed status of a Spack environment (installed specs)."""
     _validate(env, "environment name", _SPACK_ENV_RE)
@@ -144,6 +260,21 @@ def hpc_spack_env_status(env: str, *, cluster: str = "default") -> dict[str, Any
     return {"env": env, "specs": specs, "spec_count": len(specs)}
 
 
+@hpc_tool(
+    name="hpc_spack_install_spec",
+    role=Role.ADMIN,
+    schema={
+        "name": "hpc_spack_install_spec",
+        "description": "Install a single Spack spec outside of an environment.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "spec": {"type": "string", "description": "Spack spec string (e.g. 'gcc@12')"}
+            },
+            "required": ["spec"],
+        },
+    },
+)
 def hpc_spack_install_spec(spec: str, *, cluster: str = "default", dry_run: bool = False) -> str:
     """Install a single spec outside of an environment."""
     _validate(spec, "spec")
@@ -151,7 +282,25 @@ def hpc_spack_install_spec(spec: str, *, cluster: str = "default", dry_run: bool
     return _run([cl.spack(), "install", spec], cluster=cl, timeout=3600, dry_run=dry_run)
 
 
-def hpc_spack_uninstall(spec: str, dependents: bool = False, *, cluster: str = "default", dry_run: bool = False) -> str:
+@hpc_tool(
+    name="hpc_spack_uninstall",
+    role=Role.ADMIN,
+    schema={
+        "name": "hpc_spack_uninstall",
+        "description": "Uninstall a Spack package. dry_run is mandatory by default.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "spec": {"type": "string", "description": "Spack spec to uninstall"},
+                "dependents": {"type": "boolean", "description": "Also remove dependents"},
+            },
+            "required": ["spec"],
+        },
+    },
+)
+def hpc_spack_uninstall(
+    spec: str, dependents: bool = False, *, cluster: str = "default", dry_run: bool = False
+) -> str:
     """Uninstall a package. dry_run is mandatory."""
     _validate(spec, "spec")
     cl = _resolve_cluster(cluster)
@@ -167,13 +316,41 @@ def hpc_spack_uninstall(spec: str, dependents: bool = False, *, cluster: str = "
 # ---------------------------------------------------------------------------
 
 
+@hpc_tool(
+    name="hpc_spack_mirror_list",
+    role=Role.VIEWER,
+    schema={
+        "name": "hpc_spack_mirror_list",
+        "description": "List configured Spack mirrors.",
+        "input_schema": {
+            "type": "object",
+            "properties": {},
+            "required": [],
+        },
+    },
+)
 def hpc_spack_mirror_list(*, cluster: str = "default") -> str:
     """List configured Spack mirrors."""
     cl = _resolve_cluster(cluster)
     return _run([cl.spack(), "mirror", "list"], cluster=cl)
 
 
-def hpc_spack_mirror_add(name: str, url: str, *, cluster: str = "default", dry_run: bool = False) -> str:
+@hpc_tool(
+    name="hpc_spack_mirror_add",
+    role=Role.SUPERADMIN,
+    schema={
+        "name": "hpc_spack_mirror_add",
+        "description": "Add a Spack mirror URL.",
+        "input_schema": {
+            "type": "object",
+            "properties": {"name": {"type": "string"}, "url": {"type": "string"}},
+            "required": ["name", "url"],
+        },
+    },
+)
+def hpc_spack_mirror_add(
+    name: str, url: str, *, cluster: str = "default", dry_run: bool = False
+) -> str:
     """Add a Spack mirror."""
     _validate(name, "mirror name")
     cl = _resolve_cluster(cluster)
@@ -185,7 +362,31 @@ def hpc_spack_mirror_add(name: str, url: str, *, cluster: str = "default", dry_r
 # ---------------------------------------------------------------------------
 
 
-def hpc_spack_buildcache_push(mirror_name: str, spec: str | None = None, gpg_key: str | None = None, *, cluster: str = "default", dry_run: bool = False) -> str:
+@hpc_tool(
+    name="hpc_spack_buildcache_push",
+    role=Role.ADMIN,
+    schema={
+        "name": "hpc_spack_buildcache_push",
+        "description": "Push packages to a Spack build cache mirror.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "mirror_name": {"type": "string"},
+                "spec": {"type": "string", "description": "Optional spec to push"},
+                "gpg_key": {"type": "string", "description": "GPG key fingerprint"},
+            },
+            "required": ["mirror_name"],
+        },
+    },
+)
+def hpc_spack_buildcache_push(
+    mirror_name: str,
+    spec: str | None = None,
+    gpg_key: str | None = None,
+    *,
+    cluster: str = "default",
+    dry_run: bool = False,
+) -> str:
     """Push packages to a Spack build cache."""
     _validate(mirror_name, "mirror name")
     cl = _resolve_cluster(cluster)
@@ -198,11 +399,28 @@ def hpc_spack_buildcache_push(mirror_name: str, spec: str | None = None, gpg_key
     return _run(cmd, cluster=cl, timeout=3600, dry_run=dry_run)
 
 
-def hpc_spack_buildcache_update_index(mirror_name: str, *, cluster: str = "default", dry_run: bool = False) -> str:
+@hpc_tool(
+    name="hpc_spack_buildcache_update_index",
+    role=Role.ADMIN,
+    schema={
+        "name": "hpc_spack_buildcache_update_index",
+        "description": "Update the build cache index for a mirror.",
+        "input_schema": {
+            "type": "object",
+            "properties": {"mirror_name": {"type": "string"}},
+            "required": ["mirror_name"],
+        },
+    },
+)
+def hpc_spack_buildcache_update_index(
+    mirror_name: str, *, cluster: str = "default", dry_run: bool = False
+) -> str:
     """Update the build cache index for a mirror."""
     _validate(mirror_name, "mirror name")
     cl = _resolve_cluster(cluster)
-    return _run([cl.spack(), "buildcache", "update-index", mirror_name], cluster=cl, dry_run=dry_run)
+    return _run(
+        [cl.spack(), "buildcache", "update-index", mirror_name], cluster=cl, dry_run=dry_run
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -210,12 +428,44 @@ def hpc_spack_buildcache_update_index(mirror_name: str, *, cluster: str = "defau
 # ---------------------------------------------------------------------------
 
 
+@hpc_tool(
+    name="hpc_spack_module_refresh",
+    role=Role.ADMIN,
+    schema={
+        "name": "hpc_spack_module_refresh",
+        "description": "Refresh Spack-generated LMOD module files.",
+        "input_schema": {
+            "type": "object",
+            "properties": {},
+            "required": [],
+        },
+    },
+)
 def hpc_spack_module_refresh(*, cluster: str = "default", dry_run: bool = False) -> str:
     """Refresh Spack-generated module files (lmod)."""
     cl = _resolve_cluster(cluster)
     return _run([cl.spack(), "module", "lmod", "refresh", "-y"], cluster=cl, dry_run=dry_run)
 
 
+@hpc_tool(
+    name="hpc_spack_compiler_find",
+    role=Role.ADMIN,
+    schema={
+        "name": "hpc_spack_compiler_find",
+        "description": "Register compilers with Spack (spack compiler find).",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "paths": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "Paths to search for compilers",
+                }
+            },
+            "required": [],
+        },
+    },
+)
 def hpc_spack_compiler_find(*paths: str, cluster: str = "default", dry_run: bool = False) -> str:
     """Register new compilers with Spack."""
     cl = _resolve_cluster(cluster)

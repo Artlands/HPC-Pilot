@@ -102,7 +102,8 @@ def _parse_skill(data: dict[str, Any]) -> Skill:
 
 
 # ---------------------------------------------------------------------------
-# Template rendering  ({{ var }} → value)
+# Template rendering  ({{ var }} → value)  — Jinja2 when available,
+# simple {{ var }} substitution as fallback.
 # ---------------------------------------------------------------------------
 
 _TMPL_RE = re.compile(r"\{\{\s*(\w+)\s*\}\}")
@@ -110,6 +111,14 @@ _TMPL_RE = re.compile(r"\{\{\s*(\w+)\s*\}\}")
 
 def _render(value: Any, ctx: dict[str, Any]) -> Any:
     if isinstance(value, str):
+        # Try Jinja2; fall back to simple {{ var }} substitution
+        try:
+            from jinja2 import Template  # optional dependency
+
+            env = {k: _render(v, ctx) if isinstance(v, (dict, list)) else v for k, v in ctx.items()}
+            return Template(value).render(**env)
+        except ImportError:
+            pass
         return _TMPL_RE.sub(lambda m: str(ctx.get(m.group(1), m.group(0))), value)
     if isinstance(value, dict):
         return {k: _render(v, ctx) for k, v in value.items()}
@@ -299,8 +308,23 @@ class SkillRunner:
             step_result = StepResult(step_id=step.id, status="running")
 
             if step.approval == "required":
+                from hpc_pilot.approvals import create_approval
+
+                risk_summary = step.risk_summary or f"Skill '{skill.name}' step '{step.id}' requires approval"
+                req = create_approval(
+                    tool=step.id,
+                    args=ctx,
+                    actor=actor,
+                    role=role.value,
+                    cluster=ctx.get("cluster", ""),
+                    risk_summary=risk_summary,
+                )
                 step_result.status = "pending_approval"
-                step_result.output = f"Waiting for approval before step '{step.id}'"
+                step_result.output = (
+                    f"Approval required for step '{step.id}'. "
+                    f"Approval ID: {req.id}. "
+                    f"Use: hpc-pilot approvals approve {req.id}"
+                )
                 run.step_results.append(step_result)
                 run.status = "paused"
                 run.paused_at_step = i
@@ -352,10 +376,103 @@ class SkillRunner:
         if step.tool:
             return invoke(step.tool, rendered_args, role=role, actor=actor)
         if step.builtin == "wait_until":
-            return "(builtin wait_until not yet implemented; skipping)"
+            return self._execute_wait_until(step, rendered_args, role=role, actor=actor)
         if step.builtin == "for_each":
-            return "(builtin for_each not yet implemented; skipping)"
+            return self._execute_for_each(step, rendered_args, role=role, actor=actor)
         raise ValueError(f"Step '{step.id}' has neither 'tool' nor recognized 'builtin'")
+
+    def _execute_wait_until(
+        self,
+        step: SkillStep,
+        args: dict[str, Any],
+        *,
+        role: Any,
+        actor: str,
+    ) -> str:
+        """Poll a tool repeatedly until its output matches a regex pattern.
+
+        Required args:
+          - tool: name of the tool to poll
+          - match: regex pattern to match against tool output
+          - timeout_seconds: max time to wait (default 300)
+          - poll_interval: seconds between polls (default 10)
+        """
+        from hpc_pilot.dispatch import invoke
+        import re as _re
+
+        target_tool: str = str(args.get("tool", ""))
+        pattern: str = str(args.get("match", ""))
+        timeout: int = int(args.get("timeout_seconds", 300))
+        interval: int = int(args.get("poll_interval", 10))
+
+        deadline = time.monotonic() + timeout
+        poll_args = {k: v for k, v in args.items() if k not in ("match", "timeout_seconds", "poll_interval", "tool")}
+        results: list[str] = []
+        while time.monotonic() < deadline:
+            try:
+                output = invoke(target_tool, poll_args, role=role, actor=actor)
+                results.append(output)
+                if _re.search(pattern, output):
+                    return f"wait_until matched after {len(results)} poll(s):\n{output}"
+            except Exception:
+                pass
+            time.sleep(min(interval, deadline - time.monotonic()))
+
+        return (
+            f"wait_until timed out after {timeout}s ({len(results)} polls). "
+            f"Pattern '{pattern}' never matched. Last output:\n{results[-1] if results else '(no output)'}"
+        )
+
+    def _execute_for_each(
+        self,
+        step: SkillStep,
+        args: dict[str, Any],
+        *,
+        role: Any,
+        actor: str,
+    ) -> str:
+        """Run a tool once per item in a list from the context.
+
+        Required args:
+          - tool: name of the tool to invoke for each item
+          - items: list to iterate over (from ctx, e.g. ctx[step_id])
+          - item_key: key in args where each item value is injected (default "item")
+        """
+        from hpc_pilot.dispatch import invoke
+
+        target_tool: str = str(args.get("tool", ""))
+        items_raw: Any = args.get("items", "")
+        item_key: str = str(args.get("item_key", "item"))
+
+        # Resolve items from context if items is a string reference like ctx[step_id]
+        if isinstance(items_raw, str) and items_raw.startswith("ctx["):
+            ctx_key = items_raw[4:-1]
+            items_arr = ctx.get(ctx_key, [])
+        elif isinstance(items_raw, list):
+            items_arr = items_raw
+        elif isinstance(items_raw, str):
+            items_arr = [items_raw]
+        else:
+            items_arr = []
+
+        if not isinstance(items_arr, (list, tuple)):
+            return f"for_each: items must be a list, got {type(items_arr).__name__}"
+
+        outputs: list[str] = []
+        for i, item in enumerate(items_arr):
+            item_args = dict(args)
+            item_args[item_key] = item
+            item_args.pop("items", None)
+            item_args.pop("items_raw", None)
+            item_args.pop("tool", None)
+            item_args.pop("item_key", None)
+            try:
+                output = invoke(target_tool, item_args, role=role, actor=actor)
+                outputs.append(f"[{i}] {item}: {output}")
+            except Exception as exc:
+                outputs.append(f"[{i}] {item}: ERROR: {exc}")
+
+        return "\n".join(outputs) if outputs else "(no items)"
 
 
 # ---------------------------------------------------------------------------

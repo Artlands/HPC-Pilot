@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 import os
+import time
 from unittest.mock import MagicMock, patch
 
 
@@ -45,6 +46,11 @@ class TestAuditSinks:
         sink = HttpSink("http://example.com/audit")
         record = {"ts": 3000, "tool": "test", "actor": "carol", "role": "viewer"}
         sink.write(record)
+
+        # The background consumer thread may not have processed the queue yet.
+        deadline = time.monotonic() + 2.0
+        while not mock_urlopen.called and time.monotonic() < deadline:
+            time.sleep(0.05)
 
         mock_urlopen.assert_called_once()
         called_req = mock_urlopen.call_args[0][0]

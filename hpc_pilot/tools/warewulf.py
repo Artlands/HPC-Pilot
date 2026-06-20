@@ -1,4 +1,5 @@
 """Warewulf tools and output parsers."""
+
 from __future__ import annotations
 
 import contextlib
@@ -10,6 +11,8 @@ import subprocess
 from typing import Any, cast
 
 from hpc_pilot.paths import get_home
+from hpc_pilot.rbac import Role
+from hpc_pilot.tools._registry import hpc_tool
 from hpc_pilot.tools._run import _resolve_cluster, _run
 from hpc_pilot.tools._validation import _validate
 
@@ -18,12 +21,41 @@ from hpc_pilot.tools._validation import _validate
 # ===================================================================
 
 
+@hpc_tool(
+    name="hpc_warewulf_image_list",
+    role=Role.VIEWER,
+    schema={
+        "name": "hpc_warewulf_image_list",
+        "description": "List available Warewulf container images.",
+        "input_schema": {
+            "type": "object",
+            "properties": {},
+            "required": [],
+        },
+    },
+)
 def hpc_warewulf_image_list(*, cluster: str = "default") -> str:
     """Return wwctl image list output."""
     cl = _resolve_cluster(cluster)
     return _run([cl.warewulf("wwctl"), "image", "list"], cluster=cl)
 
 
+@hpc_tool(
+    name="hpc_warewulf_image_import",
+    role=Role.ADMIN,
+    schema={
+        "name": "hpc_warewulf_image_import",
+        "description": "Import a container image into Warewulf (wwctl image import).",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "name": {"type": "string", "description": "Image name"},
+                "source": {"type": "string", "description": "Source path/URL of the image"},
+            },
+            "required": ["name", "source"],
+        },
+    },
+)
 def hpc_warewulf_image_import(
     name: str, source: str, *, cluster: str = "default", dry_run: bool = False
 ) -> str:
@@ -42,6 +74,28 @@ def hpc_warewulf_image_import(
     )
 
 
+@hpc_tool(
+    name="hpc_warewulf_image_build",
+    role=Role.ADMIN,
+    schema={
+        "name": "hpc_warewulf_image_build",
+        "description": "Build a Warewulf container image. Computes a spec_hash from the build parameters and caches results in ~/.hpc-pilot/warewulf/builds/.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "name": {"type": "string", "description": "Image name to build"},
+                "base": {"type": "string", "description": "Base image name"},
+                "exec_steps": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "Build execution steps/commands",
+                },
+                "gpu": {"type": "boolean", "description": "Include GPU support (default: false)"},
+            },
+            "required": ["name", "base"],
+        },
+    },
+)
 def hpc_warewulf_image_build(
     name: str,
     base: str,
@@ -96,9 +150,7 @@ def hpc_warewulf_image_build(
         cmd.append("--gpu")
 
     try:
-        result = subprocess.run(
-            cmd, capture_output=True, text=True, timeout=600
-        )
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=600)
         with open(log_path, "w") as f:
             f.write(result.stdout)
             if result.stderr:
@@ -146,9 +198,20 @@ def hpc_warewulf_image_build(
     return meta
 
 
-def hpc_warewulf_image_delete(
-    name: str, *, cluster: str = "default", dry_run: bool = False
-) -> str:
+@hpc_tool(
+    name="hpc_warewulf_image_delete",
+    role=Role.ADMIN,
+    schema={
+        "name": "hpc_warewulf_image_delete",
+        "description": "Delete a Warewulf image (wwctl image delete).",
+        "input_schema": {
+            "type": "object",
+            "properties": {"name": {"type": "string", "description": "Image name to delete"}},
+            "required": ["name"],
+        },
+    },
+)
+def hpc_warewulf_image_delete(name: str, *, cluster: str = "default", dry_run: bool = False) -> str:
     """Delete a Warewulf image.
 
     ``wwctl image delete <name>``
@@ -167,15 +230,39 @@ def hpc_warewulf_image_delete(
 # ===================================================================
 
 
+@hpc_tool(
+    name="hpc_warewulf_node_status",
+    role=Role.VIEWER,
+    schema={
+        "name": "hpc_warewulf_node_status",
+        "description": "List Warewulf-provisioned nodes with their assigned boot images.",
+        "input_schema": {
+            "type": "object",
+            "properties": {},
+            "required": [],
+        },
+    },
+)
 def hpc_warewulf_node_status(*, cluster: str = "default") -> str:
     """Return wwctl node list output."""
     cl = _resolve_cluster(cluster)
     return _run([cl.warewulf("wwctl"), "node", "list"], cluster=cl)
 
 
-def hpc_warewulf_node_show(
-    name: str, *, cluster: str = "default"
-) -> list[dict[str, str]]:
+@hpc_tool(
+    name="hpc_warewulf_node_show",
+    role=Role.VIEWER,
+    schema={
+        "name": "hpc_warewulf_node_show",
+        "description": "Show detailed Warewulf node configuration (wwctl node show).",
+        "input_schema": {
+            "type": "object",
+            "properties": {"name": {"type": "string", "description": "Node name"}},
+            "required": ["name"],
+        },
+    },
+)
+def hpc_warewulf_node_show(name: str, *, cluster: str = "default") -> list[dict[str, str]]:
     """Show detailed node configuration.
 
     ``wwctl node show <name>``, returns structured parsed output.
@@ -186,6 +273,24 @@ def hpc_warewulf_node_show(
     return _parse_key_value_sections(raw)
 
 
+@hpc_tool(
+    name="hpc_warewulf_node_add",
+    role=Role.ADMIN,
+    schema={
+        "name": "hpc_warewulf_node_add",
+        "description": "Add a new Warewulf node definition.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "name": {"type": "string", "description": "Node name"},
+                "mac": {"type": "string", "description": "MAC address of the node"},
+                "ipaddr": {"type": "string", "description": "IP address of the node"},
+                "profile": {"type": "string", "description": "Profile to assign to the node"},
+            },
+            "required": ["name", "mac", "ipaddr"],
+        },
+    },
+)
 def hpc_warewulf_node_add(
     name: str,
     mac: str,
@@ -204,7 +309,10 @@ def hpc_warewulf_node_add(
     _validate(ipaddr, "IP address")
     cl = _resolve_cluster(cluster)
     cmd = [
-        cl.warewulf("wwctl"), "node", "add", name,
+        cl.warewulf("wwctl"),
+        "node",
+        "add",
+        name,
         f"--mac={mac}",
         f"--ipaddr={ipaddr}",
     ]
@@ -214,6 +322,25 @@ def hpc_warewulf_node_add(
     return _run(cmd, cluster=cl, dry_run=dry_run)
 
 
+@hpc_tool(
+    name="hpc_warewulf_node_set",
+    role=Role.ADMIN,
+    schema={
+        "name": "hpc_warewulf_node_set",
+        "description": "Update a Warewulf node definition (wwctl node set). Pass any node property as a keyword argument (mac, ipaddr, profile, image, etc).",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "name": {"type": "string", "description": "Node name"},
+                "mac": {"type": "string", "description": "MAC address"},
+                "ipaddr": {"type": "string", "description": "IP address"},
+                "profile": {"type": "string", "description": "Profile name"},
+                "image": {"type": "string", "description": "Image name"},
+            },
+            "required": ["name"],
+        },
+    },
+)
 def hpc_warewulf_node_set(
     name: str, *, cluster: str = "default", dry_run: bool = False, **kwargs: str
 ) -> str:
@@ -231,6 +358,34 @@ def hpc_warewulf_node_set(
     return _run(cmd, cluster=cl, dry_run=dry_run)
 
 
+@hpc_tool(
+    name="hpc_warewulf_node_add_bulk",
+    role=Role.ADMIN,
+    schema={
+        "name": "hpc_warewulf_node_add_bulk",
+        "description": "Add multiple Warewulf node definitions at once. Each node requires name, mac, ipaddr; profile is optional. Use this instead of repeated single node_add calls when provisioning many nodes.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "nodes": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "name": {"type": "string", "description": "Node name"},
+                            "mac": {"type": "string", "description": "MAC address"},
+                            "ipaddr": {"type": "string", "description": "IP address"},
+                            "profile": {"type": "string", "description": "Optional profile name"},
+                        },
+                        "required": ["name", "mac", "ipaddr"],
+                    },
+                    "description": "List of node definitions to add",
+                }
+            },
+            "required": ["nodes"],
+        },
+    },
+)
 def hpc_warewulf_node_add_bulk(
     nodes: list[dict[str, str]],
     *,
@@ -263,7 +418,10 @@ def hpc_warewulf_node_add_bulk(
 
         cl = _resolve_cluster(cluster)
         cmd = [
-            cl.warewulf("wwctl"), "node", "add", name,
+            cl.warewulf("wwctl"),
+            "node",
+            "add",
+            name,
             f"--mac={mac}",
             f"--ipaddr={ipaddr}",
         ]
@@ -278,9 +436,20 @@ def hpc_warewulf_node_add_bulk(
     return "\n".join(lines)
 
 
-def hpc_warewulf_node_delete(
-    name: str, *, cluster: str = "default", dry_run: bool = False
-) -> str:
+@hpc_tool(
+    name="hpc_warewulf_node_delete",
+    role=Role.ADMIN,
+    schema={
+        "name": "hpc_warewulf_node_delete",
+        "description": "Remove a Warewulf node definition (wwctl node delete).",
+        "input_schema": {
+            "type": "object",
+            "properties": {"name": {"type": "string", "description": "Node name to delete"}},
+            "required": ["name"],
+        },
+    },
+)
+def hpc_warewulf_node_delete(name: str, *, cluster: str = "default", dry_run: bool = False) -> str:
     """Remove a Warewulf node definition.
 
     ``wwctl node delete <name>``
@@ -299,6 +468,19 @@ def hpc_warewulf_node_delete(
 # ===================================================================
 
 
+@hpc_tool(
+    name="hpc_warewulf_power_reset",
+    role=Role.ADMIN,
+    schema={
+        "name": "hpc_warewulf_power_reset",
+        "description": "Power-reset a Warewulf node so it PXE-boots from its assigned image. This is disruptive \u2014 use dry_run=true to preview first.",
+        "input_schema": {
+            "type": "object",
+            "properties": {"node": {"type": "string", "description": "Node name"}},
+            "required": ["node"],
+        },
+    },
+)
 def hpc_warewulf_power_reset(node: str, dry_run: bool = False, *, cluster: str = "default") -> str:
     """Power-reset a Warewulf node so it PXE-boots from its assigned image."""
     _validate(node, "node name")
@@ -311,9 +493,20 @@ def hpc_warewulf_power_reset(node: str, dry_run: bool = False, *, cluster: str =
     )
 
 
-def hpc_warewulf_power_status(
-    node: str, *, cluster: str = "default"
-) -> str:
+@hpc_tool(
+    name="hpc_warewulf_power_status",
+    role=Role.VIEWER,
+    schema={
+        "name": "hpc_warewulf_power_status",
+        "description": "Return power status of a Warewulf node (wwctl power status).",
+        "input_schema": {
+            "type": "object",
+            "properties": {"node": {"type": "string", "description": "Node name"}},
+            "required": ["node"],
+        },
+    },
+)
+def hpc_warewulf_power_status(node: str, *, cluster: str = "default") -> str:
     """Return power status of a Warewulf node.
 
     ``wwctl power status <node>``
@@ -326,9 +519,20 @@ def hpc_warewulf_power_status(
     )
 
 
-def hpc_warewulf_power_on(
-    node: str, *, cluster: str = "default", dry_run: bool = False
-) -> str:
+@hpc_tool(
+    name="hpc_warewulf_power_on",
+    role=Role.ADMIN,
+    schema={
+        "name": "hpc_warewulf_power_on",
+        "description": "Power on a Warewulf node (wwctl power on).",
+        "input_schema": {
+            "type": "object",
+            "properties": {"node": {"type": "string", "description": "Node name"}},
+            "required": ["node"],
+        },
+    },
+)
+def hpc_warewulf_power_on(node: str, *, cluster: str = "default", dry_run: bool = False) -> str:
     """Power on a Warewulf node.
 
     ``wwctl power on <node>``
@@ -342,9 +546,20 @@ def hpc_warewulf_power_on(
     )
 
 
-def hpc_warewulf_power_off(
-    node: str, *, cluster: str = "default", dry_run: bool = False
-) -> str:
+@hpc_tool(
+    name="hpc_warewulf_power_off",
+    role=Role.ADMIN,
+    schema={
+        "name": "hpc_warewulf_power_off",
+        "description": "Power off a Warewulf node (wwctl power off).",
+        "input_schema": {
+            "type": "object",
+            "properties": {"node": {"type": "string", "description": "Node name"}},
+            "required": ["node"],
+        },
+    },
+)
+def hpc_warewulf_power_off(node: str, *, cluster: str = "default", dry_run: bool = False) -> str:
     """Power off a Warewulf node.
 
     ``wwctl power off <node>``
@@ -363,6 +578,19 @@ def hpc_warewulf_power_off(
 # ===================================================================
 
 
+@hpc_tool(
+    name="hpc_warewulf_profile_list",
+    role=Role.VIEWER,
+    schema={
+        "name": "hpc_warewulf_profile_list",
+        "description": "List Warewulf profiles (wwctl profile list).",
+        "input_schema": {
+            "type": "object",
+            "properties": {},
+            "required": [],
+        },
+    },
+)
 def hpc_warewulf_profile_list(*, cluster: str = "default") -> str:
     """List Warewulf profiles.
 
@@ -372,6 +600,26 @@ def hpc_warewulf_profile_list(*, cluster: str = "default") -> str:
     return _run([cl.warewulf("wwctl"), "profile", "list"], cluster=cl)
 
 
+@hpc_tool(
+    name="hpc_warewulf_profile_set",
+    role=Role.ADMIN,
+    schema={
+        "name": "hpc_warewulf_profile_set",
+        "description": "Update a Warewulf profile (wwctl profile set). Pass any profile property as a keyword argument.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "name": {"type": "string", "description": "Profile name"},
+                "image": {
+                    "type": "string",
+                    "description": "Default image for nodes using this profile",
+                },
+                "network": {"type": "string", "description": "Network configuration"},
+            },
+            "required": ["name"],
+        },
+    },
+)
 def hpc_warewulf_profile_set(
     name: str, *, cluster: str = "default", dry_run: bool = False, **kwargs: str
 ) -> str:
@@ -403,11 +651,28 @@ def _validate_path_safe(path: str) -> str:
     Returns the normalized relative path.
     """
     normalized = os.path.normpath(path).lstrip("/")
-    if normalized.startswith("..") or normalized.startswith("/") or ".." in normalized.split(os.sep):
+    if (
+        normalized.startswith("..")
+        or normalized.startswith("/")
+        or ".." in normalized.split(os.sep)
+    ):
         raise ValueError(f"Path traversal detected: {path!r}")
     return normalized
 
 
+@hpc_tool(
+    name="hpc_warewulf_overlay_list",
+    role=Role.VIEWER,
+    schema={
+        "name": "hpc_warewulf_overlay_list",
+        "description": "List Warewulf overlays (wwctl overlay list).",
+        "input_schema": {
+            "type": "object",
+            "properties": {},
+            "required": [],
+        },
+    },
+)
 def hpc_warewulf_overlay_list(*, cluster: str = "default") -> str:
     """List Warewulf overlays.
 
@@ -417,6 +682,23 @@ def hpc_warewulf_overlay_list(*, cluster: str = "default") -> str:
     return _run([cl.warewulf("wwctl"), "overlay", "list"], cluster=cl)
 
 
+@hpc_tool(
+    name="hpc_warewulf_overlay_edit",
+    role=Role.ADMIN,
+    schema={
+        "name": "hpc_warewulf_overlay_edit",
+        "description": "Edit a file inside a Warewulf overlay. Writes content to the overlay staging directory, commits to git, and rebuilds the overlay. Returns status dict.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "overlay": {"type": "string", "description": "Overlay name"},
+                "path": {"type": "string", "description": "File path within the overlay"},
+                "content": {"type": "string", "description": "File content to write"},
+            },
+            "required": ["overlay", "path", "content"],
+        },
+    },
+)
 def hpc_warewulf_overlay_edit(
     overlay: str,
     path: str,
@@ -461,26 +743,41 @@ def hpc_warewulf_overlay_edit(
         if git_init:
             subprocess.run(
                 ["git", "init"],
-                cwd=git_dir, capture_output=True, text=True, timeout=30,
+                cwd=git_dir,
+                capture_output=True,
+                text=True,
+                timeout=30,
                 check=True,
             )
             subprocess.run(
                 ["git", "config", "user.name", "HPC Pilot"],
-                cwd=git_dir, capture_output=True, text=True, timeout=30,
+                cwd=git_dir,
+                capture_output=True,
+                text=True,
+                timeout=30,
             )
             subprocess.run(
                 ["git", "config", "user.email", "hpc-pilot@localhost"],
-                cwd=git_dir, capture_output=True, text=True, timeout=30,
+                cwd=git_dir,
+                capture_output=True,
+                text=True,
+                timeout=30,
             )
 
         subprocess.run(
             ["git", "add", safe_path],
-            cwd=git_dir, capture_output=True, text=True, timeout=30,
+            cwd=git_dir,
+            capture_output=True,
+            text=True,
+            timeout=30,
             check=True,
         )
         commit_result = subprocess.run(
             ["git", "commit", "-m", f"overlay edit: {overlay}/{safe_path}"],
-            cwd=git_dir, capture_output=True, text=True, timeout=30,
+            cwd=git_dir,
+            capture_output=True,
+            text=True,
+            timeout=30,
         )
         if commit_result.returncode != 0:
             commit_hash = "(no changes to commit)"
@@ -489,9 +786,14 @@ def hpc_warewulf_overlay_edit(
             try:
                 log_result = subprocess.run(
                     ["git", "rev-parse", "--short", "HEAD"],
-                    cwd=git_dir, capture_output=True, text=True, timeout=10,
+                    cwd=git_dir,
+                    capture_output=True,
+                    text=True,
+                    timeout=10,
                 )
-                commit_hash = log_result.stdout.strip() if log_result.returncode == 0 else "(unknown)"
+                commit_hash = (
+                    log_result.stdout.strip() if log_result.returncode == 0 else "(unknown)"
+                )
             except Exception:
                 commit_hash = "(unknown)"
 
@@ -517,7 +819,10 @@ def hpc_warewulf_overlay_edit(
     try:
         diff_result = subprocess.run(
             ["git", "diff", "--name-status", "HEAD~1..HEAD"],
-            cwd=git_dir, capture_output=True, text=True, timeout=10,
+            cwd=git_dir,
+            capture_output=True,
+            text=True,
+            timeout=10,
         )
         files_changed = [
             line.strip() for line in diff_result.stdout.splitlines() if line.strip()
@@ -533,6 +838,19 @@ def hpc_warewulf_overlay_edit(
     }
 
 
+@hpc_tool(
+    name="hpc_warewulf_overlay_build",
+    role=Role.OPERATOR,
+    schema={
+        "name": "hpc_warewulf_overlay_build",
+        "description": "Build a Warewulf overlay (wwctl overlay build).",
+        "input_schema": {
+            "type": "object",
+            "properties": {"overlay": {"type": "string", "description": "Overlay name"}},
+            "required": ["overlay"],
+        },
+    },
+)
 def hpc_warewulf_overlay_build(
     overlay: str, *, cluster: str = "default", dry_run: bool = False
 ) -> str:
@@ -550,6 +868,25 @@ def hpc_warewulf_overlay_build(
     )
 
 
+@hpc_tool(
+    name="hpc_warewulf_overlay_revert",
+    role=Role.ADMIN,
+    schema={
+        "name": "hpc_warewulf_overlay_revert",
+        "description": "Revert an overlay to a prior git commit and rebuild. The overlay must have git history (created by overlay_edit).",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "overlay": {"type": "string", "description": "Overlay name"},
+                "commit": {
+                    "type": "string",
+                    "description": "Git commit ref to revert to (default: HEAD)",
+                },
+            },
+            "required": ["overlay"],
+        },
+    },
+)
 def hpc_warewulf_overlay_revert(
     overlay: str, *, commit: str = "HEAD", cluster: str = "default", dry_run: bool = False
 ) -> dict[str, Any]:
@@ -580,13 +917,15 @@ def hpc_warewulf_overlay_revert(
     try:
         subprocess.run(
             ["git", "checkout", commit],
-            cwd=overlay_root, capture_output=True, text=True, timeout=30,
+            cwd=overlay_root,
+            capture_output=True,
+            text=True,
+            timeout=30,
             check=True,
         )
     except subprocess.CalledProcessError as exc:
         raise RuntimeError(
-            f"git checkout {commit} in overlay {overlay} failed: "
-            f"{exc.stderr.strip() or exc}"
+            f"git checkout {commit} in overlay {overlay} failed: " f"{exc.stderr.strip() or exc}"
         ) from exc
 
     cl = _resolve_cluster(cluster)
@@ -656,9 +995,7 @@ def _detect_external_edit() -> str:
     return ""
 
 
-def _apply_typed_updates(
-    config: dict[str, Any], updates: dict[str, Any]
-) -> bool:
+def _apply_typed_updates(config: dict[str, Any], updates: dict[str, Any]) -> bool:
     """Apply typed updates to *config* in-place.  Returns True if changed."""
     changed = False
     for key, value in updates.items():
@@ -681,6 +1018,23 @@ def _apply_typed_updates(
     return changed
 
 
+@hpc_tool(
+    name="hpc_warewulf_configure_dhcp",
+    role=Role.SUPERADMIN,
+    schema={
+        "name": "hpc_warewulf_configure_dhcp",
+        "description": "Configure Warewulf DHCP. Reads managed warewulf.conf, applies updates, copies to /etc/warewulf/warewulf.conf atomically, then runs wwctl configure dhcp. Superadmin only.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "range_start": {"type": "string", "description": "DHCP range start IP"},
+                "range_end": {"type": "string", "description": "DHCP range end IP"},
+                "template": {"type": "string", "description": "DHCP config template path"},
+            },
+            "required": [],
+        },
+    },
+)
 def hpc_warewulf_configure_dhcp(
     range_start: str | None = None,
     range_end: str | None = None,
@@ -762,8 +1116,7 @@ def hpc_warewulf_configure_dhcp(
             os.rename(tmp_path, etc_path)
     except OSError as exc:
         raise RuntimeError(
-            f"Failed to write {etc_path}: {exc}. "
-            "You may need superuser privileges."
+            f"Failed to write {etc_path}: {exc}. " "You may need superuser privileges."
         ) from exc
 
     # Run wwctl configure dhcp
@@ -782,9 +1135,20 @@ def hpc_warewulf_configure_dhcp(
     return result
 
 
-def hpc_warewulf_configure_tftp(
-    *, cluster: str = "default", dry_run: bool = False
-) -> str:
+@hpc_tool(
+    name="hpc_warewulf_configure_tftp",
+    role=Role.SUPERADMIN,
+    schema={
+        "name": "hpc_warewulf_configure_tftp",
+        "description": "Configure Warewulf TFTP (wwctl configure tftp). Superadmin only.",
+        "input_schema": {
+            "type": "object",
+            "properties": {},
+            "required": [],
+        },
+    },
+)
+def hpc_warewulf_configure_tftp(*, cluster: str = "default", dry_run: bool = False) -> str:
     """Configure Warewulf TFTP.
 
     ``wwctl configure tftp``
@@ -798,9 +1162,20 @@ def hpc_warewulf_configure_tftp(
     )
 
 
-def hpc_warewulf_configure_nfs(
-    *, cluster: str = "default", dry_run: bool = False
-) -> str:
+@hpc_tool(
+    name="hpc_warewulf_configure_nfs",
+    role=Role.SUPERADMIN,
+    schema={
+        "name": "hpc_warewulf_configure_nfs",
+        "description": "Configure Warewulf NFS exports (wwctl configure nfs). Superadmin only.",
+        "input_schema": {
+            "type": "object",
+            "properties": {},
+            "required": [],
+        },
+    },
+)
+def hpc_warewulf_configure_nfs(*, cluster: str = "default", dry_run: bool = False) -> str:
     """Configure Warewulf NFS exports.
 
     ``wwctl configure nfs``
@@ -819,9 +1194,20 @@ def hpc_warewulf_configure_nfs(
 # ===================================================================
 
 
-def hpc_warewulf_server_status(
-    *, cluster: str = "default"
-) -> dict[str, Any]:
+@hpc_tool(
+    name="hpc_warewulf_server_status",
+    role=Role.VIEWER,
+    schema={
+        "name": "hpc_warewulf_server_status",
+        "description": "Return Warewulf server status (wwctl server status + systemctl is-active warewulfd).",
+        "input_schema": {
+            "type": "object",
+            "properties": {},
+            "required": [],
+        },
+    },
+)
+def hpc_warewulf_server_status(*, cluster: str = "default") -> dict[str, Any]:
     """Return Warewulf server status.
 
     Runs ``wwctl server status`` and attempts ``systemctl is-active warewulfd``.
@@ -844,13 +1230,17 @@ def hpc_warewulf_server_status(
     try:
         is_active = subprocess.run(
             ["systemctl", "is-active", "warewulfd"],
-            capture_output=True, text=True, timeout=10,
+            capture_output=True,
+            text=True,
+            timeout=10,
         )
         result["systemctl_active"] = is_active.stdout.strip()
         result["systemctl_enabled"] = "unknown"
         is_enabled = subprocess.run(
             ["systemctl", "is-enabled", "warewulfd"],
-            capture_output=True, text=True, timeout=10,
+            capture_output=True,
+            text=True,
+            timeout=10,
         )
         result["systemctl_enabled"] = is_enabled.stdout.strip()
     except (FileNotFoundError, subprocess.TimeoutExpired, OSError) as exc:

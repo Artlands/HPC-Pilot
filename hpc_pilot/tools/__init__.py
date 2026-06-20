@@ -4,6 +4,7 @@ All hpc_* tool functions are importable directly from ``hpc_pilot.tools``.
 Internal helpers (_run, _validate, check_*) are also re-exported so that
 existing test patches targeting ``hpc_pilot.tools.<name>`` continue to work.
 """
+
 from __future__ import annotations
 
 # Make subprocess patchable at hpc_pilot.tools.subprocess
@@ -38,6 +39,7 @@ from hpc_pilot.tools.ansible import (  # noqa: F401
     hpc_ansible_run_history,
     hpc_ansible_vault_decrypt,
 )
+from hpc_pilot.tools.evolve import hpc_self_evolve, hpc_self_evolve_create_pr  # noqa: F401
 from hpc_pilot.tools.health import hpc_cluster_health_check  # noqa: F401
 from hpc_pilot.tools.jobs import hpc_job_logs, hpc_job_status  # noqa: F401
 from hpc_pilot.tools.metrics import (  # noqa: F401
@@ -116,6 +118,26 @@ from hpc_pilot.tools.spack import (  # noqa: F401
     hpc_spack_uninstall,
     parse_spack_envs,
 )
+from hpc_pilot.tools.system import (  # noqa: F401
+    hpc_audit_query,
+    hpc_config_backup,
+    hpc_job_submit_test,
+    hpc_login_node_processes,
+    hpc_multi_migration_plan,
+    hpc_notify,
+    hpc_slurm_job_step_metrics,
+    hpc_slurm_service,
+    hpc_storage_large_files,
+    hpc_storage_lustre_balance,
+    hpc_storage_quota_check,
+    hpc_storage_scrub_orphans,
+    hpc_system_ssh_key_deploy,
+    hpc_system_user_add,
+    hpc_system_user_delete,
+    hpc_system_user_group_add,
+    hpc_usage_vs_budget,
+    hpc_warewulf_image_build_from_env,
+)
 from hpc_pilot.tools.warewulf import (  # noqa: F401
     hpc_warewulf_configure_dhcp,
     hpc_warewulf_configure_nfs,
@@ -143,24 +165,3 @@ from hpc_pilot.tools.warewulf import (  # noqa: F401
     hpc_warewulf_server_status,
     parse_warewulf_nodes,
 )
-from hpc_pilot.tools.system import (  # noqa: F401
-    hpc_audit_query,
-    hpc_config_backup,
-    hpc_job_submit_test,
-    hpc_login_node_processes,
-    hpc_multi_migration_plan,
-    hpc_notify,
-    hpc_slurm_job_step_metrics,
-    hpc_slurm_service,
-    hpc_storage_large_files,
-    hpc_storage_lustre_balance,
-    hpc_storage_quota_check,
-    hpc_storage_scrub_orphans,
-    hpc_system_ssh_key_deploy,
-    hpc_system_user_add,
-    hpc_system_user_delete,
-    hpc_system_user_group_add,
-    hpc_usage_vs_budget,
-    hpc_warewulf_image_build_from_env,
-)
-from hpc_pilot.tools.evolve import hpc_self_evolve, hpc_self_evolve_create_pr  # noqa: F401

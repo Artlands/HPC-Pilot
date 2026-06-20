@@ -1,7 +1,7 @@
 """HPC system administration tools — user management, service controls, login node process inspection, storage utilities, audit querying, and config backup."""
+
 from __future__ import annotations
 
-import csv
 import io
 import json
 import os
@@ -11,14 +11,36 @@ import time
 from typing import Any
 
 from hpc_pilot.paths import get_home
+from hpc_pilot.rbac import Role
+from hpc_pilot.tools._registry import hpc_tool
 from hpc_pilot.tools._run import _resolve_cluster, _run
-from hpc_pilot.tools._validation import _validate, _USER_RE
+from hpc_pilot.tools._validation import _USER_RE, _validate
 
 # ===================================================================
 # Audit log query (S10)
 # ===================================================================
 
 
+@hpc_tool(
+    name="hpc_audit_query",
+    role=Role.VIEWER,
+    schema={
+        "name": "hpc_audit_query",
+        "description": "Search and filter the HPC-Pilot audit log. Returns matching records as JSON lines, newest first.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "tool": {"type": "string"},
+                "actor": {"type": "string"},
+                "role": {"type": "string"},
+                "error_only": {"type": "boolean"},
+                "since_ts": {"type": "number"},
+                "limit": {"type": "integer"},
+            },
+            "required": [],
+        },
+    },
+)
 def hpc_audit_query(
     tool: str = "",
     actor: str = "",
@@ -93,6 +115,30 @@ _SLURM_SERVICES = frozenset({"slurmctld", "slurmd", "slurmdbd"})
 _SLURM_ACTIONS = frozenset({"start", "stop", "restart", "status"})
 
 
+@hpc_tool(
+    name="hpc_slurm_service",
+    role=Role.ADMIN,
+    schema={
+        "name": "hpc_slurm_service",
+        "description": "Manage Slurm daemon service lifecycle via systemctl. Use for starting/stopping/restarting slurmctld, slurmd, or slurmdbd.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "service": {
+                    "type": "string",
+                    "enum": ["slurmctld", "slurmd", "slurmdbd"],
+                    "description": "Which Slurm daemon to manage",
+                },
+                "action": {
+                    "type": "string",
+                    "enum": ["start", "stop", "restart", "status"],
+                    "description": "Action to perform",
+                },
+            },
+            "required": ["service", "action"],
+        },
+    },
+)
 def hpc_slurm_service(
     service: str,
     action: str,
@@ -108,13 +154,9 @@ def hpc_slurm_service(
         dry_run: Preview without executing.
     """
     if service not in _SLURM_SERVICES:
-        raise ValueError(
-            f"Invalid service: {service!r}. Must be one of {sorted(_SLURM_SERVICES)}"
-        )
+        raise ValueError(f"Invalid service: {service!r}. Must be one of {sorted(_SLURM_SERVICES)}")
     if action not in _SLURM_ACTIONS:
-        raise ValueError(
-            f"Invalid action: {action!r}. Must be one of {sorted(_SLURM_ACTIONS)}"
-        )
+        raise ValueError(f"Invalid action: {action!r}. Must be one of {sorted(_SLURM_ACTIONS)}")
 
     cl = _resolve_cluster(cluster)
     cmd = ["systemctl", action, service]
@@ -126,6 +168,25 @@ def hpc_slurm_service(
 # ===================================================================
 
 
+@hpc_tool(
+    name="hpc_system_user_add",
+    role=Role.ADMIN,
+    schema={
+        "name": "hpc_system_user_add",
+        "description": "Create a UNIX user account on the login node (useradd). Used for onboarding new HPC users.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "username": {"type": "string", "description": "Username for the new account"},
+                "uid": {"type": "integer", "description": "Optional numeric UID"},
+                "groups": {"type": "string", "description": "Comma-separated supplementary groups"},
+                "shell": {"type": "string", "description": "Login shell (default /bin/bash)"},
+                "home": {"type": "string", "description": "Home directory path"},
+            },
+            "required": ["username"],
+        },
+    },
+)
 def hpc_system_user_add(
     username: str,
     uid: int | None = None,
@@ -162,6 +223,22 @@ def hpc_system_user_add(
     return _run(cmd, cluster=cl, dry_run=dry_run)
 
 
+@hpc_tool(
+    name="hpc_system_user_delete",
+    role=Role.ADMIN,
+    schema={
+        "name": "hpc_system_user_delete",
+        "description": "Delete a UNIX user account (userdel).",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "username": {"type": "string"},
+                "remove_home": {"type": "boolean", "description": "Also remove home directory"},
+            },
+            "required": ["username"],
+        },
+    },
+)
 def hpc_system_user_delete(
     username: str,
     remove_home: bool = False,
@@ -185,6 +262,22 @@ def hpc_system_user_delete(
     return _run(cmd, cluster=cl, dry_run=dry_run)
 
 
+@hpc_tool(
+    name="hpc_system_user_group_add",
+    role=Role.ADMIN,
+    schema={
+        "name": "hpc_system_user_group_add",
+        "description": "Add a user to a supplementary group (usermod -aG).",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "username": {"type": "string"},
+                "group": {"type": "string", "description": "Group name to add the user to"},
+            },
+            "required": ["username", "group"],
+        },
+    },
+)
 def hpc_system_user_group_add(
     username: str,
     group: str,
@@ -206,6 +299,22 @@ def hpc_system_user_group_add(
     return _run(cmd, cluster=cl, dry_run=dry_run)
 
 
+@hpc_tool(
+    name="hpc_system_ssh_key_deploy",
+    role=Role.ADMIN,
+    schema={
+        "name": "hpc_system_ssh_key_deploy",
+        "description": "Deploy an SSH public key to a user's authorized_keys on the login node.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "username": {"type": "string"},
+                "public_key": {"type": "string", "description": "SSH public key line to append"},
+            },
+            "required": ["username", "public_key"],
+        },
+    },
+)
 def hpc_system_ssh_key_deploy(
     username: str,
     public_key: str,
@@ -227,21 +336,22 @@ def hpc_system_ssh_key_deploy(
     _validate(username, "username", _USER_RE)
     if not public_key.startswith("ssh-") and not public_key.startswith("ecdsa-"):
         raise ValueError(
-            "public_key must start with 'ssh-' or 'ecdsa-' "
-            "(e.g. 'ssh-ed25519 AAA...')"
+            "public_key must start with 'ssh-' or 'ecdsa-' " "(e.g. 'ssh-ed25519 AAA...')"
         )
     cl = _resolve_cluster(cluster)
     home_dir = os.path.join("/home", username)
 
     # Build a chained command: create .ssh dir, set perms, append key
-    cmds = " && ".join([
-        f"mkdir -p {home_dir}/.ssh",
-        f"chmod 700 {home_dir}/.ssh",
-        f"touch {home_dir}/.ssh/authorized_keys",
-        f"chmod 600 {home_dir}/.ssh/authorized_keys",
-        f"grep -qF {_shkey(username, public_key)} {home_dir}/.ssh/authorized_keys "
-        f"|| echo {_shkey(username, public_key)} >> {home_dir}/.ssh/authorized_keys",
-    ])
+    cmds = " && ".join(
+        [
+            f"mkdir -p {home_dir}/.ssh",
+            f"chmod 700 {home_dir}/.ssh",
+            f"touch {home_dir}/.ssh/authorized_keys",
+            f"chmod 600 {home_dir}/.ssh/authorized_keys",
+            f"grep -qF {_shkey(username, public_key)} {home_dir}/.ssh/authorized_keys "
+            f"|| echo {_shkey(username, public_key)} >> {home_dir}/.ssh/authorized_keys",
+        ]
+    )
     return _run(["sh", "-c", cmds], cluster=cl, dry_run=dry_run)
 
 
@@ -249,6 +359,7 @@ def _shkey(username: str, key: str) -> str:
     """Shell-escape a key line for use in a grep/echo command."""
     # Use base64 to avoid shell escaping issues
     import shlex
+
     return shlex.quote(key.strip())
 
 
@@ -257,6 +368,26 @@ def _shkey(username: str, key: str) -> str:
 # ===================================================================
 
 
+@hpc_tool(
+    name="hpc_login_node_processes",
+    role=Role.OPERATOR,
+    schema={
+        "name": "hpc_login_node_processes",
+        "description": "List top resource-consuming processes on the login node. Use when investigating high load or unauthorized computation.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "sort_by": {
+                    "type": "string",
+                    "enum": ["cpu", "mem", "pid"],
+                    "description": "Sort field (default cpu)",
+                },
+                "limit": {"type": "integer", "description": "Number of processes (default 20)"},
+            },
+            "required": [],
+        },
+    },
+)
 def hpc_login_node_processes(
     sort_by: str = "cpu",
     limit: int = 20,
@@ -274,13 +405,13 @@ def hpc_login_node_processes(
     allowed_sort = {"cpu": "%cpu", "mem": "%mem", "pid": "pid"}
     sort_field = allowed_sort.get(sort_by)
     if sort_field is None:
-        raise ValueError(
-            f"Invalid sort_by: {sort_by!r}. Must be one of {sorted(allowed_sort)}"
-        )
+        raise ValueError(f"Invalid sort_by: {sort_by!r}. Must be one of {sorted(allowed_sort)}")
 
     cl = _resolve_cluster(cluster)
     cmd = [
-        "ps", "axo", "pid,user:12,%cpu,%mem,comm",
+        "ps",
+        "axo",
+        "pid,user:12,%cpu,%mem,comm",
         "--sort=-" + sort_field,
         "--no-headers",
     ]
@@ -299,6 +430,26 @@ def hpc_login_node_processes(
 # ===================================================================
 
 
+@hpc_tool(
+    name="hpc_storage_large_files",
+    role=Role.VIEWER,
+    schema={
+        "name": "hpc_storage_large_files",
+        "description": "Find the largest files under a directory. Useful for storage crisis triage.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "path": {"type": "string", "description": "Directory to search (e.g. /scratch)"},
+                "min_size_mb": {
+                    "type": "integer",
+                    "description": "Minimum file size in MB (default 100)",
+                },
+                "limit": {"type": "integer", "description": "Max results (default 50)"},
+            },
+            "required": ["path"],
+        },
+    },
+)
 def hpc_storage_large_files(
     path: str,
     min_size_mb: int = 100,
@@ -318,8 +469,14 @@ def hpc_storage_large_files(
     _validate(path, "path")
     cl = _resolve_cluster(cluster)
     cmd = [
-        "find", path, "-type", "f", "-size",
-        f"+{min_size_mb}M", "-printf", "%s\\t%p\\n",
+        "find",
+        path,
+        "-type",
+        "f",
+        "-size",
+        f"+{min_size_mb}M",
+        "-printf",
+        "%s\\t%p\\n",
     ]
     raw = _run(cmd, cluster=cl, timeout=120)
     lines = raw.strip().splitlines()
@@ -339,6 +496,19 @@ def hpc_storage_large_files(
     return out.getvalue().rstrip()
 
 
+@hpc_tool(
+    name="hpc_storage_quota_check",
+    role=Role.VIEWER,
+    schema={
+        "name": "hpc_storage_quota_check",
+        "description": "Check filesystem quotas via repquota on the login node.",
+        "input_schema": {
+            "type": "object",
+            "properties": {},
+            "required": [],
+        },
+    },
+)
 def hpc_storage_quota_check(
     *,
     cluster: str = "default",
@@ -357,6 +527,19 @@ def hpc_storage_quota_check(
 # ===================================================================
 
 
+@hpc_tool(
+    name="hpc_config_backup",
+    role=Role.ADMIN,
+    schema={
+        "name": "hpc_config_backup",
+        "description": "Snapshot current HPC configuration (Slurm, Warewulf, accounting) to a timestamped backup directory. Returns list of saved files.",
+        "input_schema": {
+            "type": "object",
+            "properties": {},
+            "required": [],
+        },
+    },
+)
 def hpc_config_backup(
     *,
     cluster: str = "default",
@@ -385,19 +568,37 @@ def hpc_config_backup(
         ("slurm_config.txt", [cl.slurm("scontrol"), "show", "config"]),
         ("slurm_partitions.txt", [cl.slurm("scontrol"), "show", "partition"]),
         ("slurm_reservations.txt", [cl.slurm("scontrol"), "show", "reservation"]),
-        ("slurm_associations.txt", [
-            cl.slurm("sacctmgr"), "--noheader", "show", "association",
-            "format=Account,User,Partition,QOS,GrpTRES",
-        ]),
+        (
+            "slurm_associations.txt",
+            [
+                cl.slurm("sacctmgr"),
+                "--noheader",
+                "show",
+                "association",
+                "format=Account,User,Partition,QOS,GrpTRES",
+            ],
+        ),
         ("warewulf_nodes.txt", [cl.warewulf("wwctl"), "node", "list"]),
-        ("slurm_accounts.txt", [
-            cl.slurm("sacctmgr"), "--noheader", "show", "account",
-            "format=Account,Descr,Org,Cluster",
-        ]),
-        ("slurm_qos.txt", [
-            cl.slurm("sacctmgr"), "--noheader", "show", "qos",
-            "format=Name,MaxWall,GrpTRES,MaxTRESPU,Flags",
-        ]),
+        (
+            "slurm_accounts.txt",
+            [
+                cl.slurm("sacctmgr"),
+                "--noheader",
+                "show",
+                "account",
+                "format=Account,Descr,Org,Cluster",
+            ],
+        ),
+        (
+            "slurm_qos.txt",
+            [
+                cl.slurm("sacctmgr"),
+                "--noheader",
+                "show",
+                "qos",
+                "format=Name,MaxWall,GrpTRES,MaxTRESPU,Flags",
+            ],
+        ),
     ]
 
     saved: list[str] = []
@@ -422,6 +623,24 @@ def hpc_config_backup(
 # ===================================================================
 
 
+@hpc_tool(
+    name="hpc_usage_vs_budget",
+    role=Role.VIEWER,
+    schema={
+        "name": "hpc_usage_vs_budget",
+        "description": "Compare a research group's actual resource usage against its QOS budget. Queries sacct for job history and sacctmgr for QOS GrpTRES limits. Returns CPU and GPU hours used vs allocated.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "account": {"type": "string", "description": "Slurm account name (e.g. astro-lab)"},
+                "qos_name": {"type": "string", "description": "QOS name (e.g. astro-lab-qos)"},
+                "start": {"type": "string", "description": "Start time e.g. 2026-01-01"},
+                "end": {"type": "string", "description": "End time (default: now)"},
+            },
+            "required": ["account", "qos_name"],
+        },
+    },
+)
 def hpc_usage_vs_budget(
     account: str,
     qos_name: str,
@@ -442,15 +661,21 @@ def hpc_usage_vs_budget(
         start: Start time for the usage window, e.g. ``2026-01-01`` (default: quarter-to-date).
         end: End time (default: now).
     """
-    import re
 
     cl = _resolve_cluster(cluster)
 
     # Get QOS limits
     qos_raw = _run(
-        [cl.slurm("sacctmgr"), "--noheader", "show", "qos", qos_name,
-         "format=Name,GrpTRES,MaxTRESPU"],
-        cluster=cl, timeout=30,
+        [
+            cl.slurm("sacctmgr"),
+            "--noheader",
+            "show",
+            "qos",
+            qos_name,
+            "format=Name,GrpTRES,MaxTRESPU",
+        ],
+        cluster=cl,
+        timeout=30,
     )
 
     qos_cpu = 0
@@ -473,12 +698,20 @@ def hpc_usage_vs_budget(
     if not start:
         start = "2026-01-01"
     sacct_raw = _run(
-        [cl.slurm("sacct"), "-P", "--format=JobID,User,Account,State,Elapsed,AllocTRES",
-         f"--start={start}"] + ([f"--end={end}"] if end else []) + [
-             "--accounts", account,
-             "-X",  # don't show job steps, only parent jobs
-         ],
-        cluster=cl, timeout=120,
+        [
+            cl.slurm("sacct"),
+            "-P",
+            "--format=JobID,User,Account,State,Elapsed,AllocTRES",
+            f"--start={start}",
+        ]
+        + ([f"--end={end}"] if end else [])
+        + [
+            "--accounts",
+            account,
+            "-X",  # don't show job steps, only parent jobs
+        ],
+        cluster=cl,
+        timeout=120,
     )
 
     total_cpu_seconds = 0
@@ -554,6 +787,30 @@ def hpc_usage_vs_budget(
 # ===================================================================
 
 
+@hpc_tool(
+    name="hpc_notify",
+    role=Role.OPERATOR,
+    schema={
+        "name": "hpc_notify",
+        "description": "Send a notification message via the HPC-Pilot Telegram or Discord gateway.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "message": {"type": "string", "description": "Message text to send"},
+                "platform": {
+                    "type": "string",
+                    "enum": ["telegram", "discord"],
+                    "description": "Platform (default telegram)",
+                },
+                "target": {
+                    "type": "string",
+                    "description": "Chat ID (Telegram) or channel ID (Discord)",
+                },
+            },
+            "required": ["message"],
+        },
+    },
+)
 def hpc_notify(
     message: str,
     platform: str = "telegram",
@@ -586,8 +843,6 @@ def hpc_notify(
             f"recipient in gateway settings."
         )
 
-    import subprocess
-
     env_path = os.path.join(get_home(), ".env")
     if not os.path.exists(env_path):
         return f"Notification not sent: no .env file at {env_path}"
@@ -595,6 +850,7 @@ def hpc_notify(
     # Use a simple curl-based approach for Telegram (most common)
     if platform == "telegram":
         import re
+
         token = None
         with open(env_path) as f:
             for line in f:
@@ -607,12 +863,14 @@ def hpc_notify(
         data = f"chat_id={target}&text={message}"
         subprocess.run(
             ["curl", "-s", "-X", "POST", url, "-d", data],
-            capture_output=True, timeout=15,
+            capture_output=True,
+            timeout=15,
         )
         return f"Notification sent via Telegram to {target}: {message[:100]}..."
 
     if platform == "discord":
         import re
+
         token = None
         with open(env_path) as f:
             for line in f:
@@ -624,12 +882,21 @@ def hpc_notify(
         # Discord webhook or REST
         data = f'{{"content":"{message}"}}'
         subprocess.run(
-            ["curl", "-s", "-X", "POST",
-             f"https://discord.com/api/v10/channels/{target}/messages",
-             "-H", f"Authorization: Bot {token}",
-             "-H", "Content-Type: application/json",
-             "-d", data],
-            capture_output=True, timeout=15,
+            [
+                "curl",
+                "-s",
+                "-X",
+                "POST",
+                f"https://discord.com/api/v10/channels/{target}/messages",
+                "-H",
+                f"Authorization: Bot {token}",
+                "-H",
+                "Content-Type: application/json",
+                "-d",
+                data,
+            ],
+            capture_output=True,
+            timeout=15,
         )
         return f"Notification sent via Discord to {target}: {message[:100]}..."
 
@@ -641,6 +908,32 @@ def hpc_notify(
 # ===================================================================
 
 
+@hpc_tool(
+    name="hpc_warewulf_image_build_from_env",
+    role=Role.ADMIN,
+    schema={
+        "name": "hpc_warewulf_image_build_from_env",
+        "description": "Build a Warewulf compute image with a Spack environment baked in. Imports the base image, installs Spack, activates the env, and builds.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "name": {"type": "string", "description": "Output image name"},
+                "base": {
+                    "type": "string",
+                    "description": "Base container image (default rockylinux:9)",
+                },
+                "spack_env": {"type": "string", "description": "Spack environment name to bake in"},
+                "exec_steps": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "Additional build commands",
+                },
+                "gpu": {"type": "boolean", "description": "Include GPU support"},
+            },
+            "required": ["name"],
+        },
+    },
+)
 def hpc_warewulf_image_build_from_env(
     name: str,
     base: str = "rockylinux:9",
@@ -674,7 +967,9 @@ def hpc_warewulf_image_build_from_env(
     # Step 1: import base image
     import_step = _run(
         [cl.warewulf("wwctl"), "image", "import", base, name],
-        cluster=cl, timeout=300, dry_run=dry_run,
+        cluster=cl,
+        timeout=300,
+        dry_run=dry_run,
     )
 
     # Step 2: build image with Spack env
@@ -683,7 +978,7 @@ def hpc_warewulf_image_build_from_env(
         env_path_guess = f"/shared/software/spack_envs/{spack_env}"
         spack_steps = [
             "dnf -y install spack 2>/dev/null || echo 'spack not in repo'",
-            f"[ -d /shared/spack ] && . /shared/spack/share/spack/setup-env.sh || true",
+            "[ -d /shared/spack ] && . /shared/spack/share/spack/setup-env.sh || true",
             f"spack env activate {spack_env} 2>/dev/null || spack env activate {env_path_guess} 2>/dev/null || true",
         ]
         steps = spack_steps + steps
@@ -691,7 +986,9 @@ def hpc_warewulf_image_build_from_env(
     build_args: dict[str, Any] = {}
     _run(
         build_cmd(cl, name, steps, gpu),
-        cluster=cl, timeout=600, dry_run=dry_run,
+        cluster=cl,
+        timeout=600,
+        dry_run=dry_run,
     )
 
     return f"Image '{name}' built from base '{base}'" + (
@@ -714,6 +1011,23 @@ def build_cmd(cl, name: str, exec_steps: list[str], gpu: bool) -> list[str]:
 # ===================================================================
 
 
+@hpc_tool(
+    name="hpc_job_submit_test",
+    role=Role.OPERATOR,
+    schema={
+        "name": "hpc_job_submit_test",
+        "description": "Submit a short validation test job via sbatch. Use after provisioning or image builds to verify the cluster works.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "partition": {"type": "string", "description": "Partition to submit to"},
+                "num_nodes": {"type": "integer", "description": "Number of nodes (default 1)"},
+                "ntasks": {"type": "integer", "description": "Number of tasks (default 1)"},
+            },
+            "required": [],
+        },
+    },
+)
 def hpc_job_submit_test(
     partition: str = "",
     num_nodes: int = 1,
@@ -745,15 +1059,17 @@ def hpc_job_submit_test(
     script += "#SBATCH --output=hpc-pilot-validate-%j.out\n"
     if partition:
         script += f"#SBATCH --partition={partition}\n"
-    script += "\necho \"Job started on $(hostname) at $(date)\"\n"
-    script += "echo \"SLURM_NODELIST=$SLURM_NODELIST\"\n"
+    script += '\necho "Job started on $(hostname) at $(date)"\n'
+    script += 'echo "SLURM_NODELIST=$SLURM_NODELIST"\n'
     script += "sleep 10\n"
-    script += "echo \"Job finished at $(date)\"\n"
+    script += 'echo "Job finished at $(date)"\n'
 
     if dry_run:
         return "DRY-RUN: would submit:\n" + script
 
-    with tempfile.NamedTemporaryFile(mode="w", suffix=".sh", delete=False, prefix="hpc-validate-") as f:
+    with tempfile.NamedTemporaryFile(
+        mode="w", suffix=".sh", delete=False, prefix="hpc-validate-"
+    ) as f:
         f.write(script)
         script_path = f.name
 
@@ -769,6 +1085,28 @@ def hpc_job_submit_test(
 # ===================================================================
 
 
+@hpc_tool(
+    name="hpc_storage_lustre_balance",
+    role=Role.VIEWER,
+    schema={
+        "name": "hpc_storage_lustre_balance",
+        "description": "Check Lustre OST balance and optionally migrate files off overfull OSTs. Reports per-OST usage and identifies imbalance.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "fs_name": {
+                    "type": "string",
+                    "description": "Lustre filesystem mount point (default /scratch)",
+                },
+                "min_migrate_size_mb": {
+                    "type": "integer",
+                    "description": "Min file size for migration in MB (default 10240)",
+                },
+            },
+            "required": [],
+        },
+    },
+)
 def hpc_storage_lustre_balance(
     fs_name: str = "/scratch",
     min_migrate_size_mb: int = 10240,
@@ -787,7 +1125,6 @@ def hpc_storage_lustre_balance(
         min_migrate_size_mb: Only migrate files larger than this (default 10240 = 10 GB).
         dry_run: Only report, don't actually migrate.
     """
-    import re
 
     cl = _resolve_cluster(cluster)
 
@@ -818,9 +1155,7 @@ def hpc_storage_lustre_balance(
     for ost in ost_usage:
         total_gb = round(ost["total"] / 1024, 1) if "total" in ost else 0
         used_gb = round(ost["used"] / 1024, 1) if "used" in ost else 0
-        out.append(
-            f"{ost['name']:20} {total_gb:>10.1f} {used_gb:>10.1f} {ost['pct']:>6.1f}%"
-        )
+        out.append(f"{ost['name']:20} {total_gb:>10.1f} {used_gb:>10.1f} {ost['pct']:>6.1f}%")
 
     # Stats
     pcts = [o["pct"] for o in ost_usage]
@@ -834,14 +1169,22 @@ def hpc_storage_lustre_balance(
             out.append(f"Overfull OSTs: {over_names}")
 
             if not dry_run:
-                out.append(f"\nRunning lfs_migrate for files > {min_migrate_size_mb}MB on overfull OSTs...")
+                out.append(
+                    f"\nRunning lfs_migrate for files > {min_migrate_size_mb}MB on overfull OSTs..."
+                )
                 for ost in overfull:
                     try:
                         migrate_raw = _run(
-                            ["lfs_migrate", "-c", ost["name"],
-                             "-s", str(min_migrate_size_mb * 1024),
-                             fs_name],
-                            cluster=cl, timeout=300,
+                            [
+                                "lfs_migrate",
+                                "-c",
+                                ost["name"],
+                                "-s",
+                                str(min_migrate_size_mb * 1024),
+                                fs_name,
+                            ],
+                            cluster=cl,
+                            timeout=300,
                         )
                         out.append(f"  {ost['name']}: {migrate_raw.strip()[:100]}")
                     except RuntimeError as exc:
@@ -857,6 +1200,28 @@ def hpc_storage_lustre_balance(
 # ===================================================================
 
 
+@hpc_tool(
+    name="hpc_storage_scrub_orphans",
+    role=Role.ADMIN,
+    schema={
+        "name": "hpc_storage_scrub_orphans",
+        "description": "Find orphaned job working directories older than a threshold. Dry-run by default \u2014 lists candidates without deleting. Use for storage cleanup review.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "work_dir": {
+                    "type": "string",
+                    "description": "Directory to scan (default /scratch)",
+                },
+                "max_age_days": {
+                    "type": "integer",
+                    "description": "Age threshold in days (default 30)",
+                },
+            },
+            "required": [],
+        },
+    },
+)
 def hpc_storage_scrub_orphans(
     work_dir: str = "/scratch",
     max_age_days: int = 30,
@@ -880,11 +1245,26 @@ def hpc_storage_scrub_orphans(
     # Look for directories matching common Slurm job patterns:
     #   job_<id>, <user>_<id>, slurm-<id>, or directories owned by batch users
     raw = _run(
-        ["find", work_dir, "-maxdepth", "2", "-type", "d",
-         "-mtime", f"+{max_age_days}",
-         "!", "-name", ".", "!", "-name", "..",
-         "-printf", "%T@\\t%u\\t%s\\t%p\\n"],
-        cluster=cl, timeout=120,
+        [
+            "find",
+            work_dir,
+            "-maxdepth",
+            "2",
+            "-type",
+            "d",
+            "-mtime",
+            f"+{max_age_days}",
+            "!",
+            "-name",
+            ".",
+            "!",
+            "-name",
+            "..",
+            "-printf",
+            "%T@\\t%u\\t%s\\t%p\\n",
+        ],
+        cluster=cl,
+        timeout=120,
     )
 
     lines = raw.strip().splitlines() if raw.strip() else []
@@ -898,6 +1278,7 @@ def hpc_storage_scrub_orphans(
     ]
 
     import time
+
     now = time.time()
     count = 0
     for line in lines[:200]:  # cap output
@@ -932,6 +1313,19 @@ def hpc_storage_scrub_orphans(
 # ===================================================================
 
 
+@hpc_tool(
+    name="hpc_slurm_job_step_metrics",
+    role=Role.VIEWER,
+    schema={
+        "name": "hpc_slurm_job_step_metrics",
+        "description": "Retrieve per-step resource metrics for a completed job via sacct. Returns CPU, memory, wall time per job step.",
+        "input_schema": {
+            "type": "object",
+            "properties": {"job_id": {"type": "string", "description": "Slurm job ID"}},
+            "required": ["job_id"],
+        },
+    },
+)
 def hpc_slurm_job_step_metrics(
     job_id: str,
     *,
@@ -946,17 +1340,26 @@ def hpc_slurm_job_step_metrics(
         job_id: Slurm job ID (e.g. ``481516``).
     """
     from hpc_pilot.tools._validation import _NAME_RE
+
     _validate(job_id, "job_id", _NAME_RE)
     cl = _resolve_cluster(cluster)
 
     raw = _run(
-        [cl.slurm("sacct"), "-j", job_id, "-P",
-         "--format=JobID,JobName,State,ExitCode,Elapsed,AllocCPUS,ReqMem,MaxRSS,MaxVMSize,NNodes"],
-        cluster=cl, timeout=30,
+        [
+            cl.slurm("sacct"),
+            "-j",
+            job_id,
+            "-P",
+            "--format=JobID,JobName,State,ExitCode,Elapsed,AllocCPUS,ReqMem,MaxRSS,MaxVMSize,NNodes",
+        ],
+        cluster=cl,
+        timeout=30,
     )
 
     out = io.StringIO()
-    out.write(f"{'JobID':18} {'State':12} {'Elapsed':12} {'CPUS':>5} {'MaxRSS':>12} {'MaxVM':>12} {'Nodes':>5}\n")
+    out.write(
+        f"{'JobID':18} {'State':12} {'Elapsed':12} {'CPUS':>5} {'MaxRSS':>12} {'MaxVM':>12} {'Nodes':>5}\n"
+    )
     out.write("-" * 80 + "\n")
 
     lines = raw.strip().splitlines()
@@ -974,7 +1377,9 @@ def hpc_slurm_job_step_metrics(
             maxrss = parts[7][:12]
             maxvm = parts[8][:12]
             nodes = parts[9][:5]
-            out.write(f"{step_id:18} {state:12} {elapsed:12} {cpus:>5} {maxrss:>12} {maxvm:>12} {nodes:>5}\n")
+            out.write(
+                f"{step_id:18} {state:12} {elapsed:12} {cpus:>5} {maxrss:>12} {maxvm:>12} {nodes:>5}\n"
+            )
 
     return out.getvalue().rstrip()
 
@@ -984,6 +1389,22 @@ def hpc_slurm_job_step_metrics(
 # ===================================================================
 
 
+@hpc_tool(
+    name="hpc_multi_migration_plan",
+    role=Role.VIEWER,
+    schema={
+        "name": "hpc_multi_migration_plan",
+        "description": "Analyze feasibility of migrating jobs from one cluster to another. Compares partitions, QOS, and job counts. Use when planning maintenance or load-balancing across clusters.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "source_cluster": {"type": "string", "description": "Cluster to migrate from"},
+                "target_cluster": {"type": "string", "description": "Cluster to migrate to"},
+            },
+            "required": ["source_cluster", "target_cluster"],
+        },
+    },
+)
 def hpc_multi_migration_plan(
     source_cluster: str,
     target_cluster: str,
@@ -1004,15 +1425,18 @@ def hpc_multi_migration_plan(
 
     # Query both clusters in parallel
     partition_query = hpc_multi_query(
-        "hpc_slurm_partition_list", {},
+        "hpc_slurm_partition_list",
+        {},
         [source_cluster, target_cluster],
     )
     qos_query = hpc_multi_query(
-        "hpc_slurm_qos_list", {},
+        "hpc_slurm_qos_list",
+        {},
         [source_cluster, target_cluster],
     )
     queue_query = hpc_multi_query(
-        "hpc_slurm_queue", {},
+        "hpc_slurm_queue",
+        {},
         [source_cluster, target_cluster],
     )
 
@@ -1072,15 +1496,15 @@ def hpc_multi_migration_plan(
     out.append(f"  Running: {running}")
     out.append(f"  Pending: {pending}")
 
-    out.append(f"\nRecommendation:")
+    out.append("\nRecommendation:")
     if not missing:
         out.append(f"  ✅ All partitions on {source_cluster} exist on {target_cluster}.")
-        out.append(f"  Jobs can be migrated.")
+        out.append("  Jobs can be migrated.")
     else:
         out.append(f"  ⚠️  {len(missing)} partition(s) missing on target.")
-        out.append(f"  Jobs on these partitions must be re-queued into a compatible partition.")
+        out.append("  Jobs on these partitions must be re-queued into a compatible partition.")
 
     if dry_run:
-        out.append(f"\n(dry-run: no jobs were cancelled or requeued)")
+        out.append("\n(dry-run: no jobs were cancelled or requeued)")
 
     return "\n".join(out)

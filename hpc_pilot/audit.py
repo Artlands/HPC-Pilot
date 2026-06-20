@@ -1,10 +1,13 @@
 """Audit logging for HPC Pilot tool invocations."""
 from __future__ import annotations
 
+import fcntl
 import json
 import logging
 import os
+import queue
 import re
+import threading
 import time
 import urllib.request
 from collections.abc import Generator
@@ -58,7 +61,11 @@ class FileSink:
         try:
             os.makedirs(os.path.dirname(self.path), exist_ok=True)
             with open(self.path, "a") as f:
-                f.write(json.dumps(record) + "\n")
+                fcntl.flock(f.fileno(), fcntl.LOCK_EX)
+                try:
+                    f.write(json.dumps(record) + "\n")
+                finally:
+                    fcntl.flock(f.fileno(), fcntl.LOCK_UN)
         except OSError:
             pass
 
@@ -129,19 +136,57 @@ class SyslogSink:
 
 
 class HttpSink:
-    """POST audit records as JSON to a URL via urllib."""
+    """POST audit records as JSON to a URL via background queue + daemon thread.
+
+    ``write()`` pushes to an in-process queue and returns immediately.
+    A daemon consumer thread sends records to the remote endpoint.  On
+    backpressure (queue exceeds *max_queue*), records are dropped and
+    logged to stderr.
+    """
+
+    _MAX_QUEUE: int = 500
+    _SEND_TIMEOUT: int = 5
 
     def __init__(self, url: str, headers: dict[str, str] | None = None) -> None:
         self.url = url
         self.headers = dict(headers or {})
         if "Content-Type" not in self.headers:
             self.headers["Content-Type"] = "application/json"
+        self._queue: queue.Queue[bytes | None] = queue.Queue(maxsize=self._MAX_QUEUE)
+        self._consumer_started = False
+        self._lock = threading.Lock()
+
+    def _start_consumer(self) -> None:
+        with self._lock:
+            if self._consumer_started:
+                return
+            self._consumer_started = True
+
+        def _consumer() -> None:
+            while True:
+                data = self._queue.get()
+                if data is None:  # sentinel — shutdown
+                    self._queue.task_done()
+                    break
+                try:
+                    req = urllib.request.Request(self.url, data=data, headers=self.headers, method="POST")
+                    urllib.request.urlopen(req, timeout=self._SEND_TIMEOUT)
+                except Exception:
+                    pass  # swallow per-sink errors
+                finally:
+                    self._queue.task_done()
+
+        t = threading.Thread(target=_consumer, daemon=True, name="http-sink-consumer")
+        t.start()
 
     def write(self, record: dict[str, Any]) -> None:
         try:
+            self._start_consumer()
             data = json.dumps(record, default=str).encode("utf-8")
-            req = urllib.request.Request(self.url, data=data, headers=self.headers, method="POST")
-            urllib.request.urlopen(req, timeout=5)
+            self._queue.put(data, timeout=0.5)
+        except queue.Full:
+            import sys
+            print("HttpSink: queue full, dropping audit record", file=sys.stderr)
         except Exception:
             pass
 
@@ -273,6 +318,51 @@ def log_llm_usage(
         usage={"input_tokens": input_tokens, "output_tokens": output_tokens},
     )
     log_audit(event)
+
+
+def prune_audit_log(older_than_days: float = 90) -> int:
+    """Remove audit log entries older than *older_than_days* days.
+
+    Returns the number of records removed.  Rewrites the file in place.
+    """
+    import shutil
+
+    path = audit_log_path()
+    if not os.path.exists(path):
+        return 0
+
+    cutoff = time.time() - (older_than_days * 86400)
+    tmp_path = path + ".tmp"
+    kept = 0
+    pruned = 0
+
+    try:
+        with open(path) as src, open(tmp_path, "w") as dst:
+            for line in src:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    rec = json.loads(line)
+                    ts = rec.get("ts", 0)
+                    if ts < cutoff:
+                        pruned += 1
+                        continue
+                except json.JSONDecodeError:
+                    pruned += 1
+                    continue
+                dst.write(line + "\n")
+                kept += 1
+
+        shutil.move(tmp_path, path)
+        return pruned
+    except OSError:
+        try:
+            if os.path.exists(tmp_path):
+                os.unlink(tmp_path)
+        except OSError:
+            pass
+        return 0
 
 
 @contextmanager

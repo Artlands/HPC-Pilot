@@ -1,10 +1,13 @@
 """Cluster health check — composes all subsystem checks."""
+
 from __future__ import annotations
 
 import datetime
 from contextlib import suppress
 from typing import Any
 
+from hpc_pilot.rbac import Role
+from hpc_pilot.tools._registry import hpc_tool
 from hpc_pilot.tools._run import (
     _resolve_cluster,
     _run,
@@ -16,6 +19,19 @@ from hpc_pilot.tools._run import (
 from hpc_pilot.tools.slurm import parse_node_state_histogram, parse_slurm_nodes
 
 
+@hpc_tool(
+    name="hpc_cluster_health_check",
+    role=Role.VIEWER,
+    schema={
+        "name": "hpc_cluster_health_check",
+        "description": "Run a comprehensive health check across all installed cluster components (Slurm, Warewulf, Spack, Ansible). Reports status and any detected issues.",
+        "input_schema": {
+            "type": "object",
+            "properties": {},
+            "required": [],
+        },
+    },
+)
 def hpc_cluster_health_check(*, cluster: str = "default") -> dict[str, Any]:
     """Run a comprehensive cluster health check across all installed components."""
     cl = _resolve_cluster(cluster)
@@ -69,6 +85,7 @@ def hpc_cluster_health_check(*, cluster: str = "default") -> dict[str, Any]:
         # sdiag — scheduler diagnostics
         try:
             from hpc_pilot.tools.slurm_parsers import parse_sdiag
+
             sdiag_out = _run([cl.slurm("sdiag")], cluster=cl, timeout=30)
             sdiag = parse_sdiag(sdiag_out)
             slurm_info["sdiag"] = sdiag
@@ -88,9 +105,7 @@ def hpc_cluster_health_check(*, cluster: str = "default") -> dict[str, Any]:
             if isinstance(backfill, dict):
                 queue_depth = backfill.get("queue_length", backfill.get("depth_try", ""))
                 if queue_depth and str(queue_depth).isdigit() and int(str(queue_depth)) > 500:
-                    health["issues"].append(
-                        f"Slurm backfill queue depth is {queue_depth}"
-                    )
+                    health["issues"].append(f"Slurm backfill queue depth is {queue_depth}")
         except Exception:
             pass  # sdiag failure is non-fatal for the health check
 
@@ -146,13 +161,16 @@ def hpc_cluster_health_check(*, cluster: str = "default") -> dict[str, Any]:
         links_down: list[str] = []
         current_dev = ""
         for line in ib_out.splitlines():
-            m = __import__("re").match(
-                r"Infiniband device '(\S+)' port (\d+)", line
-            )
+            m = __import__("re").match(r"Infiniband device '(\S+)' port (\d+)", line)
             if m:
                 current_dev = f"{m.group(1)}:{m.group(2)}"
-            if current_dev and "state" in line.lower() and "active" not in line.lower() and "up" not in line.lower():
-                    links_down.append(current_dev)
+            if (
+                current_dev
+                and "state" in line.lower()
+                and "active" not in line.lower()
+                and "up" not in line.lower()
+            ):
+                links_down.append(current_dev)
         if links_down:
             fabric_info["status"] = "degraded"
             fabric_info["links_down"] = links_down
@@ -173,8 +191,7 @@ def hpc_cluster_health_check(*, cluster: str = "default") -> dict[str, Any]:
     try:
         _run(["mount"], cluster=cl, timeout=15)
         with suppress(Exception):
-            _run(["lctl", "get_param", "obdfilter.*.state"],
-                 cluster=cl, timeout=15)
+            _run(["lctl", "get_param", "obdfilter.*.state"], cluster=cl, timeout=15)
         storage_info["status"] = "healthy"
     except Exception as exc:
         storage_info["status"] = "error"
@@ -190,10 +207,7 @@ def hpc_cluster_health_check(*, cluster: str = "default") -> dict[str, Any]:
     }
     try:
         dmesg_out = _run(["dmesg"], cluster=cl, timeout=30)
-        xid_lines = [
-            ln for ln in dmesg_out.splitlines()
-            if "xid" in ln.lower()
-        ]
+        xid_lines = [ln for ln in dmesg_out.splitlines() if "xid" in ln.lower()]
         xid_count = 0
         for line in xid_lines:
             ts_match = __import__("re").match(r"\[(\d+\.\d+)\]", line)
@@ -203,9 +217,7 @@ def hpc_cluster_health_check(*, cluster: str = "default") -> dict[str, Any]:
         gpu_info["xid_errors_last_hour"] = xid_count
         if xid_count > 0:
             gpu_info["status"] = "degraded"
-            health["issues"].append(
-                f"{xid_count} GPU XID error(s) detected in dmesg"
-            )
+            health["issues"].append(f"{xid_count} GPU XID error(s) detected in dmesg")
             if health["overall"] == "healthy":
                 health["overall"] = "degraded"
         else:
@@ -225,10 +237,9 @@ def hpc_cluster_health_check(*, cluster: str = "default") -> dict[str, Any]:
         import urllib.request
 
         from hpc_pilot.tools.metrics import _cluster_prometheus_url
+
         url = _cluster_prometheus_url(cluster)
-        resp = urllib.request.urlopen(
-            f"{url.rstrip('/')}/api/v1/alerts", timeout=10
-        )
+        resp = urllib.request.urlopen(f"{url.rstrip('/')}/api/v1/alerts", timeout=10)
         body = resp.read().decode("utf-8")
         data = json.loads(body)
         alerts = data.get("data", {}).get("alerts", [])
@@ -237,12 +248,11 @@ def hpc_cluster_health_check(*, cluster: str = "default") -> dict[str, Any]:
         metrics_info["alerts_firing"] = len(firing)
         metrics_info["status"] = "healthy" if not firing else "degraded"
         if firing:
-            health["issues"].append(
-                f"{len(firing)} Prometheus alert(s) currently firing"
-            )
+            health["issues"].append(f"{len(firing)} Prometheus alert(s) currently firing")
     except Exception:
         try:
             from hpc_pilot.tools.metrics import _cluster_prometheus_url
+
             _cluster_prometheus_url(cluster)
             metrics_info["status"] = "unreachable"
         except Exception:

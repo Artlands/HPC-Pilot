@@ -144,11 +144,11 @@ Every tool invocation writes one JSON line to `~/.hpc-pilot/logs/audit.jsonl`:
 
 ## Context budget
 
-`HpcAgent.run_turn()` calls `_maybe_summarize(messages)` before each API
-request.  When `_estimate_tokens(messages)` exceeds 80% of the model's context
-window (default 200 K tokens), the oldest half of history is summarized via a
-one-shot Claude call and replaced with a single user message.  Each
-summarization is audited as `tool="conversation_summarize"`.
+*Note: Context summarization was documented in a prior architecture where
+`HpcAgent` managed conversations directly.  After migrating to a Hermes
+subprocess delegation model, conversation history management is delegated
+to Hermes (see the `hermes chat` subprocess in `agent.py`).  The summarization
+logic is pending reimplementation on top of the Hermes delegation layer.*
 
 ## Data flow — CLI mutating command
 

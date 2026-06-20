@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import os
+import time
 from dataclasses import dataclass
 from typing import Any
 
@@ -33,10 +34,21 @@ class Cluster:
         return os.path.join(self.spack_root, "bin", "spack")
 
     def ansible_playbook(self) -> str:
-        return "ansible-playbook"
+        return os.path.join(self.ansible_dir, "ansible-playbook")
 
     def ansible_inventory(self) -> str:
-        return "ansible-inventory"
+        return os.path.join(self.ansible_dir, "ansible-inventory")
+
+
+# Module-level cache: (path, mtime) → (dict[str, Cluster], str)
+_cluster_cache: tuple[str, float, dict[str, Cluster] | None, str | None] | None = None
+"""Cache for _load_clusters. Set to None to invalidate next call."""
+
+
+def _invalidate_cluster_cache() -> None:
+    """Force the next _load_clusters() call to re-read config.yaml."""
+    global _cluster_cache  # noqa: PLW0603
+    _cluster_cache = None
 
 
 def _parse_cluster(name: str, data: dict[str, Any]) -> Cluster:
@@ -60,12 +72,25 @@ def _parse_cluster(name: str, data: dict[str, Any]) -> Cluster:
 
 
 def _load_clusters() -> tuple[dict[str, Cluster], str]:
-    """Return (clusters_dict, default_cluster_name) from config.yaml."""
+    """Return (clusters_dict, default_cluster_name) from config.yaml, cached by mtime."""
     from hpc_pilot.paths import config_path
 
     path = config_path()
+    try:
+        current_mtime = os.path.getmtime(path) if os.path.exists(path) else 0.0
+    except OSError:
+        current_mtime = 0.0
+
+    global _cluster_cache  # noqa: PLW0603
+    if _cluster_cache is not None:
+        cached_path, cached_mtime, cached_clusters, cached_default = _cluster_cache
+        if cached_path == path and cached_mtime == current_mtime and cached_clusters is not None:
+            return cached_clusters, cached_default or "default"
+
     if not os.path.exists(path):
-        return {"default": Cluster(name="default")}, "default"
+        result: tuple[dict[str, Cluster], str] = {"default": Cluster(name="default")}, "default"
+        _cluster_cache = (path, current_mtime, result[0], result[1])
+        return result
 
     try:
         import yaml
@@ -82,9 +107,10 @@ def _load_clusters() -> tuple[dict[str, Cluster], str]:
                 for name, cfg in clusters_raw.items()
             }
             if default_name not in clusters:
-                # Fall back to a bare default if missing
                 clusters[default_name] = Cluster(name=default_name)
-            return clusters, default_name
+            result = clusters, default_name
+            _cluster_cache = (path, current_mtime, result[0], result[1])
+            return result
 
         # Backward compat: old "hpc:" section maps to the default cluster
         hpc_cfg: dict[str, Any] = data.get("hpc", {}) or {}
@@ -95,10 +121,14 @@ def _load_clusters() -> tuple[dict[str, Cluster], str]:
             spack_root=str(hpc_cfg.get("spack_root", "/opt/spack")),
             ansible_dir=str(hpc_cfg.get("ansible_dir", "/etc/hpc-pilot/ansible")),
         )
-        return {default_name: default_cluster}, default_name
+        result = {default_name: default_cluster}, default_name
+        _cluster_cache = (path, current_mtime, result[0], result[1])
+        return result
 
     except Exception:
-        return {"default": Cluster(name="default")}, "default"
+        result = {"default": Cluster(name="default")}, "default"
+        _cluster_cache = (path, current_mtime, result[0], result[1])
+        return result
 
 
 def get_cluster(name: str | None = None) -> Cluster:

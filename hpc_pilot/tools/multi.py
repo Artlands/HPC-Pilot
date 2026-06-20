@@ -5,9 +5,13 @@ Usage:
     for cluster_name, output in result.items():
         print(f"{cluster_name}: {output}")
 """
+
 from __future__ import annotations
 
 from typing import Any
+
+from hpc_pilot.rbac import Role
+from hpc_pilot.tools._registry import hpc_tool
 
 
 def _check_rbac(tool: str, cluster: str) -> None:
@@ -39,6 +43,33 @@ def _query_single(tool: str, args: dict[str, Any], cluster: str) -> str:
     return _dispatch(tool, effective_args, tools)
 
 
+@hpc_tool(
+    name="hpc_multi_query",
+    role=Role.VIEWER,
+    schema={
+        "name": "hpc_multi_query",
+        "description": "Run a tool across multiple clusters in parallel and return per-cluster results. Use when the user says 'both clusters', 'all clusters', or names multiple clusters. Handles partial failure \u2014 one cluster error does not affect others.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "tool": {
+                    "type": "string",
+                    "description": "The hpc_* tool name to invoke (e.g. hpc_slurm_queue)",
+                },
+                "args": {
+                    "type": "object",
+                    "description": "Keyword arguments for the tool (do NOT include cluster)",
+                },
+                "clusters": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "List of cluster names to target",
+                },
+            },
+            "required": ["tool", "args", "clusters"],
+        },
+    },
+)
 def hpc_multi_query(
     tool: str,
     args: dict[str, Any],
@@ -71,8 +102,7 @@ def hpc_multi_query(
     if dry_run:
         return {
             cluster: (
-                f"DRY-RUN: hpc_multi_query(tool={tool!r}, "
-                f"clusters={clusters!r}, args={args})"
+                f"DRY-RUN: hpc_multi_query(tool={tool!r}, " f"clusters={clusters!r}, args={args})"
             )
             for cluster in clusters
         }
@@ -83,8 +113,7 @@ def hpc_multi_query(
 
     with ThreadPoolExecutor(max_workers=len(clusters)) as pool:
         future_map = {
-            pool.submit(_query_single, tool, args, cluster): cluster
-            for cluster in clusters
+            pool.submit(_query_single, tool, args, cluster): cluster for cluster in clusters
         }
         for future in as_completed(future_map):
             cluster = future_map[future]

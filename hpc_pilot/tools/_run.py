@@ -1,4 +1,5 @@
 """Subprocess runner and cluster-availability probes."""
+
 from __future__ import annotations
 
 import os
@@ -30,9 +31,12 @@ def _run(
         ssh = cluster.ssh
         actual_cmd = [
             "ssh",
-            "-o", "BatchMode=yes",
-            "-o", "ConnectTimeout=5",
-            "-i", os.path.expanduser(ssh.key),
+            "-o",
+            "BatchMode=yes",
+            "-o",
+            "ConnectTimeout=5",
+            "-i",
+            os.path.expanduser(ssh.key),
             f"{ssh.user}@{ssh.host}",
             "--",
             *map(shlex.quote, cmd),
@@ -44,14 +48,13 @@ def _run(
     result = subprocess.run(actual_cmd, capture_output=True, text=True, timeout=timeout)
     if result.returncode != 0:
         stderr = (result.stderr or "").strip()
-        raise RuntimeError(
-            f"{cmd[0]} exited {result.returncode}: {stderr or '(no stderr)'}"
-        )
+        raise RuntimeError(f"{cmd[0]} exited {result.returncode}: {stderr or '(no stderr)'}")
     return result.stdout
 
 
 def _resolve_cluster(name: str) -> Cluster:
     from hpc_pilot.clusters import get_cluster
+
     return get_cluster(name)
 
 
@@ -66,6 +69,7 @@ def check_slurm_available(cluster: Cluster | None = None) -> bool:
             binary = cluster.slurm("scontrol")
         else:
             from hpc_pilot.clusters import get_cluster
+
             binary = get_cluster("default").slurm("scontrol")
         subprocess.run([binary, "--version"], capture_output=True, check=True, timeout=5)
         return True
@@ -79,6 +83,7 @@ def check_warewulf_available(cluster: Cluster | None = None) -> bool:
             binary = cluster.warewulf("wwctl")
         else:
             from hpc_pilot.clusters import get_cluster
+
             binary = get_cluster("default").warewulf("wwctl")
         subprocess.run([binary, "--version"], capture_output=True, check=True, timeout=5)
         return True
@@ -92,6 +97,7 @@ def check_spack_available(cluster: Cluster | None = None) -> bool:
             binary = cluster.spack()
         else:
             from hpc_pilot.clusters import get_cluster
+
             binary = get_cluster("default").spack()
         subprocess.run([binary, "--version"], capture_output=True, check=True, timeout=5)
         return True

@@ -1,4 +1,5 @@
 """Ansible tools."""
+
 from __future__ import annotations
 
 import glob
@@ -9,6 +10,8 @@ import subprocess
 import time
 from typing import Any
 
+from hpc_pilot.rbac import Role
+from hpc_pilot.tools._registry import hpc_tool
 from hpc_pilot.tools._run import _resolve_cluster, _run
 
 # ---------------------------------------------------------------------------
@@ -20,6 +23,7 @@ def _try_import_jobs() -> Any:
     """Lazy import hpc_pilot.jobs — returns None if it doesn't exist."""
     try:
         from hpc_pilot import jobs  # noqa: F401
+
         return jobs
     except (ImportError, ModuleNotFoundError):
         return None
@@ -30,6 +34,28 @@ def _try_import_jobs() -> Any:
 # ---------------------------------------------------------------------------
 
 
+@hpc_tool(
+    name="hpc_ansible_playbook_check",
+    role=Role.ADMIN,
+    schema={
+        "name": "hpc_ansible_playbook_check",
+        "description": "Run ansible-playbook --check --diff to preview changes without applying them. Returns per-host structured diff output (JSON). Use dry_run=true to preview the command without executing.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "playbook": {
+                    "type": "string",
+                    "description": "Absolute path to the YAML playbook file",
+                },
+                "limit": {
+                    "type": "string",
+                    "description": "Ansible host limit pattern (e.g. 'gpu_nodes')",
+                },
+            },
+            "required": ["playbook"],
+        },
+    },
+)
 def hpc_ansible_playbook_check(
     playbook: str,
     limit: str | None = None,
@@ -88,6 +114,19 @@ def hpc_ansible_playbook_check(
 # ---------------------------------------------------------------------------
 
 
+@hpc_tool(
+    name="hpc_ansible_playbook_list",
+    role=Role.VIEWER,
+    schema={
+        "name": "hpc_ansible_playbook_list",
+        "description": "List all Ansible playbooks in the cluster's playbook directory with metadata.",
+        "input_schema": {
+            "type": "object",
+            "properties": {},
+            "required": [],
+        },
+    },
+)
 def hpc_ansible_playbook_list(*, cluster: str = "default") -> list[dict[str, Any]]:
     """Enumerate Ansible playbooks with header metadata."""
     cl = _resolve_cluster(cluster)
@@ -115,6 +154,19 @@ def hpc_ansible_playbook_list(*, cluster: str = "default") -> list[dict[str, Any
 # ---------------------------------------------------------------------------
 
 
+@hpc_tool(
+    name="hpc_ansible_role_list",
+    role=Role.VIEWER,
+    schema={
+        "name": "hpc_ansible_role_list",
+        "description": "List all Ansible role directories on the cluster.",
+        "input_schema": {
+            "type": "object",
+            "properties": {},
+            "required": [],
+        },
+    },
+)
 def hpc_ansible_role_list(*, cluster: str = "default") -> list[str]:
     """List Ansible role directories."""
     cl = _resolve_cluster(cluster)
@@ -134,6 +186,19 @@ def hpc_ansible_role_list(*, cluster: str = "default") -> list[str]:
 # ---------------------------------------------------------------------------
 
 
+@hpc_tool(
+    name="hpc_ansible_inventory_from_truth",
+    role=Role.ADMIN,
+    schema={
+        "name": "hpc_ansible_inventory_from_truth",
+        "description": "Build an Ansible inventory YAML from Warewulf and Slurm source of truth. Queries wwctl node list and scontrol show nodes, then writes a YAML inventory with groups for gpu_nodes, cpu_nodes, and partitions.",
+        "input_schema": {
+            "type": "object",
+            "properties": {},
+            "required": [],
+        },
+    },
+)
 def hpc_ansible_inventory_from_truth(*, cluster: str = "default") -> dict[str, Any]:
     """Build Ansible inventory from Warewulf + Slurm source of truth."""
 
@@ -146,9 +211,7 @@ def hpc_ansible_inventory_from_truth(*, cluster: str = "default") -> dict[str, A
     scontrol_output = ""
 
     try:
-        ww_cmd = [
-            cl.warewulf("wwctl"), "node", "list"
-        ]
+        ww_cmd = [cl.warewulf("wwctl"), "node", "list"]
         ww_r = subprocess.run(ww_cmd, capture_output=True, text=True, timeout=30)
         if ww_r.returncode == 0:
             ww_output = ww_r.stdout
@@ -157,9 +220,7 @@ def hpc_ansible_inventory_from_truth(*, cluster: str = "default") -> dict[str, A
 
     # Query Slurm nodes
     try:
-        scontrol_cmd = [
-            cl.slurm("scontrol"), "show", "nodes"
-        ]
+        scontrol_cmd = [cl.slurm("scontrol"), "show", "nodes"]
         scontrol_r = subprocess.run(scontrol_cmd, capture_output=True, text=True, timeout=30)
         if scontrol_r.returncode == 0:
             scontrol_output = scontrol_r.stdout
@@ -271,8 +332,10 @@ def hpc_ansible_inventory_from_truth(*, cluster: str = "default") -> dict[str, A
 
         # Produce a simple diff
         import difflib
+
         for line in difflib.unified_diff(
-            old_lines, new_lines,
+            old_lines,
+            new_lines,
             fromfile="previous",
             tofile="current",
         ):
@@ -295,6 +358,24 @@ def hpc_ansible_inventory_from_truth(*, cluster: str = "default") -> dict[str, A
 # ---------------------------------------------------------------------------
 
 
+@hpc_tool(
+    name="hpc_ansible_drift_check",
+    role=Role.OPERATOR,
+    schema={
+        "name": "hpc_ansible_drift_check",
+        "description": "Run curated drift-check playbooks to detect configuration drift. Checks available: slurm-config, chrony-sync, mount, kernel-version. Pass which='all' (default) to run all, or specify a single check (e.g. 'mount').",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "which": {
+                    "type": "string",
+                    "description": "Which drift check to run ('all' or specific check name)",
+                }
+            },
+            "required": [],
+        },
+    },
+)
 def hpc_ansible_drift_check(
     which: str = "all",
     *,
@@ -345,7 +426,10 @@ def hpc_ansible_drift_check(
             # Handle full path case
             pb_path = key
         cmd_parts = [
-            cl.ansible_playbook(), "--check", "--diff", pb_path,
+            cl.ansible_playbook(),
+            "--check",
+            "--diff",
+            pb_path,
         ]
         try:
             r = subprocess.run(
@@ -379,6 +463,24 @@ def hpc_ansible_drift_check(
 # ---------------------------------------------------------------------------
 
 
+@hpc_tool(
+    name="hpc_ansible_vault_decrypt",
+    role=Role.ADMIN,
+    schema={
+        "name": "hpc_ansible_vault_decrypt",
+        "description": "Decrypt and view an Ansible Vault file. Content is never logged to the audit trail. Use dry_run=true to preview the path.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "path": {
+                    "type": "string",
+                    "description": "Path to the encrypted Ansible vault file",
+                }
+            },
+            "required": ["path"],
+        },
+    },
+)
 def hpc_ansible_vault_decrypt(
     path: str,
     *,
@@ -407,6 +509,19 @@ def hpc_ansible_vault_decrypt(
 # ---------------------------------------------------------------------------
 
 
+@hpc_tool(
+    name="hpc_ansible_run_history",
+    role=Role.VIEWER,
+    schema={
+        "name": "hpc_ansible_run_history",
+        "description": "Show the history of past Ansible playbook runs from the run log.",
+        "input_schema": {
+            "type": "object",
+            "properties": {},
+            "required": [],
+        },
+    },
+)
 def hpc_ansible_run_history(*, cluster: str = "default") -> list[dict[str, Any]]:
     """Read past Ansible run records from ~/.hpc-pilot/logs/ansible/.json."""
     from hpc_pilot.paths import get_home
@@ -436,6 +551,32 @@ def hpc_ansible_run_history(*, cluster: str = "default") -> list[dict[str, Any]]
 # ---------------------------------------------------------------------------
 
 
+@hpc_tool(
+    name="hpc_ansible_playbook_run",
+    role=Role.ADMIN,
+    schema={
+        "name": "hpc_ansible_playbook_run",
+        "description": "Run an Ansible playbook against cluster nodes. Pass check=true to do a Ansible dry-run (--check). Pass dry_run=true to preview the ansible-playbook command without executing at all.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "playbook": {
+                    "type": "string",
+                    "description": "Absolute path to the YAML playbook file",
+                },
+                "limit": {
+                    "type": "string",
+                    "description": "Ansible host limit pattern (e.g. 'gpu_nodes')",
+                },
+                "check": {
+                    "type": "boolean",
+                    "description": "Pass --check to ansible-playbook (no changes on hosts)",
+                },
+            },
+            "required": ["playbook"],
+        },
+    },
+)
 def hpc_ansible_playbook_run(
     playbook: str,
     limit: str | None = None,
@@ -478,6 +619,19 @@ def hpc_ansible_playbook_run(
 # ---------------------------------------------------------------------------
 
 
+@hpc_tool(
+    name="hpc_ansible_inventory_generate",
+    role=Role.VIEWER,
+    schema={
+        "name": "hpc_ansible_inventory_generate",
+        "description": "Generate and display the current Ansible inventory.",
+        "input_schema": {
+            "type": "object",
+            "properties": {},
+            "required": [],
+        },
+    },
+)
 def hpc_ansible_inventory_generate(*, cluster: str = "default") -> str:
     """Return an Ansible inventory snapshot from the local inventory plugin."""
     cl = _resolve_cluster(cluster)

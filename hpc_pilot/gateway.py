@@ -57,6 +57,43 @@ def _warn_if_no_role() -> None:
         )
 
 
+def _load_gateway_users() -> dict[str, dict[str, str]]:
+    """Load per-user role mappings from config.yaml.
+
+    Returns a dict keyed by platform ("telegram", "discord") whose values
+    are dicts mapping user/chat ID strings to role strings.
+    """
+    try:
+        import yaml
+
+        from hpc_pilot.paths import config_path
+
+        path = config_path()
+        if not os.path.exists(path):
+            return {}
+        with open(path) as f:
+            data = yaml.safe_load(f) or {}
+        raw = data.get("gateway", {}).get("users", {}) or {}
+        result: dict[str, dict[str, str]] = {}
+        for platform_key in ("telegram", "discord"):
+            mapping = raw.get(platform_key, {}) or {}
+            result[platform_key] = {str(k): str(v) for k, v in mapping.items()}
+        return result
+    except Exception:
+        return {}
+
+
+_GATEWAY_USERS: dict[str, dict[str, str]] = {}
+
+
+def _get_gateway_role(platform: str, user_id: int | str) -> str | None:
+    """Return the configured role for *user_id* on *platform*, or None."""
+    global _GATEWAY_USERS  # noqa: PLW0603
+    if not _GATEWAY_USERS:
+        _GATEWAY_USERS.update(_load_gateway_users())
+    return _GATEWAY_USERS.get(platform, {}).get(str(user_id))
+
+
 def _load_allowed_ids(env_var: str) -> set[int] | None:
     """Return a set of allowed integer IDs from a comma-separated env var.
 
@@ -79,9 +116,19 @@ def _load_allowed_ids(env_var: str) -> set[int] | None:
     return allowed if allowed else None
 
 
-def _make_agent(actor: str = "agent") -> Any:
+def _make_agent(actor: str = "agent", role_override: str | None = None) -> Any:
     from hpc_pilot.agent import HpcAgent
     model = os.environ.get("HPC_PILOT_MODEL", "claude-opus-4-7")
+    if role_override:
+        old = os.environ.get("HPC_PILOT_ROLE", "")
+        os.environ["HPC_PILOT_ROLE"] = role_override
+        try:
+            return HpcAgent(model=model, actor=actor)
+        finally:
+            if old:
+                os.environ["HPC_PILOT_ROLE"] = old
+            else:
+                os.environ.pop("HPC_PILOT_ROLE", None)
     return HpcAgent(model=model, actor=actor)
 
 
@@ -108,7 +155,8 @@ class TelegramGateway:
 
     def _make_session(self, chat_id: int, user_id: int) -> tuple[Any, list[Any]]:
         actor = f"telegram:chat={chat_id}:user={user_id}"
-        return _make_agent(actor=actor), []
+        role = _get_gateway_role("telegram", chat_id) or _get_gateway_role("telegram", user_id)
+        return _make_agent(actor=actor, role_override=role), []
 
     async def _start(self, update: Any, context: Any) -> None:
         chat_id = update.effective_chat.id
@@ -234,7 +282,8 @@ class DiscordGateway:
 
             if user_id not in sessions:
                 actor = f"discord:user={user_id}"
-                sessions[user_id] = (_make_agent(actor=actor), [])
+                role = _get_gateway_role("discord", user_id)
+                sessions[user_id] = (_make_agent(actor=actor, role_override=role), [])
             agent, history = sessions[user_id]
 
             async with message.channel.typing():

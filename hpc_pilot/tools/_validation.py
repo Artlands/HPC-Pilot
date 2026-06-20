@@ -1,4 +1,5 @@
 """Input validation helpers shared across all HPC tool modules."""
+
 from __future__ import annotations
 
 import re

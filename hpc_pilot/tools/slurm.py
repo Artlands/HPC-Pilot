@@ -1,10 +1,13 @@
 """Slurm tools and output parsers."""
+
 from __future__ import annotations
 
 import os
 import re
 from typing import Any
 
+from hpc_pilot.rbac import Role
+from hpc_pilot.tools._registry import hpc_tool
 from hpc_pilot.tools._run import _resolve_cluster, _run
 from hpc_pilot.tools._validation import _NAME_RE, _USER_RE, _validate
 
@@ -24,6 +27,24 @@ _NODES_RE = re.compile(r"^[a-zA-Z0-9][a-zA-Z0-9_\[\],.-]*$")
 # ---------------------------------------------------------------------------
 
 
+@hpc_tool(
+    name="hpc_slurm_node_status",
+    role=Role.VIEWER,
+    schema={
+        "name": "hpc_slurm_node_status",
+        "description": "Show detailed Slurm node status (CPU, memory, state, running jobs). Leave node empty to show all nodes.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "node": {
+                    "type": "string",
+                    "description": "Node name. Empty string = show all nodes.",
+                }
+            },
+            "required": [],
+        },
+    },
+)
 def hpc_slurm_node_status(node: str = "", *, cluster: str = "default") -> str:
     """Return scontrol node info for *node*, or all nodes when *node* is empty."""
     _validate(node, "node name")
@@ -34,6 +55,36 @@ def hpc_slurm_node_status(node: str = "", *, cluster: str = "default") -> str:
     return _run(cmd, cluster=cl, timeout=90)
 
 
+def _dispatch_hpc_slurm_queue(args: dict[str, Any], tools: Any) -> str:
+    """Custom dispatch for hpc_slurm_queue — builds filters dict from individual args."""
+    filters = {k: v for k, v in args.items() if k in ("user", "partition", "state") and v} or None
+    result = tools.hpc_slurm_queue(filters, cluster=args.get("cluster", "default"))
+    if isinstance(result, dict):
+        return __import__("json").dumps(result, indent=2, default=str)
+    return str(result)
+
+
+@hpc_tool(
+    name="hpc_slurm_queue",
+    role=Role.VIEWER,
+    schema={
+        "name": "hpc_slurm_queue",
+        "description": "Show the Slurm job queue, optionally filtered by user, partition or state.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "user": {"type": "string", "description": "Filter by username"},
+                "partition": {"type": "string", "description": "Filter by partition name"},
+                "state": {
+                    "type": "string",
+                    "description": "Filter by job state, e.g. RUNNING, PENDING",
+                },
+            },
+            "required": [],
+        },
+    },
+    handler=_dispatch_hpc_slurm_queue,
+)
 def hpc_slurm_queue(
     filters: dict[str, str] | None = None,
     *,
@@ -55,6 +106,21 @@ def hpc_slurm_queue(
     return _run(cmd, cluster=cl)
 
 
+@hpc_tool(
+    name="hpc_slurm_job_status",
+    role=Role.VIEWER,
+    schema={
+        "name": "hpc_slurm_job_status",
+        "description": "Show detailed status for a single Slurm job (scontrol show job).",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "job_id": {"type": "string", "description": "Slurm job ID (e.g. '12345')"}
+            },
+            "required": ["job_id"],
+        },
+    },
+)
 def hpc_slurm_job_status(job_id: str, *, cluster: str = "default") -> str:
     """Return scontrol detail for a single job."""
     _validate(job_id, "job_id", _JOB_ID_RE)
@@ -62,25 +128,79 @@ def hpc_slurm_job_status(job_id: str, *, cluster: str = "default") -> str:
     return _run([cl.slurm("scontrol"), "show", "job", job_id, "-o"], cluster=cl)
 
 
+@hpc_tool(
+    name="hpc_slurm_reservation_list",
+    role=Role.VIEWER,
+    schema={
+        "name": "hpc_slurm_reservation_list",
+        "description": "List all active Slurm reservations.",
+        "input_schema": {
+            "type": "object",
+            "properties": {},
+            "required": [],
+        },
+    },
+)
 def hpc_slurm_reservation_list(*, cluster: str = "default") -> str:
     """List all Slurm reservations."""
     cl = _resolve_cluster(cluster)
     return _run([cl.slurm("scontrol"), "show", "reservation"], cluster=cl)
 
 
+@hpc_tool(
+    name="hpc_slurm_partition_list",
+    role=Role.VIEWER,
+    schema={
+        "name": "hpc_slurm_partition_list",
+        "description": "List all Slurm partitions with their configuration.",
+        "input_schema": {
+            "type": "object",
+            "properties": {},
+            "required": [],
+        },
+    },
+)
 def hpc_slurm_partition_list(*, cluster: str = "default") -> str:
     """List all Slurm partitions with configuration."""
     cl = _resolve_cluster(cluster)
     return _run([cl.slurm("scontrol"), "show", "partition"], cluster=cl)
 
 
+@hpc_tool(
+    name="hpc_slurm_account_list",
+    role=Role.VIEWER,
+    schema={
+        "name": "hpc_slurm_account_list",
+        "description": "List Slurm accounting accounts.",
+        "input_schema": {
+            "type": "object",
+            "properties": {},
+            "required": [],
+        },
+    },
+)
 def hpc_slurm_account_list(*, cluster: str = "default") -> str:
     """List Slurm accounting accounts."""
     cl = _resolve_cluster(cluster)
-    return _run([cl.slurm("sacctmgr"), "--noheader", "show", "account",
-                 "format=Account,Descr,Org,Cluster"], cluster=cl)
+    return _run(
+        [cl.slurm("sacctmgr"), "--noheader", "show", "account", "format=Account,Descr,Org,Cluster"],
+        cluster=cl,
+    )
 
 
+@hpc_tool(
+    name="hpc_slurm_association_list",
+    role=Role.VIEWER,
+    schema={
+        "name": "hpc_slurm_association_list",
+        "description": "List Slurm user-account associations, optionally filtered.",
+        "input_schema": {
+            "type": "object",
+            "properties": {"account": {"type": "string"}, "user": {"type": "string"}},
+            "required": [],
+        },
+    },
+)
 def hpc_slurm_association_list(
     account: str = "",
     user: str = "",
@@ -91,8 +211,13 @@ def hpc_slurm_association_list(
     _validate(account, "account", _USER_RE)
     _validate(user, "user", _USER_RE)
     cl = _resolve_cluster(cluster)
-    cmd = [cl.slurm("sacctmgr"), "--noheader", "show", "association",
-           "format=Account,User,Partition,QOS,GrpTRES"]
+    cmd = [
+        cl.slurm("sacctmgr"),
+        "--noheader",
+        "show",
+        "association",
+        "format=Account,User,Partition,QOS,GrpTRES",
+    ]
     if account:
         cmd.append(f"Account={account}")
     if user:
@@ -100,19 +225,72 @@ def hpc_slurm_association_list(
     return _run(cmd, cluster=cl)
 
 
+@hpc_tool(
+    name="hpc_slurm_qos_list",
+    role=Role.VIEWER,
+    schema={
+        "name": "hpc_slurm_qos_list",
+        "description": "List all Slurm QOS entries with their limits.",
+        "input_schema": {
+            "type": "object",
+            "properties": {},
+            "required": [],
+        },
+    },
+)
 def hpc_slurm_qos_list(*, cluster: str = "default") -> str:
     """List all Slurm QOS entries."""
     cl = _resolve_cluster(cluster)
-    return _run([cl.slurm("sacctmgr"), "--noheader", "show", "qos",
-                 "format=Name,MaxWall,MaxTRESPU,GrpTRES,Flags"], cluster=cl)
+    return _run(
+        [
+            cl.slurm("sacctmgr"),
+            "--noheader",
+            "show",
+            "qos",
+            "format=Name,MaxWall,MaxTRESPU,GrpTRES,Flags",
+        ],
+        cluster=cl,
+    )
 
 
+@hpc_tool(
+    name="hpc_slurm_fairshare",
+    role=Role.VIEWER,
+    schema={
+        "name": "hpc_slurm_fairshare",
+        "description": "Show Slurm fairshare usage (sshare -Pl).",
+        "input_schema": {
+            "type": "object",
+            "properties": {},
+            "required": [],
+        },
+    },
+)
 def hpc_slurm_fairshare(*, cluster: str = "default") -> str:
     """Show fairshare usage (sshare -Pl)."""
     cl = _resolve_cluster(cluster)
     return _run([cl.slurm("sshare"), "-Pl"], cluster=cl)
 
 
+@hpc_tool(
+    name="hpc_slurm_accounting",
+    role=Role.VIEWER,
+    schema={
+        "name": "hpc_slurm_accounting",
+        "description": "Query Slurm job accounting history (sacct). Filter by user, account, time range, or job state.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "user": {"type": "string"},
+                "account": {"type": "string"},
+                "start": {"type": "string", "description": "Start time, e.g. '2026-06-01'"},
+                "end": {"type": "string", "description": "End time"},
+                "state": {"type": "string", "description": "State filter, e.g. 'FAILED,TIMEOUT'"},
+            },
+            "required": [],
+        },
+    },
+)
 def hpc_slurm_accounting(
     user: str = "",
     account: str = "",
@@ -127,7 +305,8 @@ def hpc_slurm_accounting(
     _validate(account, "account", _USER_RE)
     cl = _resolve_cluster(cluster)
     cmd = [
-        cl.slurm("sacct"), "-P",
+        cl.slurm("sacct"),
+        "-P",
         "--format=JobID,JobName,User,Account,State,Elapsed,AllocTRES,Submit,Start,End",
     ]
     if user:
@@ -149,6 +328,27 @@ def hpc_slurm_accounting(
     return _run(cmd, cluster=cl, timeout=120)
 
 
+@hpc_tool(
+    name="hpc_slurm_usage_report",
+    role=Role.VIEWER,
+    schema={
+        "name": "hpc_slurm_usage_report",
+        "description": "Generate a Slurm usage report (sreport). type: cluster, account, or user.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "report_type": {
+                    "type": "string",
+                    "enum": ["cluster", "account", "user"],
+                    "description": "Type of usage report",
+                },
+                "start": {"type": "string", "description": "Start date, e.g. '2026-06-01'"},
+                "end": {"type": "string", "description": "End date"},
+            },
+            "required": [],
+        },
+    },
+)
 def hpc_slurm_usage_report(
     report_type: str = "cluster",
     start: str = "",
@@ -173,14 +373,41 @@ def hpc_slurm_usage_report(
     return _run(cmd, cluster=cl, timeout=120)
 
 
+@hpc_tool(
+    name="hpc_slurm_sdiag",
+    role=Role.VIEWER,
+    schema={
+        "name": "hpc_slurm_sdiag",
+        "description": "Show Slurm scheduler diagnostics (sdiag): cycle times, backfill depth, DBD state. Use to diagnose scheduling slowness.",
+        "input_schema": {
+            "type": "object",
+            "properties": {},
+            "required": [],
+        },
+    },
+)
 def hpc_slurm_sdiag(*, cluster: str = "default") -> dict[str, Any]:
     """Return parsed Slurm scheduler diagnostics (sdiag)."""
     from hpc_pilot.tools.slurm_parsers import parse_sdiag
+
     cl = _resolve_cluster(cluster)
     output = _run([cl.slurm("sdiag")], cluster=cl, timeout=30)
     return parse_sdiag(output)
 
 
+@hpc_tool(
+    name="hpc_slurm_config_show",
+    role=Role.VIEWER,
+    schema={
+        "name": "hpc_slurm_config_show",
+        "description": "Show the active Slurm controller configuration (scontrol show config).",
+        "input_schema": {
+            "type": "object",
+            "properties": {},
+            "required": [],
+        },
+    },
+)
 def hpc_slurm_config_show(*, cluster: str = "default") -> str:
     """Show the active Slurm configuration (scontrol show config)."""
     cl = _resolve_cluster(cluster)
@@ -192,6 +419,23 @@ def hpc_slurm_config_show(*, cluster: str = "default") -> str:
 # ---------------------------------------------------------------------------
 
 
+@hpc_tool(
+    name="hpc_slurm_node_state",
+    role=Role.OPERATOR,
+    schema={
+        "name": "hpc_slurm_node_state",
+        "description": "Change a Slurm node's state. drain = prevent new jobs; undrain/resume = allow jobs again; down = mark failed. Always query current state before changing it. Use dry_run=true to preview without executing.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "node": {"type": "string", "description": "Node name"},
+                "target": {"type": "string", "enum": ["drain", "undrain", "resume", "down"]},
+                "reason": {"type": "string", "description": "Reason for the state change"},
+            },
+            "required": ["node", "target"],
+        },
+    },
+)
 def hpc_slurm_node_state(
     node: str,
     target: str,
@@ -212,6 +456,19 @@ def hpc_slurm_node_state(
     return _run(cmd, cluster=cl, dry_run=dry_run)
 
 
+@hpc_tool(
+    name="hpc_slurm_job_hold",
+    role=Role.OPERATOR,
+    schema={
+        "name": "hpc_slurm_job_hold",
+        "description": "Put a pending Slurm job on hold so it does not start.",
+        "input_schema": {
+            "type": "object",
+            "properties": {"job_id": {"type": "string", "description": "Slurm job ID"}},
+            "required": ["job_id"],
+        },
+    },
+)
 def hpc_slurm_job_hold(
     job_id: str,
     *,
@@ -224,6 +481,19 @@ def hpc_slurm_job_hold(
     return _run([cl.slurm("scontrol"), "hold", job_id], cluster=cl, dry_run=dry_run)
 
 
+@hpc_tool(
+    name="hpc_slurm_job_release",
+    role=Role.OPERATOR,
+    schema={
+        "name": "hpc_slurm_job_release",
+        "description": "Release a held Slurm job so it may be scheduled.",
+        "input_schema": {
+            "type": "object",
+            "properties": {"job_id": {"type": "string", "description": "Slurm job ID"}},
+            "required": ["job_id"],
+        },
+    },
+)
 def hpc_slurm_job_release(
     job_id: str,
     *,
@@ -236,6 +506,19 @@ def hpc_slurm_job_release(
     return _run([cl.slurm("scontrol"), "release", job_id], cluster=cl, dry_run=dry_run)
 
 
+@hpc_tool(
+    name="hpc_slurm_job_requeue",
+    role=Role.OPERATOR,
+    schema={
+        "name": "hpc_slurm_job_requeue",
+        "description": "Requeue a running or failed Slurm job.",
+        "input_schema": {
+            "type": "object",
+            "properties": {"job_id": {"type": "string", "description": "Slurm job ID"}},
+            "required": ["job_id"],
+        },
+    },
+)
 def hpc_slurm_job_requeue(
     job_id: str,
     *,
@@ -270,6 +553,19 @@ def _actor_username(actor: str) -> str:
     return os.environ.get("USER", "")
 
 
+@hpc_tool(
+    name="hpc_slurm_job_cancel",
+    role=Role.OPERATOR,
+    schema={
+        "name": "hpc_slurm_job_cancel",
+        "description": "Cancel a Slurm job. Operators may only cancel jobs they own; admins may cancel any job.",
+        "input_schema": {
+            "type": "object",
+            "properties": {"job_id": {"type": "string", "description": "Slurm job ID"}},
+            "required": ["job_id"],
+        },
+    },
+)
 def hpc_slurm_job_cancel(
     job_id: str,
     *,
@@ -316,6 +612,33 @@ def _qos_tres_flag(value: str | None, flag: str) -> list[str]:
     return [f"{flag}={value}"]
 
 
+@hpc_tool(
+    name="hpc_slurm_qos_modify",
+    role=Role.ADMIN,
+    schema={
+        "name": "hpc_slurm_qos_modify",
+        "description": "Modify a Slurm QOS (Quality of Service) setting. Supports MaxWall, GrpTRES (group-level TRES limits), and MaxTRESPU (per-user TRES limits). Use dry_run=true first to preview the sacctmgr command before applying.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "name": {"type": "string", "description": "QOS name"},
+                "max_wall_min": {
+                    "type": "integer",
+                    "description": "Maximum wall-clock time in minutes",
+                },
+                "grp_tres": {
+                    "type": "string",
+                    "description": "Group TRES limits, e.g. 'cpu=500000,gres/gpu=100000'",
+                },
+                "max_tres_per_user": {
+                    "type": "string",
+                    "description": "Per-user TRES limits, e.g. 'cpu=1000,gres/gpu=50'",
+                },
+            },
+            "required": ["name"],
+        },
+    },
+)
 def hpc_slurm_qos_modify(
     name: str,
     max_wall_min: int | None = None,
@@ -344,6 +667,30 @@ def hpc_slurm_qos_modify(
     return _run(cmd, cluster=cl, dry_run=dry_run)
 
 
+@hpc_tool(
+    name="hpc_slurm_qos_create",
+    role=Role.ADMIN,
+    schema={
+        "name": "hpc_slurm_qos_create",
+        "description": "Create a new Slurm QOS entry (sacctmgr add qos). Supports GrpTRES for group allocation limits. Requires admin.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "name": {"type": "string"},
+                "max_wall_min": {"type": "integer", "description": "Max wall time in minutes"},
+                "grp_tres": {
+                    "type": "string",
+                    "description": "Group TRES limits, e.g. 'cpu=500000,gres/gpu=100000'",
+                },
+                "max_tres_per_user": {
+                    "type": "string",
+                    "description": "Per-user TRES limits, e.g. 'cpu=1000,gres/gpu=50'",
+                },
+            },
+            "required": ["name"],
+        },
+    },
+)
 def hpc_slurm_qos_create(
     name: str,
     max_wall_min: int | None = None,
@@ -372,6 +719,27 @@ def hpc_slurm_qos_create(
     return _run(cmd, cluster=cl, dry_run=dry_run)
 
 
+@hpc_tool(
+    name="hpc_slurm_reservation_create",
+    role=Role.ADMIN,
+    schema={
+        "name": "hpc_slurm_reservation_create",
+        "description": "Create a Slurm reservation for scheduled maintenance or events. Use dry_run=true to preview the scontrol command first.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "name": {"type": "string", "description": "Reservation name"},
+                "nodes": {"type": "string", "description": "Node list or range, e.g. node[01-04]"},
+                "start": {"type": "string", "description": "Start time, e.g. 'now'"},
+                "duration": {"type": "string", "description": "Duration, e.g. '4:00:00'"},
+                "users": {"type": "string", "description": "Comma-separated allowed users"},
+                "accounts": {"type": "string", "description": "Comma-separated allowed accounts"},
+                "flags": {"type": "string", "description": "Flags, e.g. 'MAINT,IGNORE_JOBS'"},
+            },
+            "required": ["name", "nodes", "start", "duration"],
+        },
+    },
+)
 def hpc_slurm_reservation_create(
     name: str,
     nodes: str,
@@ -395,7 +763,9 @@ def hpc_slurm_reservation_create(
         raise ValueError(f"Invalid duration: {duration!r}")
     cl = _resolve_cluster(cluster)
     cmd = [
-        cl.slurm("scontrol"), "create", "reservation",
+        cl.slurm("scontrol"),
+        "create",
+        "reservation",
         f"reservationname={name}",
         f"nodes={nodes}",
         f"starttime={start}",
@@ -414,6 +784,26 @@ def hpc_slurm_reservation_create(
     return _run(cmd, cluster=cl, dry_run=dry_run)
 
 
+@hpc_tool(
+    name="hpc_slurm_reservation_update",
+    role=Role.ADMIN,
+    schema={
+        "name": "hpc_slurm_reservation_update",
+        "description": "Update an existing Slurm reservation. Use dry_run=true to preview.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "name": {"type": "string", "description": "Reservation name"},
+                "nodes": {"type": "string"},
+                "start": {"type": "string"},
+                "duration": {"type": "string"},
+                "users": {"type": "string"},
+                "flags": {"type": "string"},
+            },
+            "required": ["name"],
+        },
+    },
+)
 def hpc_slurm_reservation_update(
     name: str,
     nodes: str = "",
@@ -450,6 +840,19 @@ def hpc_slurm_reservation_update(
     return _run(cmd, cluster=cl, dry_run=dry_run)
 
 
+@hpc_tool(
+    name="hpc_slurm_reservation_delete",
+    role=Role.ADMIN,
+    schema={
+        "name": "hpc_slurm_reservation_delete",
+        "description": "Delete a Slurm reservation. Use dry_run=true to preview.",
+        "input_schema": {
+            "type": "object",
+            "properties": {"name": {"type": "string", "description": "Reservation name"}},
+            "required": ["name"],
+        },
+    },
+)
 def hpc_slurm_reservation_delete(
     name: str,
     *,
@@ -466,6 +869,27 @@ def hpc_slurm_reservation_delete(
     )
 
 
+@hpc_tool(
+    name="hpc_slurm_partition_update",
+    role=Role.ADMIN,
+    schema={
+        "name": "hpc_slurm_partition_update",
+        "description": "Update a Slurm partition setting (state, max time). Always use dry_run=true first \u2014 this is cluster-wide.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "name": {"type": "string", "description": "Partition name"},
+                "state": {
+                    "type": "string",
+                    "enum": ["up", "down", "drain", "inactive"],
+                    "description": "New partition state",
+                },
+                "max_time": {"type": "string", "description": "Max wall time, e.g. '7-00:00:00'"},
+            },
+            "required": ["name"],
+        },
+    },
+)
 def hpc_slurm_partition_update(
     name: str,
     state: str = "",
@@ -498,6 +922,23 @@ def hpc_slurm_partition_update(
 # ---------------------------------------------------------------------------
 
 
+@hpc_tool(
+    name="hpc_slurm_account_create",
+    role=Role.SUPERADMIN,
+    schema={
+        "name": "hpc_slurm_account_create",
+        "description": "Create a Slurm accounting account (sacctmgr add account). Superadmin only.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "name": {"type": "string", "description": "Account name"},
+                "description": {"type": "string"},
+                "organization": {"type": "string"},
+            },
+            "required": ["name"],
+        },
+    },
+)
 def hpc_slurm_account_create(
     name: str,
     description: str = "",
@@ -517,6 +958,19 @@ def hpc_slurm_account_create(
     return _run(cmd, cluster=cl, dry_run=dry_run)
 
 
+@hpc_tool(
+    name="hpc_slurm_association_create",
+    role=Role.SUPERADMIN,
+    schema={
+        "name": "hpc_slurm_association_create",
+        "description": "Associate a user with a Slurm account (sacctmgr add user). Superadmin.",
+        "input_schema": {
+            "type": "object",
+            "properties": {"user": {"type": "string"}, "account": {"type": "string"}},
+            "required": ["user", "account"],
+        },
+    },
+)
 def hpc_slurm_association_create(
     user: str,
     account: str,
@@ -535,6 +989,19 @@ def hpc_slurm_association_create(
     )
 
 
+@hpc_tool(
+    name="hpc_slurm_reconfigure",
+    role=Role.SUPERADMIN,
+    schema={
+        "name": "hpc_slurm_reconfigure",
+        "description": "Signal the Slurm controller to reload its configuration (scontrol reconfigure). Requires superadmin. Use dry_run=true to preview.",
+        "input_schema": {
+            "type": "object",
+            "properties": {},
+            "required": [],
+        },
+    },
+)
 def hpc_slurm_reconfigure(
     *,
     cluster: str = "default",

@@ -74,10 +74,10 @@ class TestExecuteTool:
         mock_run.assert_not_called()
         assert "DRY-RUN" in result
 
-    def test_unknown_tool_returns_message(self):
+    def test_unknown_tool_raises_permission_error(self):
         agent = _make_agent()
-        result = agent._execute_tool("hpc_does_not_exist", {})
-        assert "unknown tool" in result.lower()
+        with pytest.raises(PermissionError, match="requires role.*superadmin"):
+            agent._execute_tool("hpc_does_not_exist", {})
 
     @patch("hpc_pilot.tools.subprocess.run")
     def test_warewulf_power_reset_dry_run(self, mock_run):

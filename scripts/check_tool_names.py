@@ -27,9 +27,16 @@ VALID_SUBSYSTEMS = {
     "logs",
     "metrics",
     "job",
+    "audit",
+    "system",
+    "login",
+    "config",
+    "usage",
+    "notify",
+    "self",
 }
 
-_NAME_PATTERN_MIN_PARTS = 3  # hpc + subsystem + noun = 3 parts minimum
+_NAME_PATTERN_MIN_PARTS = 2  # hpc + subsystem = 2 parts minimum
 
 
 def check_file(path: Path) -> list[str]:

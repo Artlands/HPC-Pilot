@@ -1,4 +1,5 @@
 """Output parsers for Slurm commands."""
+
 from __future__ import annotations
 
 import re
@@ -86,12 +87,7 @@ def parse_sdiag(output: str) -> dict[str, Any]:
         # Section headers end with ':' and contain no '='
         if stripped.endswith(":") and "=" not in stripped:
             section = (
-                stripped[:-1]
-                .strip()
-                .lower()
-                .replace(" ", "_")
-                .replace("(", "")
-                .replace(")", "")
+                stripped[:-1].strip().lower().replace(" ", "_").replace("(", "").replace(")", "")
             )
             result.setdefault(section, {})
             continue

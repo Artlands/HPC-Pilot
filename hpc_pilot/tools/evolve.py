@@ -1,9 +1,13 @@
 """
-Self-evolve — generate new HPC-Pilot tools, register them, and open a PR.
+Self-evolve — generate new HPC-Pilot tools and register them.
 
 When the AI agent encounters a task no existing tool can handle, it calls
-``hpc_self_evolve`` to generate new tool code, tests, schemas, register
-everything, run tests, commit, push, and open a GitHub pull request.
+``hpc_self_evolve`` to generate new tool code, tests, register everything,
+run tests, commit, push, and open a GitHub pull request.
+
+Unlike the original implementation the generated tool is registered
+automatically via ``@hpc_tool`` — no file patching of agent.py, dispatch.py,
+or rbac.py is needed.
 
 Usage (from the AI agent):
     hpc_self_evolve(
@@ -38,8 +42,10 @@ def test_happy_path(mock_cl, mock_run):
         dry_run=True,
     )
 """
+
 from __future__ import annotations
 
+import ast
 import json
 import os
 import re
@@ -49,6 +55,8 @@ import time
 from typing import Any
 
 from hpc_pilot.paths import get_home
+from hpc_pilot.rbac import Role
+from hpc_pilot.tools._registry import hpc_tool
 from hpc_pilot.tools._run import _resolve_cluster, _run  # noqa: F401 — reused by generated code
 from hpc_pilot.tools._validation import _NAME_RE, _USER_RE, _validate  # noqa: F401
 
@@ -68,6 +76,213 @@ def _validate_tool_name(name: str) -> None:
 
 
 # ---------------------------------------------------------------------------
+# AST whitelist — restrict generated code to known-safe operations
+# ---------------------------------------------------------------------------
+
+# AST node types that are always allowed.
+_ALLOWED_AST_NODES: frozenset[type[ast.AST]] = frozenset({
+    # Top-level
+    ast.Module,
+    ast.FunctionDef,
+    ast.AsyncFunctionDef,
+    ast.ClassDef,
+    ast.Return,
+    ast.Assign,
+    ast.AnnAssign,
+    ast.AugAssign,
+    ast.Expr,
+    ast.Pass,
+    ast.Import,
+    ast.ImportFrom,
+    ast.If,
+    ast.For,
+    ast.While,
+    ast.With,
+    ast.Try,
+    ast.Raise,
+    ast.Assert,
+    ast.Delete,
+    # Break / Continue
+    ast.Break,
+    ast.Continue,
+    ast.ExceptHandler,
+    ast.withitem,
+    # Function signatures
+    ast.arg,
+    ast.arguments,
+    # Expressions
+    ast.Name,
+    ast.Load,
+    ast.Store,
+    ast.Del,
+    ast.Attribute,
+    ast.Subscript,
+    ast.Call,
+    ast.Constant,
+    ast.List,
+    ast.Tuple,
+    ast.Dict,
+    ast.Set,
+    ast.BinOp,
+    ast.UnaryOp,
+    ast.BoolOp,
+    ast.Compare,
+    ast.IfExp,
+    ast.Lambda,
+    ast.FormattedValue,
+    ast.JoinedStr,
+    # Subscript slices (Index was removed in Python 3.9+)
+    ast.Slice,
+    # Comprehensions
+    ast.ListComp,
+    ast.SetComp,
+    ast.DictComp,
+    ast.GeneratorExp,
+    ast.comprehension,
+    # Operators
+    ast.Add,
+    ast.Sub,
+    ast.Mult,
+    ast.Div,
+    ast.FloorDiv,
+    ast.Mod,
+    ast.Pow,
+    ast.LShift,
+    ast.RShift,
+    ast.BitOr,
+    ast.BitXor,
+    ast.BitAnd,
+    ast.MatMult,
+    ast.Not,
+    ast.UAdd,
+    ast.USub,
+    ast.Invert,
+    ast.And,
+    ast.Or,
+    ast.Eq,
+    ast.NotEq,
+    ast.Lt,
+    ast.LtE,
+    ast.Gt,
+    ast.GtE,
+    ast.Is,
+    ast.IsNot,
+    ast.In,
+    ast.NotIn,
+    # Match statement (Python 3.10+)
+    ast.Match,
+    ast.MatchValue,
+    ast.MatchSingleton,
+    ast.MatchSequence,
+    ast.MatchMapping,
+    ast.MatchClass,
+    ast.MatchStar,
+    ast.MatchAs,
+    ast.MatchOr,
+    # Keyword / Starred / Await / Yield
+    ast.keyword,
+    ast.Starred,
+    ast.Await,
+    ast.Yield,
+    ast.YieldFrom,
+    # Type annotation nodes (Python 3.12+)
+    ast.TypeVar,
+    ast.ParamSpec,
+    ast.TypeVarTuple,
+    ast.Subscript,
+})
+
+# AST node types that are BLOCKED — explicit deny list for dangerous patterns.
+_DANGEROUS_CALL_NAMES: frozenset[str] = frozenset({
+    # Code execution
+    "eval",
+    "exec",
+    "compile",
+    "__import__",
+    "open",
+    # Built-in IO
+    "input",
+    "breakpoint",
+    # OS / subprocess (use _run instead)
+    "os.system",
+    "os.popen",
+    "subprocess.run",
+    "subprocess.Popen",
+    "subprocess.call",
+    "subprocess.check_call",
+    "subprocess.check_output",
+    "shlex.quote",
+    # Attribute / descriptor introspection — can bypass AST whitelist
+    "__getattribute__",
+    "__setattr__",
+    "__getattr__",
+    "__class__",
+    "__subclasses__",
+    "__globals__",
+    "__code__",
+    "__builtins__",
+    "globals",
+    "locals",
+    "vars",
+    "type",
+    "getattr",
+    "setattr",
+    "delattr",
+    "hasattr",
+    # Import-related dangerous patterns
+    "importlib.import_module",
+})
+
+
+def _check_ast_safety(tree: ast.Module) -> None:
+    """Walk *tree* and raise ``ValueError`` if any unsafe construct is found.
+
+    Two layers of defence:
+      1. Every AST node type must be in ``_ALLOWED_AST_NODES``.
+      2. Every function call name is checked against ``_DANGEROUS_CALL_NAMES``.
+    """
+    for node in ast.walk(tree):
+        node_type = type(node)
+
+        # Layer 1: unknown node types
+        if node_type not in _ALLOWED_AST_NODES:
+            name = getattr(node, "name", getattr(node, "id", node_type.__name__))
+            raise ValueError(
+                f"Unsafe AST node '{node_type.__name__}' "
+                f"(near '{name}' at line {getattr(node, 'lineno', '?')}). "
+                f"Only whitelisted operations are allowed in generated code."
+            )
+
+        # Layer 2: dangerous call names (both Name and Attribute calls)
+        if isinstance(node, ast.Call):
+            if isinstance(node.func, ast.Attribute):
+                call_name = _resolve_call_name(node)
+            elif isinstance(node.func, ast.Name):
+                call_name = node.func.id
+            else:
+                continue
+            if call_name in _DANGEROUS_CALL_NAMES:
+                raise ValueError(
+                    f"Dangerous function call '{call_name}' at line "
+                    f"{getattr(node, 'lineno', '?')}. "
+                    f"Use _run() for subprocess and _validate() for validation."
+                )
+
+
+def _resolve_call_name(node: ast.Call) -> str:
+    """Resolve a call node to a dotted name string like 'os.system'."""
+    parts: list[str] = []
+    cur = node.func
+    while isinstance(cur, ast.Attribute):
+        parts.append(cur.attr)
+        cur = cur.value
+    if isinstance(cur, ast.Name):
+        parts.append(cur.id)
+    parts.reverse()
+    return ".".join(parts)
+
+
+# ---------------------------------------------------------------------------
 # Paths
 # ---------------------------------------------------------------------------
 
@@ -76,9 +291,6 @@ _TESTS_EVOLVED_DIR = os.path.join(
     os.path.dirname(__file__), "..", "..", "tests", "tools", "evolved"
 )
 _TOOLS_INIT = os.path.join(os.path.dirname(__file__), "__init__.py")
-_AGENT_PATH = os.path.join(os.path.dirname(__file__), "..", "agent.py")
-_DISPATCH_PATH = os.path.join(os.path.dirname(__file__), "..", "dispatch.py")
-_RBAC_PATH = os.path.join(os.path.dirname(__file__), "..", "rbac.py")
 _PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 
@@ -97,7 +309,6 @@ def _test_file_path(tool_name: str) -> str:
 
 def _build_tool_py(tool_name: str, code: str) -> str:
     """Wrap the user-provided *code* with the standard imports."""
-    # Strip leading/trailing whitespace, dedent if needed
     lines = code.strip().splitlines()
     while lines and (not lines[0] or lines[0].strip() == ""):
         lines.pop(0)
@@ -105,12 +316,12 @@ def _build_tool_py(tool_name: str, code: str) -> str:
     if body.startswith("def "):
         body = "\n\n" + body
     return (
-        '"""Auto-generated tool: {}."""\n'
+        f'"""Auto-generated tool: {tool_name}."""\n'
         "from __future__ import annotations\n\n"
         "from hpc_pilot.tools._run import _resolve_cluster, _run\n"
         "from hpc_pilot.tools._validation import _NAME_RE, _USER_RE, _validate\n\n"
-        "{}"
-    ).format(tool_name, body)
+        f"{body}"
+    )
 
 
 def _build_test_py(tool_name: str, domain: str, test_code: str) -> str:
@@ -120,103 +331,20 @@ def _build_test_py(tool_name: str, domain: str, test_code: str) -> str:
         lines.pop(0)
     body = "\n".join(lines)
     return (
-        '"""Tests for auto-generated tool {}."""\n'
+        f'"""Tests for auto-generated tool {tool_name}."""\n'
         "from __future__ import annotations\n\n"
         "from unittest.mock import MagicMock, patch\n\n"
         "import pytest\n\n"
-        "{}"
-    ).format(tool_name, body)
-
-
-def _build_schema_entry(tool_name: str, description: str, schema: dict) -> str:
-    """Build a Python dict literal for the TOOL_SCHEMAS entry."""
-    props_json = json.dumps(schema.get("properties", {}), indent=12)
-    required = schema.get("required", [])
-    required_str = json.dumps(required) if required else ""
-    return (
-        '    {\n'
-        f'        "name": "{tool_name}",\n'
-        f'        "description": "{description}",\n'
-        '        "input_schema": {{\n'
-        '            "type": "object",\n'
-        f'            "properties": {props_json},\n'
-        f'            "required": {required_str},\n'
-        '        }},\n'
-        '    },'
+        f"{body}"
     )
-
-
-def _build_dispatch_entry(tool_name: str) -> str:
-    """Build a dispatch lambda for a simple evolved tool."""
-    return (
-        f'    "{tool_name}": lambda args, t: t.{tool_name}(\n'
-        f'        cluster=_cl(args),\n'
-        f'        dry_run=_dr(args),\n'
-        f'    ),'
-    )
-
-
-# ---------------------------------------------------------------------------
-# File patching helpers
-# ---------------------------------------------------------------------------
-
-
-def _append_to_file(path: str, text: str) -> None:
-    """Append *text* before the last line of the file (usually before ``]`` or ``}``)."""
-    with open(path) as f:
-        content = f.read()
-
-    # Try to find the last non-blank, non-comment line
-    lines = content.splitlines()
-    # Walk backwards to find the last meaningful line
-    insert_at = len(lines)
-    for i in range(len(lines) - 1, -1, -1):
-        stripped = lines[i].strip()
-        if stripped and not stripped.startswith("#"):
-            # This is a closing brace/bracket — insert before it
-            insert_at = i
-            break
-        elif stripped:
-            insert_at = i
-
-    # Insert the new text before the last line
-    content_lines = content.split("\n")
-    before = "\n".join(content_lines[:insert_at])
-    after = "\n".join(content_lines[insert_at:])
-    new_content = before + "\n" + text + "\n" + after
-
-    with open(path, "w") as f:
-        f.write(new_content)
-
-
-def _add_to_rbac(tool_name: str, role: str) -> str:
-    """Add an RBAC entry for the new tool."""
-    line = f'    "{tool_name}": Role.{role},'
-    # Insert before the closing }
-    content = _read_file(_RBAC_PATH)
-    insert_at = content.rfind("}")
-    if insert_at == -1:
-        raise RuntimeError("Could not find closing '}' in rbac.py")
-    new_content = content[:insert_at] + line + "\n" + content[insert_at:]
-    _write_file(_RBAC_PATH, new_content)
-    return f"Added {tool_name} -> Role.{role} to rbac.py"
-
-
-def _read_file(path: str) -> str:
-    with open(path) as f:
-        return f.read()
-
-
-def _write_file(path: str, content: str) -> None:
-    with open(path, "w") as f:
-        f.write(content)
 
 
 def _add_to_init(tool_name: str) -> str:
     """Add the tool to tools/__init__.py imports."""
-    import_line = f"from hpc_pilot.tools.evolved.{tool_name} import {tool_name}  # noqa: F401"
+    import_line = (
+        f"from hpc_pilot.tools.evolved.{tool_name} import {tool_name}  # noqa: F401"
+    )
     content = _read_file(_TOOLS_INIT)
-    # Find the last import block and append
     lines = content.splitlines()
     insert_at = len(lines)
     for i in range(len(lines) - 1, -1, -1):
@@ -229,30 +357,14 @@ def _add_to_init(tool_name: str) -> str:
     return f"Added {import_line} to tools/__init__.py"
 
 
-def _add_to_agent_schemas(tool_name: str, description: str, schema: dict) -> str:
-    """Add a schema entry to TOOL_SCHEMAS in agent.py."""
-    entry = _build_schema_entry(tool_name, description, schema)
-    content = _read_file(_AGENT_PATH)
-    # Insert before the closing `]`
-    insert_at = content.rfind("\n]")
-    if insert_at == -1:
-        raise RuntimeError("Could not find closing ']' in agent.py")
-    new_content = content[:insert_at] + "\n" + entry + "\n" + content[insert_at + 1:]
-    _write_file(_AGENT_PATH, new_content)
-    return f"Added schema for {tool_name} to agent.py"
+def _read_file(path: str) -> str:
+    with open(path) as f:
+        return f.read()
 
 
-def _add_to_dispatch(tool_name: str) -> str:
-    """Add a dispatch entry for the tool."""
-    entry = _build_dispatch_entry(tool_name)
-    content = _read_file(_DISPATCH_PATH)
-    # Insert before the closing `}`
-    insert_at = content.rfind("\n}")
-    if insert_at == -1:
-        raise RuntimeError("Could not find closing '}}' in dispatch.py")
-    new_content = content[:insert_at] + "\n" + entry + "\n" + content[insert_at + 1:]
-    _write_file(_DISPATCH_PATH, new_content)
-    return f"Added dispatch entry for {tool_name} to dispatch.py"
+def _write_file(path: str, content: str) -> None:
+    with open(path, "w") as f:
+        f.write(content)
 
 
 # ---------------------------------------------------------------------------
@@ -265,7 +377,7 @@ def _get_remote_url() -> str:
     git_config = os.path.join(_PROJECT_ROOT, ".git", "config")
     with open(git_config) as f:
         for line in f:
-            m = re.match(r'\s*url\s*=\s*(.+)', line.strip())
+            m = re.match(r"\s*url\s*=\s*(.+)", line.strip())
             if m:
                 return m.group(1).strip()
     return ""
@@ -274,45 +386,60 @@ def _get_remote_url() -> str:
 def _get_github_repo() -> str:
     """Extract owner/repo from the git remote URL."""
     url = _get_remote_url()
-    # Handle https://github.com/owner/repo.git
     m = re.search(r"github\.com[:/]([^/]+/[^/]+?)(?:\.git)?$", url)
     if m:
         return m.group(1)
-    # Handle git@github.com:owner/repo.git
     return ""
 
 
 def _git_commit_and_push(tool_name: str, branch: str) -> tuple[str, str]:
     """Commit generated files and push to a new branch. Returns (sha, branch)."""
-    # Create and switch to new branch
     subprocess.run(
         ["git", "checkout", "-b", branch],
-        cwd=_PROJECT_ROOT, capture_output=True, text=True, check=True,
+        cwd=_PROJECT_ROOT,
+        capture_output=True,
+        text=True,
+        check=True,
     )
 
-    # Stage all generated files
     subprocess.run(
-        ["git", "add", _EVOLVED_DIR, _TESTS_EVOLVED_DIR,
-         _TOOLS_INIT, _AGENT_PATH, _DISPATCH_PATH, _RBAC_PATH],
-        cwd=_PROJECT_ROOT, capture_output=True, text=True, check=True,
+        [
+            "git",
+            "add",
+            _EVOLVED_DIR,
+            _TESTS_EVOLVED_DIR,
+            _TOOLS_INIT,
+        ],
+        cwd=_PROJECT_ROOT,
+        capture_output=True,
+        text=True,
+        check=True,
     )
 
-    # Commit
     result = subprocess.run(
-        ["git", "commit",
-         "-m", f"Auto-generate {tool_name} via self-evolve",
-         "-m", f"Generated by hpc_self_evolve to address an uncovered operational scenario."],
-        cwd=_PROJECT_ROOT, capture_output=True, text=True, check=True,
+        [
+            "git",
+            "commit",
+            "-m",
+            f"Auto-generate {tool_name} via self-evolve",
+            "-m",
+            "Generated by hpc_self_evolve to address an uncovered operational scenario.",
+        ],
+        cwd=_PROJECT_ROOT,
+        capture_output=True,
+        text=True,
+        check=True,
     )
     sha = ""
     m = re.search(r"\[[^\]]+\] ([a-f0-9]+)", result.stdout)
     if m:
         sha = m.group(1)
 
-    # Push
     subprocess.run(
         ["git", "push", "origin", branch],
-        cwd=_PROJECT_ROOT, capture_output=True, text=True,
+        cwd=_PROJECT_ROOT,
+        capture_output=True,
+        text=True,
     )
 
     return sha, branch
@@ -326,12 +453,11 @@ def _create_github_pr(tool_name: str, description: str, branch: str) -> str:
 
     token = os.environ.get("GITHUB_TOKEN", "")
     if not token:
-        # Try reading from .env
         env_path = os.path.join(get_home(), ".env")
         if os.path.exists(env_path):
             with open(env_path) as f:
                 for line in f:
-                    m = re.match(r'GITHUB_TOKEN=(.+)', line.strip())
+                    m = re.match(r"GITHUB_TOKEN=(.+)", line.strip())
                     if m:
                         token = m.group(1)
                         break
@@ -352,7 +478,7 @@ def _create_github_pr(tool_name: str, description: str, branch: str) -> str:
         f"## What was generated\n"
         f"- `hpc_pilot/tools/evolved/{tool_name}.py` — tool implementation\n"
         f"- `tests/tools/evolved/test_{tool_name}.py` — tests\n"
-        f"- Registration in `__init__.py`, `agent.py`, `dispatch.py`, `rbac.py`\n\n"
+        f"- Registration via `@hpc_tool` decorator\n\n"
         f"## Verification\n"
         f"- [ ] `python3 -m pytest tests/ -q` passes\n"
         f"- [ ] Schema validation tests pass\n"
@@ -361,22 +487,32 @@ def _create_github_pr(tool_name: str, description: str, branch: str) -> str:
         f"_Generated by `hpc_self_evolve`_"
     )
 
-    payload = json.dumps({
-        "title": pr_title,
-        "body": pr_body,
-        "head": branch,
-        "base": "main",
-    }).encode()
+    payload = json.dumps(
+        {
+            "title": pr_title,
+            "body": pr_body,
+            "head": branch,
+            "base": "main",
+        }
+    ).encode()
 
     result = subprocess.run(
         [
-            "curl", "-s", "-X", "POST",
+            "curl",
+            "-s",
+            "-X",
+            "POST",
             f"https://api.github.com/repos/{repo}/pulls",
-            "-H", f"Authorization: Bearer {token}",
-            "-H", "Content-Type: application/json",
-            "-d", payload,
+            "-H",
+            f"Authorization: Bearer {token}",
+            "-H",
+            "Content-Type: application/json",
+            "-d",
+            payload,
         ],
-        capture_output=True, text=True, timeout=30,
+        capture_output=True,
+        text=True,
+        timeout=30,
     )
 
     if result.returncode != 0:
@@ -395,6 +531,45 @@ def _create_github_pr(tool_name: str, description: str, branch: str) -> str:
 # ---------------------------------------------------------------------------
 
 
+@hpc_tool(
+    name="hpc_self_evolve",
+    role=Role.SUPERADMIN,
+    schema={
+        "name": "hpc_self_evolve",
+        "description": "Generate an HPC-Pilot tool, register, test, commit, push, PR.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "tool_name": {
+                    "type": "string",
+                    "description": "Name for the new tool (e.g. hpc_network_ib_list_partitions)",
+                },
+                "description": {
+                    "type": "string",
+                    "description": "Human-readable description of what the tool does",
+                },
+                "code": {
+                    "type": "string",
+                    "description": "Function body matching tool_name. Use _validate(), _resolve_cluster(), _run(). AST-whitelisted: no eval/exec/open/os.system.",
+                },
+                "test_code": {
+                    "type": "string",
+                    "description": "Pytest test code. Minimum: happy-path test patching _run and _resolve_cluster.",
+                },
+                "schema": {
+                    "type": "object",
+                    "description": "JSON Schema. Must include 'type', 'properties', optionally 'required'.",
+                },
+                "required_role": {
+                    "type": "string",
+                    "enum": ["VIEWER", "OPERATOR", "ADMIN", "SUPERADMIN"],
+                    "description": "Minimum RBAC role (default: VIEWER)",
+                },
+            },
+            "required": ["tool_name", "description", "code", "test_code"],
+        },
+    },
+)
 def hpc_self_evolve(
     tool_name: str,
     description: str,
@@ -411,6 +586,9 @@ def hpc_self_evolve(
     After generation, call ``hpc_self_evolve_create_pr`` separately to
     commit, push, and open a GitHub pull request.
 
+    The generated tool is registered automatically via the ``@hpc_tool``
+    decorator — no file patching is needed.
+
     Args:
         tool_name: Name of the new tool (e.g. ``hpc_network_ib_list_partitions``).
         description: Human-readable description of what the tool does.
@@ -426,8 +604,7 @@ def hpc_self_evolve(
     allowed_roles = {"VIEWER", "OPERATOR", "ADMIN", "SUPERADMIN"}
     if required_role.upper() not in allowed_roles:
         raise ValueError(
-            f"Invalid required_role: {required_role!r}. "
-            f"Must be one of {sorted(allowed_roles)}"
+            f"Invalid required_role: {required_role!r}. " f"Must be one of {sorted(allowed_roles)}"
         )
 
     if not description.strip():
@@ -436,6 +613,13 @@ def hpc_self_evolve(
         raise ValueError("code is required")
     if not test_code.strip():
         raise ValueError("test_code is required")
+
+    # AST whitelist check on the code
+    try:
+        tree = ast.parse(code.strip(), filename="<generated>")
+        _check_ast_safety(tree)
+    except SyntaxError as exc:
+        raise ValueError(f"Generated code has invalid syntax: {exc}") from None
 
     role_up = required_role.upper()
 
@@ -448,12 +632,11 @@ def hpc_self_evolve(
         f"  Role: {role_up}",
         f"  Description: {description}",
         "",
-        f"  1. Create {_tool_file_path(tool_name)}",
+        f"  1. Create {_tool_file_path(tool_name)}  (AST-whitelist checked)",
         f"  2. Create {_test_file_path(tool_name)}",
         f"  3. Update {_TOOLS_INIT} (add import)",
-        f"  4. Update {_AGENT_PATH} (add schema)",
-        f"  5. Update {_DISPATCH_PATH} (add dispatch entry)",
-        f"  6. Update {_RBAC_PATH} (add {tool_name} -> {role_up})",
+        "     → Registration is automatic via @hpc_tool decorator",
+        "     → No patching of agent.py, dispatch.py, or rbac.py needed",
         "",
     ]
 
@@ -487,24 +670,15 @@ def hpc_self_evolve(
     result = _add_to_init(tool_name)
     lines.append(f"  ✓ {result}")
 
-    # 4. Update agent.py schemas
-    result = _add_to_agent_schemas(tool_name, description, schema)
-    lines.append(f"  ✓ {result}")
-
-    # 5. Update dispatch.py
-    result = _add_to_dispatch(tool_name)
-    lines.append(f"  ✓ {result}")
-
-    # 6. Update rbac.py
-    result = _add_to_rbac(tool_name, role_up)
-    lines.append(f"  ✓ {result}")
-
-    # 7. Run tests
+    # 4. Run tests
     lines.append("")
     lines.append("  Running pytest...")
     test_result = subprocess.run(
         [sys.executable, "-m", "pytest", "tests/", "-q", "--tb=short"],
-        cwd=_PROJECT_ROOT, capture_output=True, text=True, timeout=300,
+        cwd=_PROJECT_ROOT,
+        capture_output=True,
+        text=True,
+        timeout=300,
     )
 
     if test_result.returncode != 0:
@@ -521,12 +695,14 @@ def hpc_self_evolve(
 
     lines.append("  ✓ All tests passed.")
 
-    # 8. Git commit, push, and PR — done separately via hpc_self_evolve_create_pr
+    # 5. Git commit, push, and PR — done separately via hpc_self_evolve_create_pr
     lines.append("")
     lines.append("  ✓ Files generated and registered. All tests pass.")
     lines.append("")
     lines.append("  To commit, push, and open a PR, call:")
-    lines.append(f'    hpc_self_evolve_create_pr(tool_name="{tool_name}", description="{description}")')
+    lines.append(
+        f'    hpc_self_evolve_create_pr(tool_name="{tool_name}", description="{description}")'
+    )
     lines.append("")
     lines.append("  Or to skip git/PR, the files are ready on disk:")
     lines.append(f"    {_tool_file_path(tool_name)}")
@@ -535,6 +711,28 @@ def hpc_self_evolve(
     return "\n".join(lines)
 
 
+@hpc_tool(
+    name="hpc_self_evolve_create_pr",
+    role=Role.SUPERADMIN,
+    schema={
+        "name": "hpc_self_evolve_create_pr",
+        "description": "Commit, push, and open a GitHub PR for a tool from hpc_self_evolve. Needs GITHUB_TOKEN.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "tool_name": {
+                    "type": "string",
+                    "description": "Name of the evolved tool to PR (e.g. hpc_network_ib_list)",
+                },
+                "description": {
+                    "type": "string",
+                    "description": "Human-readable description for the PR body",
+                },
+            },
+            "required": ["tool_name"],
+        },
+    },
+)
 def hpc_self_evolve_create_pr(
     tool_name: str,
     description: str = "",
@@ -579,10 +777,10 @@ def hpc_self_evolve_create_pr(
 
     if dry_run:
         lines.append(f"  Would create branch '{branch}'")
-        lines.append(f"  Would commit: {_TOOLS_INIT}, {_AGENT_PATH}, {_DISPATCH_PATH}, {_RBAC_PATH}")
+        lines.append(f"  Would commit: {_TOOLS_INIT}")
         lines.append(f"  Would commit: {tool_path}, {test_path}")
         lines.append(f"  Would push to origin/{branch}")
-        lines.append(f"  Would open PR via GitHub API")
+        lines.append("  Would open PR via GitHub API")
         lines.append("")
         lines.append("  DRY-RUN: no files were pushed.")
         return "\n".join(lines)

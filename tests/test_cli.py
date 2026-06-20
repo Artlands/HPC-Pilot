@@ -36,7 +36,7 @@ class TestHomeDirFunctions:
     def test_config_file(self):
         from hpc_pilot.cli import config_file
 
-        with patch("hpc_pilot.cli.home_dir", return_value="/test/hpc-pilot"):
+        with patch("hpc_pilot._cli_base.home_dir", return_value="/test/hpc-pilot"):
             assert config_file() == "/test/hpc-pilot/config.yaml"
 
     @patch("hpc_pilot.paths.os.makedirs")
@@ -78,7 +78,7 @@ class TestConfigFile:
     def test_get_config_path(self):
         from hpc_pilot.cli import config_file
 
-        with patch("hpc_pilot.cli.home_dir", return_value="/test/hpc-pilot"):
+        with patch("hpc_pilot._cli_base.home_dir", return_value="/test/hpc-pilot"):
             assert config_file() == "/test/hpc-pilot/config.yaml"
 
 
@@ -103,7 +103,7 @@ class TestNodesCommand:
         from hpc_pilot.cli import nodes_command
 
         args = argparse.Namespace(node="node01")
-        with patch("hpc_pilot.cli.ensure_home"), \
+        with patch("hpc_pilot._cli_slurm.ensure_home"), \
              patch("hpc_pilot.dispatch.invoke", return_value="Node status info") as mock_invoke:
             result = nodes_command(args)
 
@@ -115,7 +115,7 @@ class TestNodesCommand:
         from hpc_pilot.cli import nodes_command
 
         args = argparse.Namespace(node="")
-        with patch("hpc_pilot.cli.ensure_home"), \
+        with patch("hpc_pilot._cli_slurm.ensure_home"), \
              patch("hpc_pilot.dispatch.invoke", return_value="All nodes"):
             result = nodes_command(args)
 
@@ -125,7 +125,7 @@ class TestNodesCommand:
         from hpc_pilot.cli import nodes_command
 
         args = argparse.Namespace(node="node01")
-        with patch("hpc_pilot.cli.ensure_home"), \
+        with patch("hpc_pilot._cli_slurm.ensure_home"), \
              patch("hpc_pilot.dispatch.invoke", side_effect=RuntimeError("Connection failed")):
             result = nodes_command(args)
 
@@ -136,7 +136,7 @@ class TestNodesCommand:
         from hpc_pilot.cli import nodes_command
 
         args = argparse.Namespace(node="--help")
-        with patch("hpc_pilot.cli.ensure_home"), \
+        with patch("hpc_pilot._cli_slurm.ensure_home"), \
              patch("hpc_pilot.dispatch.invoke", side_effect=ValueError("Invalid node name")):
             result = nodes_command(args)
 
@@ -150,7 +150,7 @@ class TestQueueCommand:
         from hpc_pilot.cli import queue_command
 
         args = argparse.Namespace(user="alice", partition="gpu")
-        with patch("hpc_pilot.cli.ensure_home"), \
+        with patch("hpc_pilot._cli_slurm.ensure_home"), \
              patch("hpc_pilot.dispatch.invoke", return_value="Queue status"):
             result = queue_command(args)
 
@@ -160,7 +160,7 @@ class TestQueueCommand:
         from hpc_pilot.cli import queue_command
 
         args = argparse.Namespace(user=None, partition=None)
-        with patch("hpc_pilot.cli.ensure_home"), \
+        with patch("hpc_pilot._cli_slurm.ensure_home"), \
              patch("hpc_pilot.dispatch.invoke", return_value="Queue status"):
             result = queue_command(args)
 
@@ -174,7 +174,7 @@ class TestHealthCommand:
         from hpc_pilot.cli import health_command
 
         args = argparse.Namespace()
-        with patch("hpc_pilot.cli.ensure_home"), \
+        with patch("hpc_pilot._cli_system.ensure_home"), \
              patch("hpc_pilot.dispatch.invoke", return_value='{"overall": "healthy"}'):
             result = health_command(args)
 
@@ -190,8 +190,8 @@ class TestQosCommand:
         from hpc_pilot.rbac import Role
 
         args = argparse.Namespace(name="gpu", max_wall_min=60, apply=False, yes=False)
-        with patch("hpc_pilot.cli.ensure_home"), \
-             patch("hpc_pilot.cli.get_role", return_value=Role.ADMIN), \
+        with patch("hpc_pilot._cli_slurm.ensure_home"), \
+             patch("hpc_pilot._cli_slurm.get_role", return_value=Role.ADMIN), \
              patch("hpc_pilot.dispatch.invoke", return_value="DRY-RUN: sacctmgr ...") as mock_invoke:
             result = qos_command(args)
 
@@ -205,8 +205,8 @@ class TestQosCommand:
         from hpc_pilot.rbac import Role
 
         args = argparse.Namespace(name="gpu", max_wall_min=60, apply=True, yes=True)
-        with patch("hpc_pilot.cli.ensure_home"), \
-             patch("hpc_pilot.cli.get_role", return_value=Role.ADMIN), \
+        with patch("hpc_pilot._cli_slurm.ensure_home"), \
+             patch("hpc_pilot._cli_slurm.get_role", return_value=Role.ADMIN), \
              patch("hpc_pilot.dispatch.invoke", return_value="Modified") as mock_invoke:
             result = qos_command(args)
 
@@ -219,8 +219,8 @@ class TestQosCommand:
         from hpc_pilot.rbac import Role
 
         args = argparse.Namespace(name="gpu", max_wall_min=60, apply=True, yes=True)
-        with patch("hpc_pilot.cli.ensure_home"), \
-             patch("hpc_pilot.cli.get_role", return_value=Role.VIEWER), \
+        with patch("hpc_pilot._cli_slurm.ensure_home"), \
+             patch("hpc_pilot._cli_slurm.get_role", return_value=Role.VIEWER), \
              patch("hpc_pilot.dispatch.invoke", side_effect=PermissionError("requires role 'admin'")):
             result = qos_command(args)
 
@@ -379,7 +379,7 @@ class TestMain:
 
     def test_main_warewulf_command_registered(self):
         """warewulf subcommand is registered (not werewulf)."""
-        with patch("hpc_pilot.cli.ensure_home"), \
+        with patch("hpc_pilot._cli_system.ensure_home"), \
              patch("hpc_pilot.dispatch.invoke", return_value="NODE LIST"):
             result = main(["warewulf"])
         # May fail if wwctl is absent, but the command must not raise SystemExit
@@ -401,16 +401,14 @@ class TestMain:
 
     def test_main_gateway_status_local(self):
         """hpc-pilot gateway --status now handled locally (not delegating to gateway.main)."""
-        with patch("hpc_pilot.cli._gateway_status", return_value=0) as mock_status, \
-             patch("hpc_pilot.cli.ensure_home"):
+        with patch("hpc_pilot._cli_gateway._gateway_status", return_value=0) as mock_status:
             result = main(["gateway", "--status"])
         mock_status.assert_called_once()
         assert result == 0
 
     def test_main_gateway_bare_starts_local(self):
         """hpc-pilot gateway with no flags calls _gateway_start."""
-        with patch("hpc_pilot.cli._gateway_start", return_value=0) as mock_start, \
-             patch("hpc_pilot.cli.ensure_home"):
+        with patch("hpc_pilot._cli_gateway._gateway_start", return_value=0) as mock_start:
             result = main(["gateway"])
         mock_start.assert_called_once()
         assert result == 0

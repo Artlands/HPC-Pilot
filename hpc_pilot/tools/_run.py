@@ -17,6 +17,8 @@ def _run(
     cluster: Cluster | None = None,
     timeout: int = 60,
     dry_run: bool = False,
+    env: dict[str, str] | None = None,
+    cwd: str | None = None,
 ) -> str:
     """Run *cmd* and return stdout; raise RuntimeError on non-zero exit.
 
@@ -45,7 +47,7 @@ def _run(
         if ssh.control_path:
             actual_cmd[1:1] = ["-o", f"ControlPath={ssh.control_path}", "-o", "ControlMaster=auto"]
 
-    result = subprocess.run(actual_cmd, capture_output=True, text=True, timeout=timeout)
+    result = subprocess.run(actual_cmd, capture_output=True, text=True, timeout=timeout, env=env, cwd=cwd)
     if result.returncode != 0:
         stderr = (result.stderr or "").strip()
         raise RuntimeError(f"{cmd[0]} exited {result.returncode}: {stderr or '(no stderr)'}")

@@ -82,6 +82,25 @@ def _get_rate_limiter() -> _TokenBucket:
     return _RATE_LIMITER
 
 
+def _inc_metric(name: str, labels: dict[str, str]) -> None:
+    """Safely increment Prometheus counters (import-safe)."""
+    try:
+        from hpc_pilot.metrics import _HAS_PROMETHEUS
+
+        if not _HAS_PROMETHEUS:
+            return
+        from hpc_pilot.metrics import denials_total, tool_call_duration_seconds
+
+        if name == "denials_total":
+            denials_total.labels(**labels).inc()
+        elif name == "tool_call_duration_seconds":
+            tool = labels.pop("tool", "unknown")
+            duration = float(labels.get("duration", "0"))
+            tool_call_duration_seconds.labels(tool=tool).observe(duration)
+    except Exception:
+        pass
+
+
 def invoke(
     name: str,
     args: dict[str, Any],
@@ -110,6 +129,7 @@ def invoke(
                 error=f"permission_denied: {exc}",
             )
         )
+        _inc_metric("denials_total", {"tool": name})
         raise
 
     # Per-actor rate limiting
@@ -127,6 +147,7 @@ def invoke(
                 error="rate_limited",
             )
         )
+        _inc_metric("denials_total", {"tool": name})
         raise PermissionError(
             f"Rate limit exceeded for actor '{actor}'. "
             f"Configure 'rate_limit.calls_per_minute' in config.yaml."
@@ -154,6 +175,7 @@ def invoke(
 
     from hpc_pilot import tools
 
+    t0 = time.monotonic()
     with audit_tool(name, actor, role.value, args, dry_run=dry_run):
         if name in ("hpc_skill_describe", "hpc_skill_run"):
             result = _dispatch_skill(name, args, role, actor)
@@ -161,6 +183,8 @@ def invoke(
             result = _dispatch_job_cancel(args, tools, role, actor)
         else:
             result = _dispatch(name, args, tools)
+    duration = time.monotonic() - t0
+    _inc_metric("tool_call_duration_seconds", {"tool": name, "duration": str(duration)})
     return result or "(no output)"
 
 

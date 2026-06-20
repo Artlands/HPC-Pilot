@@ -19,9 +19,27 @@ from hpc_pilot.paths import audit_log_path
 
 _SECRET_RE = re.compile(r"(token|key|password|secret|passwd)", re.IGNORECASE)
 
+# Value-side secret patterns — scrub these tokens wherever they appear in values.
+_VALUE_SECRET_RE = re.compile(
+    r"("
+    r"sk-[A-Za-z0-9_-]{20,}"                    # Anthropic / OpenAI API key
+    r"|ghp_[A-Za-z0-9]{36}"                      # GitHub personal access token
+    r"|xox[abprs]-[A-Za-z0-9-]{10,}"             # Slack token
+    r"|Bearer\s+[A-Za-z0-9._-]+"                 # Bearer token
+    r")",
+)
+
 
 def _redact(args: dict[str, Any]) -> dict[str, Any]:
-    return {k: "***" if _SECRET_RE.search(k) else v for k, v in args.items()}
+    result: dict[str, Any] = {}
+    for k, v in args.items():
+        if _SECRET_RE.search(k):
+            result[k] = "***"
+        elif isinstance(v, str):
+            result[k] = _VALUE_SECRET_RE.sub("***", v)
+        else:
+            result[k] = v
+    return result
 
 
 @dataclass
@@ -52,14 +70,58 @@ class AuditSink(Protocol):
 
 
 class FileSink:
-    """Append JSON lines to a file."""
+    """Append JSON lines to a file with optional size-bounded rotation.
 
-    def __init__(self, path: str) -> None:
+    When the file exceeds *max_bytes*, it is renamed to ``<path>.1`` and
+    existing rotated files (``.1``, ``.2``, …) are shifted.  At most
+    *max_files* rotated backups are kept.
+    """
+
+    def __init__(
+        self,
+        path: str,
+        max_bytes: int = 100 * 1024 * 1024,
+        max_files: int = 5,
+    ) -> None:
         self.path = os.path.expanduser(path)
+        self.max_bytes = max_bytes
+        self.max_files = max_files
+
+    def _rotate(self) -> None:
+        """Rename the current log file and shift backups."""
+        # Remove the oldest backup if it exists
+        oldest = f"{self.path}.{self.max_files}"
+        if os.path.exists(oldest):
+            try:
+                os.remove(oldest)
+            except OSError:
+                pass
+        # Shift existing backups: .N → .N+1
+        for i in range(self.max_files - 1, 0, -1):
+            src = f"{self.path}.{i}"
+            dst = f"{self.path}.{i + 1}"
+            if os.path.exists(src):
+                try:
+                    os.rename(src, dst)
+                except OSError:
+                    pass
+        # Rename current log to .1
+        try:
+            os.rename(self.path, f"{self.path}.1")
+        except OSError:
+            pass
 
     def write(self, record: dict[str, Any]) -> None:
         try:
             os.makedirs(os.path.dirname(self.path), exist_ok=True)
+
+            # Check size before writing — rotate if needed
+            try:
+                if self.max_bytes > 0 and os.path.getsize(self.path) >= self.max_bytes:
+                    self._rotate()
+            except OSError:
+                pass  # file doesn't exist yet, or stat failed
+
             with open(self.path, "a") as f:
                 fcntl.flock(f.fileno(), fcntl.LOCK_EX)
                 try:
@@ -216,7 +278,9 @@ def _load_sinks_from_config() -> list[AuditSink]:
             sink_type = entry.get("type", "file")
             if sink_type == "file":
                 sink_path = entry.get("path", audit_log_path())
-                sinks.append(FileSink(sink_path))
+                max_bytes = int(entry.get("rotation", {}).get("max_bytes", 100 * 1024 * 1024))
+                max_files = int(entry.get("rotation", {}).get("max_files", 5))
+                sinks.append(FileSink(sink_path, max_bytes=max_bytes, max_files=max_files))
             elif sink_type == "syslog":
                 facility = entry.get("facility", "local5")
                 sinks.append(SyslogSink(facility=facility))
@@ -286,6 +350,20 @@ def log_audit(event: AuditEvent) -> None:
     if event.usage:
         record["usage"] = event.usage
 
+    # Increment Prometheus counters (import-safe)
+    try:
+        from hpc_pilot.metrics import _HAS_PROMETHEUS, sink_errors_total, tool_calls_total
+
+        if _HAS_PROMETHEUS:
+            status = "ok"
+            if event.returncode == 126:
+                status = "denied"
+            elif event.returncode != 0:
+                status = "error"
+            tool_calls_total.labels(tool=event.tool, status=status).inc()
+    except Exception:
+        pass
+
     # Always write to the primary file sink
     try:
         primary_sink = FileSink(audit_log_path())
@@ -298,7 +376,14 @@ def log_audit(event: AuditEvent) -> None:
         try:
             configured_sink.write(record)
         except Exception:
-            pass  # one-sink-fails-others-succeed contract
+            # Track sink errors in Prometheus
+            try:
+                from hpc_pilot.metrics import _HAS_PROMETHEUS as _HP, sink_errors_total as _set
+
+                if _HP:
+                    _set.labels(sink_type=type(configured_sink).__name__.replace("Sink", "").lower()).inc()
+            except Exception:
+                pass
 
 
 def log_llm_usage(

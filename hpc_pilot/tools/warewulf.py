@@ -150,22 +150,13 @@ def hpc_warewulf_image_build(
         cmd.append("--gpu")
 
     try:
-        result = subprocess.run(cmd, capture_output=True, text=True, timeout=600)
+        stdout = _run(cmd, cluster=cl, timeout=600)
         with open(log_path, "w") as f:
-            f.write(result.stdout)
-            if result.stderr:
-                f.write("\n--- stderr ---\n")
-                f.write(result.stderr)
-    except subprocess.TimeoutExpired as exc:
-        with open(log_path, "a") as f:
-            f.write("\n--- TIMEOUT after 600s ---\n")
+            f.write(stdout)
+    except RuntimeError:
+        raise
+    except Exception as exc:
         raise RuntimeError(f"wwctl image build {name} timed out after 600s") from exc
-
-    if result.returncode != 0:
-        raise RuntimeError(
-            f"wwctl image build {name} exited {result.returncode}: "
-            f"{result.stderr.strip() or '(no stderr)'}"
-        )
 
     # Determine image size
     size_mb = 0
@@ -741,63 +732,18 @@ def hpc_warewulf_overlay_edit(
 
     try:
         if git_init:
-            subprocess.run(
-                ["git", "init"],
-                cwd=git_dir,
-                capture_output=True,
-                text=True,
-                timeout=30,
-                check=True,
-            )
-            subprocess.run(
-                ["git", "config", "user.name", "HPC Pilot"],
-                cwd=git_dir,
-                capture_output=True,
-                text=True,
-                timeout=30,
-            )
-            subprocess.run(
-                ["git", "config", "user.email", "hpc-pilot@localhost"],
-                cwd=git_dir,
-                capture_output=True,
-                text=True,
-                timeout=30,
-            )
+            _run(["git", "init"], cwd=git_dir, timeout=30)
+            _run(["git", "config", "user.name", "HPC Pilot"], cwd=git_dir, timeout=30)
+            _run(["git", "config", "user.email", "hpc-pilot@localhost"], cwd=git_dir, timeout=30)
 
-        subprocess.run(
-            ["git", "add", safe_path],
-            cwd=git_dir,
-            capture_output=True,
-            text=True,
-            timeout=30,
-            check=True,
-        )
-        commit_result = subprocess.run(
-            ["git", "commit", "-m", f"overlay edit: {overlay}/{safe_path}"],
-            cwd=git_dir,
-            capture_output=True,
-            text=True,
-            timeout=30,
-        )
-        if commit_result.returncode != 0:
+        _run(["git", "add", safe_path], cwd=git_dir, timeout=30)
+        try:
+            _run(["git", "commit", "-m", f"overlay edit: {overlay}/{safe_path}"], cwd=git_dir, timeout=30)
+            commit_hash = _run(["git", "rev-parse", "--short", "HEAD"], cwd=git_dir, timeout=10).strip()
+        except RuntimeError:
             commit_hash = "(no changes to commit)"
-        else:
-            # Get short hash
-            try:
-                log_result = subprocess.run(
-                    ["git", "rev-parse", "--short", "HEAD"],
-                    cwd=git_dir,
-                    capture_output=True,
-                    text=True,
-                    timeout=10,
-                )
-                commit_hash = (
-                    log_result.stdout.strip() if log_result.returncode == 0 else "(unknown)"
-                )
-            except Exception:
-                commit_hash = "(unknown)"
 
-    except subprocess.CalledProcessError as exc:
+    except RuntimeError as exc:
         raise RuntimeError(f"Git operation in overlay {overlay} failed: {exc}") from exc
 
     # Rebuild the overlay
@@ -817,15 +763,9 @@ def hpc_warewulf_overlay_edit(
 
     # Count changed files
     try:
-        diff_result = subprocess.run(
-            ["git", "diff", "--name-status", "HEAD~1..HEAD"],
-            cwd=git_dir,
-            capture_output=True,
-            text=True,
-            timeout=10,
-        )
+        diff_output = _run(["git", "diff", "--name-status", "HEAD~1..HEAD"], cwd=git_dir, timeout=10)
         files_changed = [
-            line.strip() for line in diff_result.stdout.splitlines() if line.strip()
+            line.strip() for line in diff_output.splitlines() if line.strip()
         ] or [safe_path]
     except Exception:
         files_changed = [safe_path]
@@ -915,17 +855,10 @@ def hpc_warewulf_overlay_revert(
         }
 
     try:
-        subprocess.run(
-            ["git", "checkout", commit],
-            cwd=overlay_root,
-            capture_output=True,
-            text=True,
-            timeout=30,
-            check=True,
-        )
-    except subprocess.CalledProcessError as exc:
+        _run(["git", "checkout", commit], cwd=overlay_root, timeout=30)
+    except RuntimeError as exc:
         raise RuntimeError(
-            f"git checkout {commit} in overlay {overlay} failed: " f"{exc.stderr.strip() or exc}"
+            f"git checkout {commit} in overlay {overlay} failed: {exc}"
         ) from exc
 
     cl = _resolve_cluster(cluster)
@@ -1228,22 +1161,9 @@ def hpc_warewulf_server_status(*, cluster: str = "default") -> dict[str, Any]:
 
     # Check systemd service status
     try:
-        is_active = subprocess.run(
-            ["systemctl", "is-active", "warewulfd"],
-            capture_output=True,
-            text=True,
-            timeout=10,
-        )
-        result["systemctl_active"] = is_active.stdout.strip()
-        result["systemctl_enabled"] = "unknown"
-        is_enabled = subprocess.run(
-            ["systemctl", "is-enabled", "warewulfd"],
-            capture_output=True,
-            text=True,
-            timeout=10,
-        )
-        result["systemctl_enabled"] = is_enabled.stdout.strip()
-    except (FileNotFoundError, subprocess.TimeoutExpired, OSError) as exc:
+        result["systemctl_active"] = _run(["systemctl", "is-active", "warewulfd"], timeout=10).strip()
+        result["systemctl_enabled"] = _run(["systemctl", "is-enabled", "warewulfd"], timeout=10).strip()
+    except (RuntimeError, FileNotFoundError, OSError) as exc:
         result["systemctl_error"] = str(exc)
 
     return result

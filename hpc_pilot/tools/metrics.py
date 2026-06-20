@@ -614,27 +614,15 @@ def hpc_logs_slurmctld_tail(
     cl = _resolve_cluster(cluster)
 
     if grep:
-        try:
-            tail = subprocess.run(
-                ["tail", "-n", str(lines), "/var/log/slurm/slurmctld.log"],
-                capture_output=True,
-                text=True,
-                timeout=30,
-            )
-            if tail.returncode == 0:
-                grep_proc = subprocess.run(
-                    ["grep", "-E", "--", grep],
-                    input=tail.stdout,
-                    capture_output=True,
-                    text=True,
-                    timeout=30,
-                )
-                output = _redact_output(grep_proc.stdout)
-                return output
-            else:
-                raise RuntimeError(f"tail exited {tail.returncode}: {tail.stderr.strip()}")
-        except FileNotFoundError:
-            raise RuntimeError("tail or grep not found on the controller") from None
+        raw = _run(
+            ["tail", "-n", str(lines), "/var/log/slurm/slurmctld.log"],
+            cluster=cl,
+            timeout=30,
+        )
+        filtered = "\n".join(
+            line for line in raw.splitlines() if grep in line
+        )
+        return _redact_output(filtered)
     else:
         cmd = ["tail", "-n", str(lines), "/var/log/slurm/slurmctld.log"]
 
@@ -769,26 +757,21 @@ def hpc_logs_search(
     cl = _resolve_cluster(cluster)
 
     try:
-        journal = subprocess.run(
+        raw = _run(
             ["journalctl", f"--since={since}", "--no-pager"],
-            capture_output=True,
-            text=True,
+            cluster=cl,
             timeout=60,
         )
-        if journal.returncode == 0:
-            grep_proc = subprocess.run(
-                ["grep", "-E", "--", pattern],
-                input=journal.stdout,
-                capture_output=True,
-                text=True,
-                timeout=60,
-            )
-            output = _redact_output(grep_proc.stdout)
-            return output if output.strip() else "(no matching lines)"
-        else:
-            raise RuntimeError(f"journalctl exited {journal.returncode}")
-    except FileNotFoundError:
-        raise RuntimeError("journalctl or grep not found on the controller") from None
+    except RuntimeError as exc:
+        if "exited" in str(exc):
+            return "(no matching lines)"
+        raise
+
+    filtered = "\n".join(
+        line for line in raw.splitlines() if re.search(pattern, line)
+    )
+    output = _redact_output(filtered)
+    return output if output.strip() else "(no matching lines)"
 
 
 # ---------------------------------------------------------------------------

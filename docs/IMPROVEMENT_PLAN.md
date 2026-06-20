@@ -415,7 +415,7 @@ every claim and every merge. Push the change to `main`.**
 
 | Phase | Title | Priority | Status | Claimed by | Claim date | Merge SHA | PR |
 |---|---|---|---|---|---|---|---|
-| A | Regression triage | P0 | In progress | claude-code | 2026-06-19 |  |  |
+| A | Regression triage | P0 | Done | claude-code | 2026-06-19 | TBD | https://github.com/Artlands/HPC-Pilot/pull/new/phase-a-regression-triage |
 | B | Audit / observability integrity | P1 | Not started |  |  |  |  |
 | C | Multi-cluster correctness | P1 | Not started |  |  |  |  |
 | D | Agent + chat memory | P2 | Not started |  |  |  |  |

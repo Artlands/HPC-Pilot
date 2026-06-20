@@ -406,7 +406,7 @@ every claim. Push the change to `main`.**
 | C | Multi-cluster correctness | P1 | Done | claude-code | 2026-06-19 | 0a15688 |
 | D | Agent + chat memory | P2 | Done | claude-code | 2026-06-19 | 216b802 |
 | E | Tooling & modularization | P2 | Done | claude-code | 2026-06-19 | c5c267a |
-| F | Self-evolve hardening | P3 | Not started |  |  |  |
+| F | Self-evolve hardening | P3 | In progress | claude-code | 2026-06-19 |  |
 | G | Operational polish | P3 | Not started |  |  |  |
 
 Allowed values for `Status`: `Not started`, `In progress`, `Blocked`, `Done`.

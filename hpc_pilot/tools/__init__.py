@@ -40,7 +40,11 @@ from hpc_pilot.tools.ansible import (  # noqa: F401
     hpc_ansible_vault_decrypt,
 )
 from hpc_pilot.tools.audit_tools import hpc_audit_query  # noqa: F401
-from hpc_pilot.tools.evolve import hpc_self_evolve, hpc_self_evolve_create_pr  # noqa: F401
+from hpc_pilot.tools.evolve import (  # noqa: F401
+    hpc_self_evolve,
+    hpc_self_evolve_create_pr,
+    hpc_self_evolve_promote,
+)
 from hpc_pilot.tools.health import hpc_cluster_health_check  # noqa: F401
 from hpc_pilot.tools.jobs import (  # noqa: F401
     hpc_job_logs,

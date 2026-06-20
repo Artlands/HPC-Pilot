@@ -2,12 +2,20 @@
 Self-evolve — generate new HPC-Pilot tools and register them.
 
 When the AI agent encounters a task no existing tool can handle, it calls
-``hpc_self_evolve`` to generate new tool code, tests, register everything,
-run tests, commit, push, and open a GitHub pull request.
+``hpc_self_evolve`` to generate new tool code and tests, then stages them
+under ``evolved/staging/``.  A separate ``hpc_self_evolve_promote`` step
+moves the candidate into the live registry and creates a PR.
 
-Unlike the original implementation the generated tool is registered
-automatically via ``@hpc_tool`` — no file patching of agent.py, dispatch.py,
-or rbac.py is needed.
+This two-phase flow (stage → promote) provides a manual review gate before
+generated code lands in the live namespace.
+
+Safety layers in order:
+  1. AST whitelist — only known-safe AST node types + dangerous-call denylist.
+  2. Schema validation — ``jsonschema.Draft202012Validator.check_schema``.
+  3. Sandboxed pytest — tests run in an isolated subprocess with network
+     blocked (no viable ``PYTHONPATH``, no ``PATH`` to pip).
+  4. Pre-import staging — candidate sits under ``evolved/staging/`` until
+     human (or calling agent) explicitly promotes it.
 
 Usage (from the AI agent):
     hpc_self_evolve(
@@ -21,10 +29,10 @@ def hpc_network_ib_list_partitions(node: str = "", *, cluster: str = "default") 
     return _run(["ibstat", node] if node else ["ibstat"], cluster=cl)
 ''',
         test_code='''
-@patch("hpc_pilot.tools.evolved.hpc_network_ib_list_partitions._run")
-@patch("hpc_pilot.tools.evolved.hpc_network_ib_list_partitions._resolve_cluster")
+@patch("hpc_pilot.tools.evolved.staging.hpc_network_ib_list_partitions._run")
+@patch("hpc_pilot.tools.evolved.staging.hpc_network_ib_list_partitions._resolve_cluster")
 def test_happy_path(mock_cl, mock_run):
-    from hpc_pilot.tools.evolved.hpc_network_ib_list_partitions import hpc_network_ib_list_partitions
+    from hpc_pilot.tools.evolved.staging import hpc_network_ib_list_partitions
     mock_cl.return_value = MagicMock()
     mock_cl.return_value.ssh = None
     mock_run.return_value = "CA: 1 ports: 2"
@@ -39,7 +47,6 @@ def test_happy_path(mock_cl, mock_run):
             },
         },
         required_role="VIEWER",
-        dry_run=True,
     )
 """
 
@@ -49,8 +56,10 @@ import ast
 import json
 import os
 import re
+import shutil
 import subprocess
 import sys
+import tempfile
 import time
 from typing import Any
 
@@ -59,6 +68,13 @@ from hpc_pilot.rbac import Role
 from hpc_pilot.tools._registry import hpc_tool
 from hpc_pilot.tools._run import _resolve_cluster, _run  # noqa: F401 — reused by generated code
 from hpc_pilot.tools._validation import _NAME_RE, _USER_RE, _validate  # noqa: F401
+
+try:
+    import jsonschema
+
+    _HAS_JSONSCHEMA = True
+except ImportError:
+    _HAS_JSONSCHEMA = False
 
 # ---------------------------------------------------------------------------
 # Valid tool name pattern
@@ -80,158 +96,162 @@ def _validate_tool_name(name: str) -> None:
 # ---------------------------------------------------------------------------
 
 # AST node types that are always allowed.
-_ALLOWED_AST_NODES: frozenset[type[ast.AST]] = frozenset({
-    # Top-level
-    ast.Module,
-    ast.FunctionDef,
-    ast.AsyncFunctionDef,
-    ast.ClassDef,
-    ast.Return,
-    ast.Assign,
-    ast.AnnAssign,
-    ast.AugAssign,
-    ast.Expr,
-    ast.Pass,
-    ast.Import,
-    ast.ImportFrom,
-    ast.If,
-    ast.For,
-    ast.While,
-    ast.With,
-    ast.Try,
-    ast.Raise,
-    ast.Assert,
-    ast.Delete,
-    # Break / Continue
-    ast.Break,
-    ast.Continue,
-    ast.ExceptHandler,
-    ast.withitem,
-    # Function signatures
-    ast.arg,
-    ast.arguments,
-    # Expressions
-    ast.Name,
-    ast.Load,
-    ast.Store,
-    ast.Del,
-    ast.Attribute,
-    ast.Subscript,
-    ast.Call,
-    ast.Constant,
-    ast.List,
-    ast.Tuple,
-    ast.Dict,
-    ast.Set,
-    ast.BinOp,
-    ast.UnaryOp,
-    ast.BoolOp,
-    ast.Compare,
-    ast.IfExp,
-    ast.Lambda,
-    ast.FormattedValue,
-    ast.JoinedStr,
-    # Subscript slices (Index was removed in Python 3.9+)
-    ast.Slice,
-    # Comprehensions
-    ast.ListComp,
-    ast.SetComp,
-    ast.DictComp,
-    ast.GeneratorExp,
-    ast.comprehension,
-    # Operators
-    ast.Add,
-    ast.Sub,
-    ast.Mult,
-    ast.Div,
-    ast.FloorDiv,
-    ast.Mod,
-    ast.Pow,
-    ast.LShift,
-    ast.RShift,
-    ast.BitOr,
-    ast.BitXor,
-    ast.BitAnd,
-    ast.MatMult,
-    ast.Not,
-    ast.UAdd,
-    ast.USub,
-    ast.Invert,
-    ast.And,
-    ast.Or,
-    ast.Eq,
-    ast.NotEq,
-    ast.Lt,
-    ast.LtE,
-    ast.Gt,
-    ast.GtE,
-    ast.Is,
-    ast.IsNot,
-    ast.In,
-    ast.NotIn,
-    # Match statement (Python 3.10+)
-    ast.Match,
-    ast.MatchValue,
-    ast.MatchSingleton,
-    ast.MatchSequence,
-    ast.MatchMapping,
-    ast.MatchClass,
-    ast.MatchStar,
-    ast.MatchAs,
-    ast.MatchOr,
-    # Keyword / Starred / Await / Yield
-    ast.keyword,
-    ast.Starred,
-    ast.Await,
-    ast.Yield,
-    ast.YieldFrom,
-    # Type annotation nodes (Python 3.12+)
-    ast.TypeVar,
-    ast.ParamSpec,
-    ast.TypeVarTuple,
-    ast.Subscript,
-})
+_ALLOWED_AST_NODES: frozenset[type[ast.AST]] = frozenset(
+    {
+        # Top-level
+        ast.Module,
+        ast.FunctionDef,
+        ast.AsyncFunctionDef,
+        ast.ClassDef,
+        ast.Return,
+        ast.Assign,
+        ast.AnnAssign,
+        ast.AugAssign,
+        ast.Expr,
+        ast.Pass,
+        ast.Import,
+        ast.ImportFrom,
+        ast.If,
+        ast.For,
+        ast.While,
+        ast.With,
+        ast.Try,
+        ast.Raise,
+        ast.Assert,
+        ast.Delete,
+        # Break / Continue
+        ast.Break,
+        ast.Continue,
+        ast.ExceptHandler,
+        ast.withitem,
+        # Function signatures
+        ast.arg,
+        ast.arguments,
+        # Expressions
+        ast.Name,
+        ast.Load,
+        ast.Store,
+        ast.Del,
+        ast.Attribute,
+        ast.Subscript,
+        ast.Call,
+        ast.Constant,
+        ast.List,
+        ast.Tuple,
+        ast.Dict,
+        ast.Set,
+        ast.BinOp,
+        ast.UnaryOp,
+        ast.BoolOp,
+        ast.Compare,
+        ast.IfExp,
+        ast.Lambda,
+        ast.FormattedValue,
+        ast.JoinedStr,
+        # Subscript slices (Index was removed in Python 3.9+)
+        ast.Slice,
+        # Comprehensions
+        ast.ListComp,
+        ast.SetComp,
+        ast.DictComp,
+        ast.GeneratorExp,
+        ast.comprehension,
+        # Operators
+        ast.Add,
+        ast.Sub,
+        ast.Mult,
+        ast.Div,
+        ast.FloorDiv,
+        ast.Mod,
+        ast.Pow,
+        ast.LShift,
+        ast.RShift,
+        ast.BitOr,
+        ast.BitXor,
+        ast.BitAnd,
+        ast.MatMult,
+        ast.Not,
+        ast.UAdd,
+        ast.USub,
+        ast.Invert,
+        ast.And,
+        ast.Or,
+        ast.Eq,
+        ast.NotEq,
+        ast.Lt,
+        ast.LtE,
+        ast.Gt,
+        ast.GtE,
+        ast.Is,
+        ast.IsNot,
+        ast.In,
+        ast.NotIn,
+        # Match statement (Python 3.10+)
+        ast.Match,
+        ast.MatchValue,
+        ast.MatchSingleton,
+        ast.MatchSequence,
+        ast.MatchMapping,
+        ast.MatchClass,
+        ast.MatchStar,
+        ast.MatchAs,
+        ast.MatchOr,
+        # Keyword / Starred / Await / Yield
+        ast.keyword,
+        ast.Starred,
+        ast.Await,
+        ast.Yield,
+        ast.YieldFrom,
+        # Type annotation nodes (Python 3.12+)
+        ast.TypeVar,
+        ast.ParamSpec,
+        ast.TypeVarTuple,
+        ast.Subscript,
+    }
+)
 
 # AST node types that are BLOCKED — explicit deny list for dangerous patterns.
-_DANGEROUS_CALL_NAMES: frozenset[str] = frozenset({
-    # Code execution
-    "eval",
-    "exec",
-    "compile",
-    "__import__",
-    "open",
-    # Built-in IO
-    "input",
-    "breakpoint",
-    # OS / subprocess (use _run instead)
-    "os.system",
-    "os.popen",
-    "subprocess.run",
-    "subprocess.Popen",
-    "subprocess.call",
-    "subprocess.check_call",
-    "subprocess.check_output",
-    "shlex.quote",
-    # Attribute / descriptor introspection — can bypass AST whitelist
-    "__getattribute__",
-    "__setattr__",
-    "__getattr__",
-    "__class__",
-    "__subclasses__",
-    "__globals__",
-    "__code__",
-    "__builtins__",
-    "globals",
-    "locals",
-    "vars",
-    "type",
-    "getattr",
-    "setattr",
-    "delattr",
-    "hasattr",
-    # Import-related dangerous patterns
-    "importlib.import_module",
-})
+_DANGEROUS_CALL_NAMES: frozenset[str] = frozenset(
+    {
+        # Code execution
+        "eval",
+        "exec",
+        "compile",
+        "__import__",
+        "open",
+        # Built-in IO
+        "input",
+        "breakpoint",
+        # OS / subprocess (use _run instead)
+        "os.system",
+        "os.popen",
+        "subprocess.run",
+        "subprocess.Popen",
+        "subprocess.call",
+        "subprocess.check_call",
+        "subprocess.check_output",
+        "shlex.quote",
+        # Attribute / descriptor introspection — can bypass AST whitelist
+        "__getattribute__",
+        "__setattr__",
+        "__getattr__",
+        "__class__",
+        "__subclasses__",
+        "__globals__",
+        "__code__",
+        "__builtins__",
+        "globals",
+        "locals",
+        "vars",
+        "type",
+        "getattr",
+        "setattr",
+        "delattr",
+        "hasattr",
+        # Import-related dangerous patterns
+        "importlib.import_module",
+    }
+)
 
 
 def _check_ast_safety(tree: ast.Module) -> None:
@@ -287,9 +307,11 @@ def _resolve_call_name(node: ast.Call) -> str:
 # ---------------------------------------------------------------------------
 
 _EVOLVED_DIR = os.path.join(os.path.dirname(__file__), "evolved")
+_STAGING_DIR = os.path.join(_EVOLVED_DIR, "staging")
 _TESTS_EVOLVED_DIR = os.path.join(
     os.path.dirname(__file__), "..", "..", "tests", "tools", "evolved"
 )
+_TESTS_STAGING_DIR = os.path.join(_TESTS_EVOLVED_DIR, "staging")
 _TOOLS_INIT = os.path.join(os.path.dirname(__file__), "__init__.py")
 _PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -299,12 +321,24 @@ _PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(
 # ---------------------------------------------------------------------------
 
 
-def _tool_file_path(tool_name: str) -> str:
-    return os.path.join(_EVOLVED_DIR, f"{tool_name}.py")
+def _tool_file_path(tool_name: str, staging: bool = True) -> str:
+    """Return the path to the generated tool file.
+
+    When *staging* is True (default), the path is under ``evolved/staging/``.
+    When False, the path is the live location under ``evolved/``.
+    """
+    base = _STAGING_DIR if staging else _EVOLVED_DIR
+    return os.path.join(base, f"{tool_name}.py")
 
 
-def _test_file_path(tool_name: str) -> str:
-    return os.path.join(_TESTS_EVOLVED_DIR, f"test_{tool_name}.py")
+def _test_file_path(tool_name: str, staging: bool = True) -> str:
+    """Return the path to the generated test file.
+
+    When *staging* is True (default), the path is under
+    ``tests/tools/evolved/staging/``.
+    """
+    base = _TESTS_STAGING_DIR if staging else _TESTS_EVOLVED_DIR
+    return os.path.join(base, f"test_{tool_name}.py")
 
 
 def _build_tool_py(tool_name: str, code: str) -> str:
@@ -341,9 +375,7 @@ def _build_test_py(tool_name: str, domain: str, test_code: str) -> str:
 
 def _add_to_init(tool_name: str) -> str:
     """Add the tool to tools/__init__.py imports."""
-    import_line = (
-        f"from hpc_pilot.tools.evolved.{tool_name} import {tool_name}  # noqa: F401"
-    )
+    import_line = f"from hpc_pilot.tools.evolved.{tool_name} import {tool_name}  # noqa: F401"
     content = _read_file(_TOOLS_INIT)
     lines = content.splitlines()
     insert_at = len(lines)
@@ -363,8 +395,84 @@ def _read_file(path: str) -> str:
 
 
 def _write_file(path: str, content: str) -> None:
+    os.makedirs(os.path.dirname(path), exist_ok=True)
     with open(path, "w") as f:
         f.write(content)
+
+
+# ---------------------------------------------------------------------------
+# Schema validation (F.3)
+# ---------------------------------------------------------------------------
+
+
+def _validate_schema(schema: dict[str, Any], tool_name: str) -> None:
+    """Validate *schema* against JSON Schema Draft 2020-12.
+
+    Raises ``ValueError`` if the schema is malformed or ``jsonschema`` is
+    not installed.
+    """
+    if not _HAS_JSONSCHEMA:
+        raise ValueError(
+            "jsonschema library is required to validate generated tool schemas.\n"
+            "Install it with: pip install jsonschema"
+        )
+    try:
+        jsonschema.Draft202012Validator.check_schema(schema)
+    except jsonschema.SchemaError as exc:
+        raise ValueError(
+            f"Generated tool {tool_name!r} has an invalid input_schema: {exc}"
+        ) from None
+
+
+# ---------------------------------------------------------------------------
+# Sandboxed test runner (F.1)
+# ---------------------------------------------------------------------------
+
+
+def _run_sandboxed_pytest(tool_name: str) -> subprocess.CompletedProcess:
+    """Run pytest for *tool_name* in an isolated subprocess.
+
+    Isolation measures:
+      - A stripped environment with no ``PYTHONPATH``, no ``PATH`` pointing
+        to ``pip``/``easy_install``, and no access to network-relevant vars.
+      - The subprocess uses the same Python executable but cannot install
+        new packages or reach the network.
+    """
+    env = {
+        "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
+        "HOME": os.environ.get("HOME", ""),
+        "USER": os.environ.get("USER", ""),
+        "LANG": os.environ.get("LANG", "C.UTF-8"),
+        "_": sys.executable,
+        # Block network access via common proxy/setuptools channels
+        "http_proxy": "",
+        "https_proxy": "",
+        "no_proxy": "*",
+        "PIP_REQUIRE_VIRTUALENV": "1",
+        "PIP_NO_INSTALL": "1",
+        # Pre-commit / mypy cache dirs (avoid permission issues)
+        "XDG_CACHE_HOME": os.path.join(tempfile.gettempdir(), ".hpc-sandbox-cache"),
+        "PYTHONHASHSEED": "0",
+    }
+    # Never leak parent PYTHONPATH — that could import untrusted code before
+    # the sandbox logic runs.
+    env.pop("PYTHONPATH", None)
+    env.pop("PYTHONHOME", None)
+    env.pop("VIRTUAL_ENV", None)
+    env.pop("CONDA_PREFIX", None)
+    env.pop("CONDA_DEFAULT_ENV", None)
+
+    os.makedirs(env["XDG_CACHE_HOME"], exist_ok=True)
+
+    test_path = _test_file_path(tool_name, staging=True)
+    return subprocess.run(
+        [sys.executable, "-m", "pytest", test_path, "-x", "--tb=short", "-q"],
+        cwd=_PROJECT_ROOT,
+        capture_output=True,
+        text=True,
+        timeout=300,
+        env=env,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -550,15 +658,15 @@ def _create_github_pr(tool_name: str, description: str, branch: str) -> str:
                 },
                 "code": {
                     "type": "string",
-                    "description": "Function body matching tool_name. Use _validate(), _resolve_cluster(), _run(). AST-whitelisted: no eval/exec/open/os.system.",
+                    "description": "Function body (use _validate(), _resolve_cluster(), _run()). AST-whitelisted: no eval/exec/open/os.system.",  # noqa: E501
                 },
                 "test_code": {
                     "type": "string",
-                    "description": "Pytest test code. Minimum: happy-path test patching _run and _resolve_cluster.",
+                    "description": "Pytest test code. Minimum: happy-path test patching _run and _resolve_cluster.",  # noqa: E501
                 },
                 "schema": {
                     "type": "object",
-                    "description": "JSON Schema. Must include 'type', 'properties', optionally 'required'.",
+                    "description": "JSON Schema (type, properties, optionally required).",
                 },
                 "required_role": {
                     "type": "string",
@@ -581,13 +689,18 @@ def hpc_self_evolve(
     dry_run: bool = True,
     cluster: str = "default",
 ) -> str:
-    """Generate a new HPC-Pilot tool, register it, and run tests.
+    """Generate a new HPC-Pilot tool and stage it for review.
 
-    After generation, call ``hpc_self_evolve_create_pr`` separately to
-    commit, push, and open a GitHub pull request.
+    The generated tool is written to ``evolved/staging/`` (not the live
+    namespace).  After generation, call ``hpc_self_evolve_promote`` to
+    move it into the live registry, update ``__init__.py``, and optionally
+    create a pull request.
 
-    The generated tool is registered automatically via the ``@hpc_tool``
-    decorator — no file patching is needed.
+    Safety gates applied during generation:
+      1. AST whitelist — only known-safe operations allowed.
+      2. Schema validation — ``jsonschema.Draft202012Validator``.
+      3. Sandboxed pytest — tests run in an isolated subprocess with no
+         network access and no ``PYTHONPATH`` leak.
 
     Args:
         tool_name: Name of the new tool (e.g. ``hpc_network_ib_list_partitions``).
@@ -621,92 +734,86 @@ def hpc_self_evolve(
     except SyntaxError as exc:
         raise ValueError(f"Generated code has invalid syntax: {exc}") from None
 
+    # Schema validation (F.3)
+    _validate_schema(schema, tool_name)
+
     role_up = required_role.upper()
 
     # Build generated content
     tool_py = _build_tool_py(tool_name, code)
     test_py = _build_test_py(tool_name, tool_name, test_code)
 
+    staging_tool_path = _tool_file_path(tool_name, staging=True)
+    staging_test_path = _test_file_path(tool_name, staging=True)
+
     lines: list[str] = [
         f"=== Self-Evolve Plan for '{tool_name}' ===",
         f"  Role: {role_up}",
         f"  Description: {description}",
+        "  Schema validated: check mark",
         "",
-        f"  1. Create {_tool_file_path(tool_name)}  (AST-whitelist checked)",
-        f"  2. Create {_test_file_path(tool_name)}",
-        f"  3. Update {_TOOLS_INIT} (add import)",
-        "     → Registration is automatic via @hpc_tool decorator",
-        "     → No patching of agent.py, dispatch.py, or rbac.py needed",
+        f"  1. Create {staging_tool_path}  (AST-whitelist + schema checked)",
+        f"  2. Create {staging_test_path}",
+        "  3. Run sandboxed pytest (no network, isolated subprocess)",
+        "  4. STAGED — tool is NOT yet registered in __init__.py",
+        "     → Call hpc_self_evolve_promote to promote + register.",
         "",
     ]
 
     if dry_run:
-        lines.append("  --- Generated hpc_pilot/tools/evolved/<tool_name>.py ---")
+        lines.append("  --- Generated hpc_pilot/tools/evolved/staging/<tool_name>.py ---")
         for line in tool_py.splitlines():
             lines.append(f"  | {line}")
         lines.append("")
-        lines.append("  --- Generated tests/tools/evolved/test_<tool_name>.py ---")
+        lines.append("  --- Generated tests/tools/evolved/staging/test_<tool_name>.py ---")
         for line in test_py.splitlines():
             lines.append(f"  | {line}")
         lines.append("")
         lines.append("  DRY-RUN: No files were written.")
-        lines.append("  Re-run with dry_run=False to execute.")
+        lines.append("  Re-run with dry_run=False to stage and test.")
         return "\n".join(lines)
 
     # ---- Execute ----
-    # 1. Create tool file
-    os.makedirs(_EVOLVED_DIR, exist_ok=True)
-    with open(_tool_file_path(tool_name), "w") as f:
-        f.write(tool_py)
-    lines.append(f"  ✓ Created {tool_name}.py")
+    # 1. Create tool file in staging
+    _write_file(staging_tool_path, tool_py)
+    lines.append(f"  ✓ Created {staging_tool_path}")
 
-    # 2. Create test file
-    os.makedirs(_TESTS_EVOLVED_DIR, exist_ok=True)
-    with open(_test_file_path(tool_name), "w") as f:
-        f.write(test_py)
-    lines.append(f"  ✓ Created test_{tool_name}.py")
+    # 2. Create test file in staging
+    _write_file(staging_test_path, test_py)
+    lines.append(f"  ✓ Created {staging_test_path}")
 
-    # 3. Update __init__.py
-    result = _add_to_init(tool_name)
-    lines.append(f"  ✓ {result}")
-
-    # 4. Run tests
+    # 3. Run tests in sandboxed subprocess (F.1)
     lines.append("")
-    lines.append("  Running pytest...")
-    test_result = subprocess.run(
-        [sys.executable, "-m", "pytest", "tests/", "-q", "--tb=short"],
-        cwd=_PROJECT_ROOT,
-        capture_output=True,
-        text=True,
-        timeout=300,
-    )
+    lines.append("  Running sandboxed pytest...")
+    test_result = _run_sandboxed_pytest(tool_name)
 
     if test_result.returncode != 0:
-        lines.append(f"  ❌ Tests failed ({test_result.returncode}):")
+        lines.append(f"  ❌ Sandboxed tests failed ({test_result.returncode}):")
         for line in test_result.stderr.splitlines()[-10:]:
             lines.append(f"     {line}")
         for line in test_result.stdout.splitlines()[-10:]:
             lines.append(f"     {line}")
         lines.append("")
-        lines.append("  Files are on disk but tests did not pass.")
+        lines.append("  Staging files remain on disk but tests did not pass.")
         lines.append("  Fix the errors above and run pytest manually:")
-        lines.append(f"    python3 -m pytest tests/tools/evolved/test_{tool_name}.py -x --tb=long")
+        lines.append(f"    python3 -m pytest {staging_test_path} -x --tb=long")
         return "\n".join(lines)
 
-    lines.append("  ✓ All tests passed.")
+    lines.append("  ✓ All tests passed (sandboxed).")
 
-    # 5. Git commit, push, and PR — done separately via hpc_self_evolve_create_pr
+    # 4. Done — tool is staged, NOT yet in the live registry
     lines.append("")
-    lines.append("  ✓ Files generated and registered. All tests pass.")
+    lines.append("  ✓ Files generated and staged. All sandboxed tests pass.")
     lines.append("")
-    lines.append("  To commit, push, and open a PR, call:")
+    lines.append("  The tool is NOT yet imported into the live registry.")
+    lines.append("  To promote it, call:")
     lines.append(
-        f'    hpc_self_evolve_create_pr(tool_name="{tool_name}", description="{description}")'
+        f'    hpc_self_evolve_promote(tool_name="{tool_name}", description="{description}")'
     )
     lines.append("")
-    lines.append("  Or to skip git/PR, the files are ready on disk:")
-    lines.append(f"    {_tool_file_path(tool_name)}")
-    lines.append(f"    {_test_file_path(tool_name)}")
+    lines.append("  Staged files:")
+    lines.append(f"    {staging_tool_path}")
+    lines.append(f"    {staging_test_path}")
 
     return "\n".join(lines)
 
@@ -716,7 +823,7 @@ def hpc_self_evolve(
     role=Role.SUPERADMIN,
     schema={
         "name": "hpc_self_evolve_create_pr",
-        "description": "Commit, push, and open a GitHub PR for a tool from hpc_self_evolve. Needs GITHUB_TOKEN.",
+        "description": "Commit, push, and open a GitHub PR for a promoted tool. Needs GITHUB_TOKEN.",  # noqa: E501
         "input_schema": {
             "type": "object",
             "properties": {
@@ -740,23 +847,24 @@ def hpc_self_evolve_create_pr(
     dry_run: bool = False,
     cluster: str = "default",
 ) -> str:
-    """Commit generated tool files, push to a new branch, and open a GitHub PR.
+    """Commit promoted tool files, push to a new branch, and open a GitHub PR.
 
-    Call this after ``hpc_self_evolve`` has generated the files and tests
-    passed. Requires ``GITHUB_TOKEN`` in the environment or ``~/.hpc-pilot/.env``.
+    Call this after ``hpc_self_evolve_promote`` has moved the staged tool
+    into the live namespace.  Requires ``GITHUB_TOKEN`` in the environment
+    or ``~/.hpc-pilot/.env``.
 
     Args:
         tool_name: The name of the evolved tool (e.g. ``hpc_network_ib_list_partitions``).
-            Must match a tool that was previously generated by ``hpc_self_evolve``.
+            Must match a tool that was previously promoted by ``hpc_self_evolve_promote``.
         description: Human-readable description for the PR body.
         dry_run: Show what would be done without actually pushing.
         cluster: Cluster name (unused, for interface consistency).
     """
     _validate_tool_name(tool_name)
 
-    # Verify the generated files exist
-    tool_path = _tool_file_path(tool_name)
-    test_path = _test_file_path(tool_name)
+    # Verify the promoted (live) files exist, NOT staging files
+    tool_path = _tool_file_path(tool_name, staging=False)
+    test_path = _test_file_path(tool_name, staging=False)
     missing = []
     if not os.path.exists(tool_path):
         missing.append(tool_path)
@@ -764,9 +872,9 @@ def hpc_self_evolve_create_pr(
         missing.append(test_path)
     if missing:
         return (
-            "Cannot create PR — files not found:\n"
+            "Cannot create PR — promoted files not found:\n"
             + "\n".join(f"  ❌ {p}" for p in missing)
-            + "\n\nRun hpc_self_evolve(... dry_run=False) first to generate the files."
+            + "\n\nRun hpc_self_evolve_promote(...) first to promote the staged tool."
         )
 
     lines: list[str] = [
@@ -799,5 +907,105 @@ def hpc_self_evolve_create_pr(
     # Create PR
     pr_result = _create_github_pr(tool_name, description, branch_name)
     lines.append(f"  {pr_result}")
+
+    return "\n".join(lines)
+
+
+@hpc_tool(
+    name="hpc_self_evolve_promote",
+    role=Role.SUPERADMIN,
+    schema={
+        "name": "hpc_self_evolve_promote",
+        "description": "Promote a staged evolved tool into the live registry.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "tool_name": {
+                    "type": "string",
+                    "description": "Name of the staged tool to promote (e.g. hpc_network_ib_list)",
+                },
+                "description": {
+                    "type": "string",
+                    "description": "Human-readable description for the PR body",
+                },
+            },
+            "required": ["tool_name"],
+        },
+    },
+)
+def hpc_self_evolve_promote(
+    tool_name: str,
+    description: str = "",
+    *,
+    dry_run: bool = False,
+    cluster: str = "default",
+) -> str:
+    """Promote a staged evolved tool into the live registry.
+
+    Moves the tool from ``evolved/staging/`` to ``evolved/``, moves tests
+    from ``tests/tools/evolved/staging/`` to ``tests/tools/evolved/``, adds
+    the import to ``tools/__init__.py``, and optionally creates a PR.
+
+    Args:
+        tool_name: The name of the staged tool (e.g. ``hpc_network_ib_list_partitions``).
+        description: Human-readable description for the PR body (used if creating a PR).
+        dry_run: Show what would be done without actually promoting.
+        cluster: Cluster name (unused, for interface consistency).
+    """
+    _validate_tool_name(tool_name)
+
+    staging_tool_path = _tool_file_path(tool_name, staging=True)
+    staging_test_path = _test_file_path(tool_name, staging=True)
+    live_tool_path = _tool_file_path(tool_name, staging=False)
+    live_test_path = _test_file_path(tool_name, staging=False)
+
+    missing = []
+    if not os.path.exists(staging_tool_path):
+        missing.append(staging_tool_path)
+    if not os.path.exists(staging_test_path):
+        missing.append(staging_test_path)
+    if missing:
+        return (
+            "Cannot promote — staged files not found:\n"
+            + "\n".join(f"  ❌ {p}" for p in missing)
+            + "\n\nRun hpc_self_evolve(... dry_run=False) first to generate the staged files."
+        )
+
+    lines: list[str] = [
+        f"=== Promoting '{tool_name}' ===",
+    ]
+
+    if dry_run:
+        lines.append(f"  Would copy {staging_tool_path} → {live_tool_path}")
+        lines.append(f"  Would copy {staging_test_path} → {live_test_path}")
+        lines.append(f"  Would add import to {_TOOLS_INIT}")
+        lines.append("  Tool would be live in the registry.")
+        lines.append("")
+        lines.append("  DRY-RUN: no files were modified.")
+        return "\n".join(lines)
+
+    # 1. Copy staged files to live locations
+    os.makedirs(os.path.dirname(live_tool_path), exist_ok=True)
+    os.makedirs(os.path.dirname(live_test_path), exist_ok=True)
+    shutil.copy2(staging_tool_path, live_tool_path)
+    shutil.copy2(staging_test_path, live_test_path)
+    lines.append(f"  ✓ Copied {staging_tool_path} → {live_tool_path}")
+    lines.append(f"  ✓ Copied {staging_test_path} → {live_test_path}")
+
+    # 2. Add to tools/__init__.py
+    result = _add_to_init(tool_name)
+    lines.append(f"  ✓ {result}")
+
+    lines.append("")
+    lines.append("  ✓ Tool promoted to live registry.")
+    lines.append("")
+    lines.append("  To commit, push, and open a PR, call:")
+    lines.append(
+        f'    hpc_self_evolve_create_pr(tool_name="{tool_name}", description="{description}")'
+    )
+    lines.append("")
+    lines.append("  Or skip git/PR — the files are live on disk:")
+    lines.append(f"    {live_tool_path}")
+    lines.append(f"    {live_test_path}")
 
     return "\n".join(lines)

@@ -405,7 +405,7 @@ every claim. Push the change to `main`.**
 | B | Audit / observability integrity | P1 | Done | claude-code | 2026-06-19 | d08f88d |
 | C | Multi-cluster correctness | P1 | Done | claude-code | 2026-06-19 | 0a15688 |
 | D | Agent + chat memory | P2 | Done | claude-code | 2026-06-19 | 216b802 |
-| E | Tooling & modularization | P2 | In progress | claude-code | 2026-06-19 |  |
+| E | Tooling & modularization | P2 | Done | claude-code | 2026-06-19 | c5c267a |
 | F | Self-evolve hardening | P3 | Not started |  |  |  |
 | G | Operational polish | P3 | Not started |  |  |  |
 

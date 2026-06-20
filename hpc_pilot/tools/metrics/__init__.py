@@ -1,7 +1,13 @@
-"""Observability & metrics tools — re-exports from metrics/ and observability/ subpackages for backward compatibility."""
+"""Prometheus metrics tools — package, see submodules for details.
 
-from __future__ import annotations
+Backward-compatibility re-exports so that tests patching
+``hpc_pilot.tools.metrics.<name>`` continue to work.
+"""
 
+import os  # noqa: F401
+import subprocess  # noqa: F401
+
+from hpc_pilot.tools._run import _resolve_cluster, _run  # noqa: F401
 from hpc_pilot.tools.metrics.prometheus import (  # noqa: F401
     _build_ssh_cmd,
     _cluster_prometheus_config,

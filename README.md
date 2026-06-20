@@ -223,7 +223,7 @@ Run `hpc-pilot setup-hermes` again after `git pull` to refresh.
 ### How it works
 
 1. Hermes Agent loads the `hpc-pilot` plugin at startup
-2. The plugin registers 114 tools (`hpc_slurm_*`, `hpc_warewulf_*`, etc.)
+2. The plugin registers 112 tools (`hpc_slurm_*`, `hpc_warewulf_*`, etc.)
    as a Hermes toolset named `"hpc"`
 3. Each tool call flows through: Hermes dispatch → RBAC check →
    audit logging → tool execution
@@ -382,7 +382,7 @@ real API keys or cluster access are needed.
 │  /Web UI     │     │                              │
 └──────────────┘     │  ┌─────────────────────────┐  │
                      │  │  hpc-pilot plugin        │  │
-                     │  │  93+ HPC tools           │  │
+                     │  │  112 HPC tools          │  │
                      │  │  RBAC → Audit → Dispatch │  │
                      │  └─────────────────────────┘  │
                      │                              │

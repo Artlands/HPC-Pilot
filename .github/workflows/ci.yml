@@ -39,5 +39,8 @@ jobs:
       - name: Pytest
         run: pytest tests/ -q
 
+      - name: Coverage
+        run: pytest --cov=hpc_pilot --cov-report=xml --cov-fail-under=75
+
       - name: Tool name lint
         run: python scripts/check_tool_names.py

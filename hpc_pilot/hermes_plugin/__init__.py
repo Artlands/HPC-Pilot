@@ -1,6 +1,6 @@
 """HPC Pilot Hermes Agent plugin — registers HPC cluster management tools.
 
-All 114 hpc_* tools from the hpc_pilot package are registered as a Hermes
+All 112 hpc_* tools from the hpc_pilot package are registered as a Hermes
 toolset named "hpc". Each tool call flows through:
 
 1. Hermes tool registry dispatch

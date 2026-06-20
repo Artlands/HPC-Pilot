@@ -39,27 +39,38 @@ from hpc_pilot.tools.ansible import (  # noqa: F401
     hpc_ansible_run_history,
     hpc_ansible_vault_decrypt,
 )
+from hpc_pilot.tools.audit_tools import hpc_audit_query  # noqa: F401
 from hpc_pilot.tools.evolve import hpc_self_evolve, hpc_self_evolve_create_pr  # noqa: F401
 from hpc_pilot.tools.health import hpc_cluster_health_check  # noqa: F401
-from hpc_pilot.tools.jobs import hpc_job_logs, hpc_job_status  # noqa: F401
-from hpc_pilot.tools.metrics import (  # noqa: F401
+from hpc_pilot.tools.jobs import (  # noqa: F401
+    hpc_job_logs,
+    hpc_job_status,
+    hpc_job_submit_test,
+    hpc_slurm_job_step_metrics,
+)
+from hpc_pilot.tools.metrics.prometheus import (  # noqa: F401
     _cluster_prometheus_url,
-    _redact_log_line,
-    _redact_output,
     hpc_fabric_ib_link_status,
-    hpc_gpu_dcgm_diag,
-    hpc_gpu_nvidia_smi,
-    hpc_logs_dmesg_xid,
-    hpc_logs_search,
-    hpc_logs_slurmctld_tail,
-    hpc_logs_slurmd_tail,
     hpc_metrics_node_summary,
     hpc_metrics_prometheus_alerts,
     hpc_metrics_prometheus_query,
     hpc_storage_lustre_status,
     hpc_storage_mounts,
 )
+from hpc_pilot.tools.observability.gpu import (  # noqa: F401
+    hpc_gpu_dcgm_diag,
+    hpc_gpu_nvidia_smi,
+)
+from hpc_pilot.tools.observability.logs import (  # noqa: F401
+    _redact_log_line,
+    _redact_output,
+    hpc_logs_dmesg_xid,
+    hpc_logs_search,
+    hpc_logs_slurmctld_tail,
+    hpc_logs_slurmd_tail,
+)
 from hpc_pilot.tools.multi import hpc_multi_query  # noqa: F401
+from hpc_pilot.tools.services import hpc_slurm_service  # noqa: F401
 from hpc_pilot.tools.slurm import (  # noqa: F401
     hpc_slurm_account_create,
     hpc_slurm_account_list,
@@ -118,31 +129,31 @@ from hpc_pilot.tools.spack import (  # noqa: F401
     hpc_spack_uninstall,
     parse_spack_envs,
 )
-from hpc_pilot.tools.system import (  # noqa: F401
-    hpc_audit_query,
-    hpc_config_backup,
-    hpc_job_submit_test,
-    hpc_login_node_processes,
-    hpc_multi_migration_plan,
-    hpc_notify,
-    hpc_slurm_job_step_metrics,
-    hpc_slurm_service,
+from hpc_pilot.tools.storage import (  # noqa: F401
     hpc_storage_large_files,
     hpc_storage_lustre_balance,
     hpc_storage_quota_check,
     hpc_storage_scrub_orphans,
+)
+from hpc_pilot.tools.system import (  # noqa: F401
+    hpc_config_backup,
+    hpc_login_node_processes,
+    hpc_multi_migration_plan,
+    hpc_notify,
+    hpc_usage_vs_budget,
+)
+from hpc_pilot.tools.users import (  # noqa: F401
     hpc_system_ssh_key_deploy,
     hpc_system_user_add,
     hpc_system_user_delete,
     hpc_system_user_group_add,
-    hpc_usage_vs_budget,
-    hpc_warewulf_image_build_from_env,
 )
 from hpc_pilot.tools.warewulf import (  # noqa: F401
     hpc_warewulf_configure_dhcp,
     hpc_warewulf_configure_nfs,
     hpc_warewulf_configure_tftp,
     hpc_warewulf_image_build,
+    hpc_warewulf_image_build_from_env,
     hpc_warewulf_image_delete,
     hpc_warewulf_image_import,
     hpc_warewulf_image_list,

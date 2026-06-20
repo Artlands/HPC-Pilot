@@ -37,6 +37,13 @@ def _run(
             "BatchMode=yes",
             "-o",
             "ConnectTimeout=5",
+        ]
+        # StrictHostKeyChecking policy
+        if ssh.host_key_check:
+            actual_cmd += ["-o", f"StrictHostKeyChecking={ssh.host_key_check}"]
+        if ssh.known_hosts:
+            actual_cmd += ["-o", f"UserKnownHostsFile={ssh.known_hosts}"]
+        actual_cmd += [
             "-i",
             os.path.expanduser(ssh.key),
             f"{ssh.user}@{ssh.host}",

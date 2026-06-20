@@ -279,6 +279,9 @@ def main(argv: list[str] | None = None) -> int:
     config_list_p.set_defaults(func=config_command)
     config_show_p = config_subs.add_parser("show", help="Show full configuration")
     config_show_p.set_defaults(func=config_command)
+
+    config_reload_p = config_subs.add_parser("reload", help="Reload configuration from config.yaml (cluster cache, audit sinks, rate limiter)")
+    config_reload_p.set_defaults(func=config_command)
     config_p.set_defaults(func=config_command)
 
     # audit-prune

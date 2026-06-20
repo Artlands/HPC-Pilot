@@ -62,6 +62,12 @@ class _TokenBucket:
 _RATE_LIMITER: _TokenBucket | None = None
 
 
+def reset_rate_limiter() -> None:
+    """Reset the rate limiter so it re-reads config.yaml on next use."""
+    global _RATE_LIMITER  # noqa: PLW0603
+    _RATE_LIMITER = None
+
+
 def _get_rate_limiter() -> _TokenBucket:
     global _RATE_LIMITER  # noqa: PLW0603
     if _RATE_LIMITER is None:

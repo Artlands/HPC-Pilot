@@ -175,6 +175,16 @@ def config_command(args: argparse.Namespace) -> int:
         else:
             print(proc.stderr.strip() or "Failed to read config", file=sys.stderr)
             return 1
+    elif action == "reload":
+        from hpc_pilot.clusters import _invalidate_cluster_cache
+        from hpc_pilot.audit import reset_sinks
+        from hpc_pilot.dispatch import reset_rate_limiter
+
+        _invalidate_cluster_cache()
+        reset_sinks()
+        reset_rate_limiter()
+        print("Configuration reloaded.")
+        return 0
     elif action == "list" or action == "show":
         proc = sp.run([hermes_bin, "config", "show"], capture_output=True, text=True)
         if proc.returncode == 0:

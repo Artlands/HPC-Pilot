@@ -28,8 +28,8 @@ from hpc_pilot.tools._validation import _validate
 # ---------------------------------------------------------------------------
 
 
-def _cluster_prometheus_url(cluster_name: str) -> str:
-    """Read the Prometheus URL from the cluster's config.yaml."""
+def _cluster_prometheus_config(cluster_name: str) -> dict[str, Any]:
+    """Read the full Prometheus config for a cluster from config.yaml."""
     import os.path
 
     try:
@@ -42,16 +42,39 @@ def _cluster_prometheus_url(cluster_name: str) -> str:
     with open(path) as f:
         data: dict[str, Any] = yaml.safe_load(f) or {}
     obs = data.get("observability", {}) or {}
-    # If cluster-specific observability config exists, use that; otherwise global.
     clusters_raw = data.get("clusters", {}) or {}
     cluster_cfg = clusters_raw.get(cluster_name, {}) or {}
     cluster_obs = cluster_cfg.get("observability", {}) or {}
-    url = cluster_obs.get("prometheus", {}).get("url") or obs.get("prometheus", {}).get("url") or ""
+    # Merge: cluster-specific overrides global defaults
+    merged: dict[str, Any] = dict(obs)  # global defaults
+    merged.update(cluster_obs)  # cluster-specific overrides
+    prom = merged.get("prometheus", {})
+    return {"url": prom.get("url", ""), "auth": prom.get("auth", {})}
+
+
+def _cluster_prometheus_url(cluster_name: str) -> str:
+    """Read the Prometheus URL from the cluster's config.yaml."""
+    cfg = _cluster_prometheus_config(cluster_name)
+    url = cfg.get("url", "")
     if not url:
         raise RuntimeError(
             f"Prometheus URL not configured for cluster {cluster_name!r} — "
             "set observability.prometheus.url in config.yaml"
         )
+    # Resolve auth tokens via SecretsManager if configured
+    auth = cfg.get("auth", {})
+    if auth.get("type") == "bearer":
+        token_key = auth.get("token_secret_key", "PROMETHEUS_TOKEN")
+        from hpc_pilot.secrets import get_secrets_manager
+
+        token = get_secrets_manager().get(token_key)
+        if token:
+            import urllib.parse
+            parsed = urllib.parse.urlparse(url)
+            netloc = f"{token}:@{parsed.hostname}"
+            if parsed.port:
+                netloc += f":{parsed.port}"
+            url = urllib.parse.urlunparse(parsed._replace(netloc=netloc))
     return str(url)
 
 

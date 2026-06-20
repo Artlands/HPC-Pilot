@@ -13,6 +13,8 @@ class SSHConfig:
     user: str
     key: str
     control_path: str = ""
+    host_key_check: str = "accept-new"  # "yes" | "accept-new" | "no"
+    known_hosts: str = ""
 
 
 @dataclass(frozen=True)
@@ -60,6 +62,8 @@ def _parse_cluster(name: str, data: dict[str, Any]) -> Cluster:
             user=str(ssh_data.get("user", "")),
             key=str(ssh_data.get("key", "")),
             control_path=str(ssh_data.get("control_path", "")),
+            host_key_check=str(ssh_data.get("host_key_check", "accept-new")),
+            known_hosts=str(ssh_data.get("known_hosts", "")),
         )
     return Cluster(
         name=name,

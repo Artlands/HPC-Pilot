@@ -359,6 +359,17 @@ class TestConfigCommand:
 
         assert result == 0
 
+    def test_config_reload(self):
+        """config reload invalidates caches and returns 0."""
+        import argparse
+        from hpc_pilot.cli import config_command
+
+        args = argparse.Namespace(action="reload", key=None, value=None)
+        with patch("hpc_pilot.agent._find_hermes", return_value="hermes"):
+            result = config_command(args)
+
+        assert result == 0
+
 
 class TestMain:
     """Tests for main entry point."""

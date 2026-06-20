@@ -20,24 +20,18 @@ Read this section **before** picking up any phase below.
 2. Mark the phase `In progress` in §6 with your run identifier and the date,
    then commit that status change as a `chore(plan):` commit on `main` *before*
    doing the actual work. This makes the claim visible to other agents.
-3. Cut a feature branch named `phase-<letter>-<short-slug>`, e.g.
-   `phase-a-regression-triage`.
-4. Implement the items listed under that phase. Stay inside the phase scope —
-   if you find new issues, add them under §7 (Backlog) rather than expanding
-   the current phase.
-5. For each item you complete, satisfy the acceptance criteria printed at the
+3. Implement the items listed under that phase directly on `main`. Stay inside
+   the phase scope — if you find new issues, add them under §7 (Backlog) rather
+   than expanding the current phase.
+4. For each item you complete, satisfy the acceptance criteria printed at the
    end of the phase. **Run the full test suite, ruff, black, mypy, and the
-   tool-name linter** before opening a PR. If any of those were already red on
-   `main`, fix that as part of Phase A; for later phases, do not introduce new
-   regressions.
-6. Open a pull request titled `Phase <letter>: <phase name>`. Reference this
-   document in the PR body. Include the per-item checklist from the phase as a
-   task list in the PR description.
-7. **After the PR is merged**, push and update §6:
+   tool-name linter** before committing.
+5. After all items pass verification, commit the work with a descriptive message
+   and push to `main`. Then update §6:
    - Set `Status` to `Done`.
-   - Fill in the merged commit SHA and PR URL.
+   - Fill in the commit SHA.
    - Commit the status change on `main` as `chore(plan): mark phase <letter> done`.
-8. Only then may the next agent claim the next phase.
+6. Only then may the next agent claim the next phase.
 
 ### 0.2 Status-tracking rules (mandatory)
 
@@ -65,32 +59,24 @@ git add docs/IMPROVEMENT_PLAN.md
 git commit -m "chore(plan): claim phase <X>"
 git push origin main
 
-# 2. Work
-git checkout -b phase-<X>-<slug>
+# 2. Work (directly on main)
 # ... implement ...
 # run full test/lint/typecheck/tool-name suite locally
-git push -u origin phase-<X>-<slug>
+git add -A
+git commit -m "Phase <X>: <description>"
+git push origin main
 
-# 3. PR + merge (use gh)
-gh pr create --title "Phase <X>: <name>" --body-file <prepared-body>
-# after review/merge:
-
-# 4. Mark done + push
-git checkout main && git pull
-# edit §6: Status -> Done, fill commit SHA + PR URL
+# 3. Mark done
+# edit §6: Status -> Done, fill commit SHA
 git add docs/IMPROVEMENT_PLAN.md
 git commit -m "chore(plan): mark phase <X> done"
 git push origin main
 ```
 
-Never skip the final `git push origin main`. A merged PR that hasn't updated
-§6 leaves the next agent unable to know the phase is finished.
-
 ### 0.4 Scope discipline
 
 - **Do not** refactor outside the phase boundary "while you're in there." Each
-  phase is sized to fit one PR. Drift causes merge conflicts with parallel
-  agents working on adjacent phases.
+  phase is sized as one commit. Drift causes conflicts with adjacent phases.
 - **Do not** delete the backward-compat re-exports in
   `hpc_pilot/tools/__init__.py` without an explicit phase covering it — many
   tests patch those paths.
@@ -411,17 +397,17 @@ operators.
 ## 6. Status Tracker
 
 **This table is the source of truth for phase completion. Update it as part of
-every claim and every merge. Push the change to `main`.**
+every claim. Push the change to `main`.**
 
-| Phase | Title | Priority | Status | Claimed by | Claim date | Merge SHA | PR |
-|---|---|---|---|---|---|---|---|
-| A | Regression triage | P0 | Done | claude-code | 2026-06-19 | (re-applied on phase-b branch) | https://github.com/Artlands/HPC-Pilot/pull/new/phase-a-regression-triage |
-| B | Audit / observability integrity | P1 | Done | claude-code | 2026-06-19 | TBD | https://github.com/Artlands/HPC-Pilot/pull/new/phase-b-audit-observability |
-| C | Multi-cluster correctness | P1 | Not started |  |  |  |  |
-| D | Agent + chat memory | P2 | Not started |  |  |  |  |
-| E | Tooling & modularization | P2 | Not started |  |  |  |  |
-| F | Self-evolve hardening | P3 | Not started |  |  |  |  |
-| G | Operational polish | P3 | Not started |  |  |  |  |
+| Phase | Title | Priority | Status | Claimed by | Claim date | Commit SHA |
+|---|---|---|---|---|---|---|
+| A | Regression triage | P0 | Done | claude-code | 2026-06-19 | d08f88d |
+| B | Audit / observability integrity | P1 | Done | claude-code | 2026-06-19 | d08f88d |
+| C | Multi-cluster correctness | P1 | In progress | claude-code | 2026-06-19 |  |
+| D | Agent + chat memory | P2 | Not started |  |  |  |
+| E | Tooling & modularization | P2 | Not started |  |  |  |
+| F | Self-evolve hardening | P3 | Not started |  |  |  |
+| G | Operational polish | P3 | Not started |  |  |  |
 
 Allowed values for `Status`: `Not started`, `In progress`, `Blocked`, `Done`.
 

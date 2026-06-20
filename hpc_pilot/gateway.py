@@ -20,12 +20,81 @@ import os
 import sys
 from typing import Any
 
+import time
+
 from hpc_pilot.audit import audit_tool
 from hpc_pilot.config import init_config  # noqa: F401
 
 # Local-name re-exports so existing tests can patch
 # `hpc_pilot.gateway.init_home` and `hpc_pilot.gateway.init_config`.
 from hpc_pilot.paths import ensure_layout as init_home  # noqa: F401
+
+# ---------------------------------------------------------------------------
+# Bounded session map with TTL eviction
+# ---------------------------------------------------------------------------
+
+
+class _BoundedSessionDict:
+    """Dict-like container for gateway sessions with size cap and idle TTL.
+
+    Evicts the oldest entry when the cap is exceeded.  Entries idle longer
+    than *idle_ttl* seconds are evicted on access.
+    """
+
+    def _update_gauge(self) -> None:
+        try:
+            from hpc_pilot.metrics import _HAS_PROMETHEUS, active_gateway_sessions
+
+            if _HAS_PROMETHEUS and self._platform:
+                active_gateway_sessions.labels(platform=self._platform).set(len(self._data))
+        except Exception:
+            pass
+
+    def __init__(
+        self, max_sessions: int = 500, idle_ttl: int = 1800, platform: str = ""
+    ) -> None:
+        self.max_sessions = max_sessions
+        self.idle_ttl = idle_ttl
+        self._data: dict[int, tuple[Any, list[Any], float]] = {}
+        self._platform = platform
+
+    def _evict_stale(self) -> None:
+        now = time.monotonic()
+        stale = [k for k, (_, _, ts) in self._data.items() if now - ts > self.idle_ttl]
+        for k in stale:
+            del self._data[k]
+        if stale:
+            self._update_gauge()
+
+    def _evict_lru(self) -> None:
+        while len(self._data) >= self.max_sessions:
+            oldest = min(self._data.keys(), key=lambda k: self._data[k][2])
+            del self._data[oldest]
+        self._update_gauge()
+
+    def __contains__(self, key: int) -> bool:
+        self._evict_stale()
+        return key in self._data
+
+    def __getitem__(self, key: int) -> tuple[Any, list[Any]]:
+        self._evict_stale()
+        agent, history, _ = self._data[key]
+        self._data[key] = (agent, history, time.monotonic())
+        return agent, history
+
+    def __setitem__(self, key: int, value: tuple[Any, list[Any]]) -> None:
+        self._evict_stale()
+        self._data[key] = (value[0], value[1], time.monotonic())
+        self._evict_lru()
+
+    def __len__(self) -> int:
+        self._evict_stale()
+        return len(self._data)
+
+    def keys(self) -> set[int]:
+        self._evict_stale()
+        return set(self._data.keys())
+
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -144,11 +213,15 @@ class TelegramGateway:
         self,
         token: str,
         allowed_chat_ids: set[int] | None = None,
+        max_sessions: int = 500,
+        idle_ttl: int = 1800,
     ) -> None:
         self.token = token
         self.allowed_chat_ids = allowed_chat_ids
-        # keyed by chat_id → (agent, history)
-        self.sessions: dict[int, tuple[Any, list[dict[str, Any]]]] = {}
+        # keyed by chat_id → (agent, history) with bounded TTL/LRU
+        self.sessions: _BoundedSessionDict = _BoundedSessionDict(
+            max_sessions=max_sessions, idle_ttl=idle_ttl, platform="telegram",
+        )
 
     def _is_allowed(self, chat_id: int) -> bool:
         return self.allowed_chat_ids is None or chat_id in self.allowed_chat_ids
@@ -243,10 +316,14 @@ class DiscordGateway:
         self,
         token: str,
         allowed_user_ids: set[int] | None = None,
+        max_sessions: int = 500,
+        idle_ttl: int = 1800,
     ) -> None:
         self.token = token
         self.allowed_user_ids = allowed_user_ids
-        self.sessions: dict[int, tuple[Any, list[dict[str, Any]]]] = {}
+        self.sessions: _BoundedSessionDict = _BoundedSessionDict(
+            max_sessions=max_sessions, idle_ttl=idle_ttl, platform="discord",
+        )
 
     def _is_allowed(self, user_id: int) -> bool:
         return self.allowed_user_ids is None or user_id in self.allowed_user_ids

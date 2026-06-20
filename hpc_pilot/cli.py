@@ -23,6 +23,7 @@ Direct cluster commands (no API key needed):
     hpc-pilot ansible        Run an Ansible playbook (dry-run by default)
     hpc-pilot version        Show version information
 """
+
 from __future__ import annotations
 
 import argparse
@@ -39,7 +40,12 @@ from hpc_pilot._cli_admin import (
     setup_hermes_command,
     version_command,
 )
-from hpc_pilot._cli_base import config_file, ensure_home, home_dir, init_config  # noqa: F401 — re-exported for tests
+from hpc_pilot._cli_base import (
+    config_file,
+    ensure_home,
+    home_dir,
+    init_config,
+)  # noqa: F401 — re-exported for tests
 from hpc_pilot._cli_chat import chat_command, cron_command, shell_command, tui_command
 from hpc_pilot._cli_gateway import gateway_command, webui_command
 from hpc_pilot._cli_slurm import (
@@ -72,12 +78,10 @@ def main(argv: list[str] | None = None) -> int:
     chat_p.add_argument("-m", "--model", help="Model name")
     chat_p.add_argument("--resume", metavar="SESSION-ID", help="Resume a previous session")
     chat_p.add_argument(
-        "--list-sessions", action="store_true", dest="list_sessions",
+        "--list-sessions",
+        action="store_true",
+        dest="list_sessions",
         help="List saved sessions",
-    )
-    chat_p.add_argument(
-        "--no-summarize", action="store_true", dest="no_summarize",
-        help="Disable conversation summarization",
     )
     chat_p.set_defaults(func=chat_command)
 
@@ -104,7 +108,9 @@ def main(argv: list[str] | None = None) -> int:
     # webui
     webui_p = subs.add_parser("webui", help="Launch web UI (FastAPI)")
     webui_p.add_argument("--start", action="store_true", help="Start the web UI")
-    webui_p.add_argument("--port", type=int, default=0, help="Port (default: 8000, or $HPC_PILOT_PORT)")
+    webui_p.add_argument(
+        "--port", type=int, default=0, help="Port (default: 8000, or $HPC_PILOT_PORT)"
+    )
     webui_p.add_argument("--host", default="127.0.0.1", help="Host (default: 127.0.0.1)")
     webui_p.set_defaults(func=webui_command)
 
@@ -144,7 +150,9 @@ def main(argv: list[str] | None = None) -> int:
 
     # spack
     spack_p = subs.add_parser("spack", help="Spack queries")
-    spack_p.add_argument("--json", action="store_true", help="Emit machine-readable JSON (env list only)")
+    spack_p.add_argument(
+        "--json", action="store_true", help="Emit machine-readable JSON (env list only)"
+    )
     spack_subs = spack_p.add_subparsers(dest="action")
     spack_subs.add_parser("list", help="List environments")
     spack_find_p = spack_subs.add_parser("find", help="List specs in an environment")
@@ -236,7 +244,9 @@ def main(argv: list[str] | None = None) -> int:
     approve_p = subs.add_parser("approve", help="Approve or reject out-of-band approval requests")
     approve_p.add_argument("request_id", nargs="?", help="Approval request ID")
     approve_p.add_argument("--reject", action="store_true", help="Reject instead of approve")
-    approve_p.add_argument("--list", action="store_true", dest="list_approvals", help="List pending approvals")
+    approve_p.add_argument(
+        "--list", action="store_true", dest="list_approvals", help="List pending approvals"
+    )
     approve_p.set_defaults(func=approve_command)
 
     # version
@@ -253,22 +263,32 @@ def main(argv: list[str] | None = None) -> int:
     evolve_p.add_argument("--code", required=True, help="Python function body for the tool")
     evolve_p.add_argument("--test-code", required=True, dest="test_code", help="Pytest test code")
     evolve_p.add_argument("--schema", default="{}", help="JSON schema for input parameters")
-    evolve_p.add_argument("--role", default="VIEWER", help="RBAC role (VIEWER/OPERATOR/ADMIN/SUPERADMIN)")
-    evolve_p.add_argument("--dry-run", action="store_true", dest="dry_run", help="Preview without writing")
+    evolve_p.add_argument(
+        "--role", default="VIEWER", help="RBAC role (VIEWER/OPERATOR/ADMIN/SUPERADMIN)"
+    )
+    evolve_p.add_argument(
+        "--dry-run", action="store_true", dest="dry_run", help="Preview without writing"
+    )
     evolve_p.set_defaults(func=self_evolve_command)
     evolve_pr_p = subs.add_parser(
         "self-evolve-create-pr",
         help="Commit, push, and open a PR for an evolved tool",
     )
     evolve_pr_p.add_argument("tool_name", help="Name of the evolved tool")
-    evolve_pr_p.add_argument("--description", default="", help="Human-readable description for the PR body")
-    evolve_pr_p.add_argument("--dry-run", action="store_true", dest="dry_run", help="Preview without pushing")
+    evolve_pr_p.add_argument(
+        "--description", default="", help="Human-readable description for the PR body"
+    )
+    evolve_pr_p.add_argument(
+        "--dry-run", action="store_true", dest="dry_run", help="Preview without pushing"
+    )
     evolve_pr_p.set_defaults(func=self_evolve_create_pr_command)
 
     # config
     config_p = subs.add_parser("config", help="Get or set Hermes Agent configuration values")
     config_subs = config_p.add_subparsers(dest="action")
-    config_set_p = config_subs.add_parser("set", help="Set a config value (e.g. providers.local.base_url)")
+    config_set_p = config_subs.add_parser(
+        "set", help="Set a config value (e.g. providers.local.base_url)"
+    )
     config_set_p.add_argument("key", help="Config key path")
     config_set_p.add_argument("value", help="Config value")
     config_set_p.set_defaults(func=config_command)
@@ -280,7 +300,10 @@ def main(argv: list[str] | None = None) -> int:
     config_show_p = config_subs.add_parser("show", help="Show full configuration")
     config_show_p.set_defaults(func=config_command)
 
-    config_reload_p = config_subs.add_parser("reload", help="Reload configuration from config.yaml (cluster cache, audit sinks, rate limiter)")
+    config_reload_p = config_subs.add_parser(
+        "reload",
+        help="Reload configuration from config.yaml (cluster cache, audit sinks, rate limiter)",
+    )
     config_reload_p.set_defaults(func=config_command)
     config_p.set_defaults(func=config_command)
 
@@ -290,7 +313,9 @@ def main(argv: list[str] | None = None) -> int:
         help="Remove audit log entries older than N days",
     )
     audit_prune_p.add_argument(
-        "--older-than", type=int, default=90,
+        "--older-than",
+        type=int,
+        default=90,
         help="Remove entries older than this many days (default: 90)",
     )
     audit_prune_p.set_defaults(func=audit_prune_command)

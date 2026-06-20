@@ -8,13 +8,15 @@ import os
 import shutil
 import subprocess as sp
 import sys
+from typing import Any
 
-from hpc_pilot._cli_base import _get_actor, ensure_home, home_dir, config_file
+from hpc_pilot._cli_base import _get_actor, config_file, ensure_home, home_dir
 
 
 def setup_command(args: argparse.Namespace) -> int:
     ensure_home()
     from hpc_pilot.config import init_config
+
     init_config()
     print(f"Configuration directory : {home_dir()}")
     print(f"Configuration file      : {config_file()}")
@@ -29,6 +31,7 @@ def setup_command(args: argparse.Namespace) -> int:
 
 def version_command(args: argparse.Namespace) -> int:
     from hpc_pilot import __version__
+
     try:
         print(f"HPC Pilot {__version__}")
         print(f"Python: {'.'.join(map(str, sys.version_info[:3]))}")
@@ -40,6 +43,7 @@ def version_command(args: argparse.Namespace) -> int:
 
 def approve_command(args: argparse.Namespace) -> int:
     from hpc_pilot.approvals import approve_request, list_pending, reject_request
+
     ensure_home()
 
     if getattr(args, "list_approvals", False):
@@ -78,6 +82,7 @@ def approve_command(args: argparse.Namespace) -> int:
 
 def audit_prune_command(args: argparse.Namespace) -> int:
     from hpc_pilot.audit import prune_audit_log
+
     pruned = prune_audit_log(older_than_days=args.older_than)
     print(f"Pruned {pruned} audit log entries older than {args.older_than} days.")
     return 0
@@ -87,6 +92,7 @@ def setup_hermes_command(args: argparse.Namespace) -> int:
     hermes_plugins_dir = os.path.expanduser("~/.hermes/plugins")
     link_dir = os.path.join(hermes_plugins_dir, "hpc-pilot")
     from hpc_pilot.hermes_plugin import plugin_dir
+
     src = plugin_dir()
 
     if not os.path.exists(src):
@@ -124,6 +130,7 @@ def setup_hermes_command(args: argparse.Namespace) -> int:
 
 def self_evolve_command(args: argparse.Namespace) -> int:
     from hpc_pilot.tools.evolve import hpc_self_evolve
+
     try:
         schema = json.loads(args.schema)
     except json.JSONDecodeError as exc:
@@ -144,6 +151,7 @@ def self_evolve_command(args: argparse.Namespace) -> int:
 
 def self_evolve_create_pr_command(args: argparse.Namespace) -> int:
     from hpc_pilot.tools.evolve import hpc_self_evolve_create_pr
+
     result = hpc_self_evolve_create_pr(
         tool_name=args.tool_name,
         description=args.description,
@@ -155,6 +163,7 @@ def self_evolve_create_pr_command(args: argparse.Namespace) -> int:
 
 def config_command(args: argparse.Namespace) -> int:
     from hpc_pilot.agent import _find_hermes
+
     key = getattr(args, "key", None)
     value = getattr(args, "value", None)
     hermes_bin = _find_hermes()
@@ -170,14 +179,36 @@ def config_command(args: argparse.Namespace) -> int:
             return 1
     elif action == "get" and key:
         proc = sp.run([hermes_bin, "config", "show"], capture_output=True, text=True)
-        if proc.returncode == 0:
-            print(proc.stdout)
-        else:
+        if proc.returncode != 0:
             print(proc.stderr.strip() or "Failed to read config", file=sys.stderr)
             return 1
+        try:
+            import yaml
+
+            config_data = yaml.safe_load(proc.stdout)
+            parts = key.split(".")
+            val: Any = config_data
+            for p in parts:
+                if isinstance(val, dict):
+                    val = val.get(p)
+                else:
+                    val = None
+                    break
+            if val is None:
+                print(f"Key not found: {key}", file=sys.stderr)
+                return 1
+            if isinstance(val, (dict, list)):
+                print(yaml.dump(val, default_flow_style=False).rstrip())
+            else:
+                print(val)
+            return 0
+        except ImportError:
+            # No yaml library — fall back to full dump
+            print(proc.stdout)
+            return 0
     elif action == "reload":
-        from hpc_pilot.clusters import _invalidate_cluster_cache
         from hpc_pilot.audit import reset_sinks
+        from hpc_pilot.clusters import _invalidate_cluster_cache
         from hpc_pilot.dispatch import reset_rate_limiter
 
         _invalidate_cluster_cache()
@@ -195,7 +226,7 @@ def config_command(args: argparse.Namespace) -> int:
     else:
         print("Usage:")
         print("  hpc-pilot config set <key> <value>    Set a config value")
-        print("  hpc-pilot config get <key>            Show config (full)")
+        print("  hpc-pilot config get <key>            Show config value for dotted key")
         print("  hpc-pilot config list                 Show config (full)")
         return 0
     return 0

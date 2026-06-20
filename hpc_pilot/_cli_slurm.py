@@ -7,7 +7,7 @@ import json
 import sys
 from typing import Any
 
-from hpc_pilot._cli_base import _get_actor, _confirm, _invoke_cli, ensure_home
+from hpc_pilot._cli_base import _confirm, _get_actor, _invoke_cli, ensure_home
 from hpc_pilot.rbac import get_role
 
 

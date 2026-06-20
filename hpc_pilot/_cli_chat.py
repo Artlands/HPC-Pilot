@@ -16,6 +16,7 @@ def chat_command(args: argparse.Namespace) -> int:
 
     if getattr(args, "list_sessions", False):
         import datetime
+
         from hpc_pilot.agent import list_sessions
         sessions = list_sessions()
         if not sessions:

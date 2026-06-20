@@ -128,7 +128,6 @@ class HpcAgent:
         model: str | None = None,
         role: Role | None = None,
         actor: str | None = None,
-        summarize: bool = True,
     ) -> None:
         _load_env()
         self.model = model or os.environ.get("HPC_PILOT_MODEL") or "claude-opus-4-7"
@@ -136,7 +135,10 @@ class HpcAgent:
         self.actor: str = (
             actor or os.environ.get("HPC_PILOT_ACTOR") or os.environ.get("USER", "cli")
         )
-        self.summarize = summarize
+        # Tracked across run_turn calls for multi-turn conversations.
+        # When set, subsequent calls use --resume so Hermes maintains
+        # session state across turns.
+        self._hermes_session_id: str | None = None
 
     def run_turn(
         self,
@@ -149,12 +151,18 @@ class HpcAgent:
     ) -> tuple[str, list[dict[str, Any]]]:
         """Run one conversation turn via ``hermes chat -q``.
 
+        Multi-turn support: when called repeatedly on the same HpcAgent
+        instance, subsequent calls pass ``--resume <session_id>`` so Hermes
+        maintains actual conversation state across turns.
+
         Returns (response_text, updated_history).
         """
         messages = list(history) + [{"role": "user", "content": user_message}]
 
         hermes_bin = _find_hermes()
         cmd = [hermes_bin, "chat", "-q", user_message, "-t", "hpc", "--quiet"]
+        if self._hermes_session_id:
+            cmd.extend(["--resume", self._hermes_session_id])
         if self.model:
             cmd.extend(["-m", self.model])
 
@@ -171,6 +179,9 @@ class HpcAgent:
                 on_text(text)
             return text, messages
 
+        # Parse session_id from stderr (hermes always prints it at the end)
+        self._parse_session_id(proc.stderr)
+
         if proc.returncode != 0:
             text = f"[Hermes Agent error: {proc.stderr.strip() or 'exit ' + str(proc.returncode)}]"
             if on_text:
@@ -185,6 +196,20 @@ class HpcAgent:
         assistant_msg: dict[str, Any] = {"role": "assistant", "content": text}
         messages = messages + [assistant_msg]
         return text, messages
+
+    def _parse_session_id(self, stderr: str) -> None:
+        """Extract and store session_id from hermes stderr output."""
+        for line in stderr.splitlines():
+            line = line.strip()
+            if line.startswith("session_id:"):
+                sid = line.split(":", 1)[1].strip()
+                if sid:
+                    self._hermes_session_id = sid
+                break
+
+    def reset_session(self) -> None:
+        """Clear the tracked Hermes session ID so the next call starts fresh."""
+        self._hermes_session_id = None
 
     def _execute_tool(self, name: str, args: dict[str, Any]) -> str:
         """Execute one tool call: RBAC -> audit -> dispatch."""

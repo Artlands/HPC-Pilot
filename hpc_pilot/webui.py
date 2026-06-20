@@ -1,4 +1,5 @@
 """HPC Pilot Web UI -- FastAPI application for browser-based cluster management."""
+
 from __future__ import annotations
 
 import hashlib
@@ -36,22 +37,44 @@ _SESSION_TTL = 86400  # 24 hours
 def _get_auth_secret() -> bytes:
     """Return the HMAC signing key from config or env, generated once."""
     secret = os.environ.get("HPC_PILOT_WEBUI_SECRET")
-    if not secret:
-        secret = os.environ.get("HPC_PILOT_HOME", "~/.hpc-pilot") + "/webui_secret"
+    if secret:
+        return secret.encode("utf-8")
+
+    # Try file-based secret
+    home = os.environ.get("HPC_PILOT_HOME", "~/.hpc-pilot")
+    secret_path = os.path.expanduser(os.path.join(home, "webui_secret"))
+    if os.path.exists(secret_path):
         try:
-            secret_path = os.path.expanduser(secret)
-            if os.path.exists(secret_path):
-                secret = open(secret_path).read().strip()
-            else:
-                import secrets
-                secret = secrets.token_hex(32)
-                os.makedirs(os.path.dirname(secret_path), exist_ok=True)
-                with open(secret_path, "w") as f:
-                    f.write(secret)
-                os.chmod(secret_path, 0o600)
-        except (OSError, ImportError):
-            secret = "hpc-pilot-webui-fallback-secret-do-not-use-in-production"
-    return secret.encode("utf-8")
+            return open(secret_path).read().strip().encode("utf-8")
+        except OSError:
+            pass
+
+    # Generate a new token if file doesn't exist yet
+    import secrets
+
+    try:
+        new_secret = secrets.token_hex(32)
+        os.makedirs(os.path.dirname(secret_path), exist_ok=True)
+        with open(secret_path, "w") as f:
+            f.write(new_secret)
+        os.chmod(secret_path, 0o600)
+        return new_secret.encode("utf-8")
+    except (OSError, ImportError) as exc:
+        if os.environ.get("HPC_PILOT_WEBUI_INSECURE") == "1":
+            import logging
+
+            logging.warning(
+                "WebUI: using INSECURE fallback secret (HPC_PILOT_WEBUI_INSECURE=1). "
+                "Set HPC_PILOT_WEBUI_SECRET or ensure %s is writable.",
+                secret_path,
+            )
+            return b"hpc-pilot-webui-fallback-secret-do-not-use-in-production"
+        raise RuntimeError(
+            f"Cannot start WebUI: unable to create auth secret at {secret_path} "
+            f"({exc}). Set HPC_PILOT_WEBUI_SECRET env var, or set "
+            "HPC_PILOT_WEBUI_INSECURE=1 to use a hardcoded fallback "
+            "(NOT recommended for production)."
+        ) from exc
 
 
 _AUTH_SECRET: bytes | None = None
@@ -95,7 +118,7 @@ def _get_identity(request: Request) -> str | None:
     token = request.cookies.get("session") or ""
     auth_header = request.headers.get("Authorization", "")
     if auth_header.startswith("Bearer "):
-        token = auth_header[len("Bearer "):]
+        token = auth_header[len("Bearer ") :]
     return _verify_token(token) if token else None
 
 
@@ -111,6 +134,7 @@ def _require_auth(request: Request) -> str:
 # App factory
 # ---------------------------------------------------------------------------
 
+
 def create_app() -> Any:
     """Construct and return the FastAPI application instance.
 
@@ -118,8 +142,7 @@ def create_app() -> Any:
     """
     if FastAPI is None:
         raise ImportError(
-            "FastAPI is required to use the web UI. "
-            "Install with: pip install 'hpc-pilot[webui]'"
+            "FastAPI is required to use the web UI. " "Install with: pip install 'hpc-pilot[webui]'"
         ) from None
 
     from fastapi.middleware.cors import CORSMiddleware
@@ -320,7 +343,7 @@ def create_app() -> Any:
         html = (
             '<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8">'
             "<title>HPC Pilot -- Login</title>"
-            '<style>'
+            "<style>"
             "*,*::before,*::after{box-sizing:border-box}"
             "body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;"
             "margin:0;background:#0d1117;color:#c9d1d9;height:100vh;"
@@ -389,6 +412,7 @@ def create_app() -> Any:
             raise HTTPException(status_code=400, detail="message is required")
 
         import asyncio
+
         from hpc_pilot.agent import HpcAgent
 
         agent = HpcAgent(actor=identity)
@@ -421,8 +445,12 @@ def create_app() -> Any:
 
             try:
                 await asyncio.to_thread(
-                    agent.run_turn, message, [],
-                    on_text=on_text, on_tool=on_tool, on_result=on_result,
+                    agent.run_turn,
+                    message,
+                    [],
+                    on_text=on_text,
+                    on_tool=on_tool,
+                    on_result=on_result,
                 )
             except Exception as exc:
                 events.append({"type": "error", "content": str(exc)})
@@ -484,7 +512,7 @@ def create_app() -> Any:
                     records.append(rec)
 
         total = len(records)
-        page = records[offset: offset + limit]
+        page = records[offset : offset + limit]
         return {
             "total": total,
             "offset": offset,
@@ -606,12 +634,15 @@ def create_app() -> Any:
         Returns 404 with a hint if the library is not installed.
         """
         try:
-            from prometheus_client import generate_latest, CONTENT_TYPE_LATEST
+            from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
+
             from hpc_pilot.metrics import REGISTRY
+
             data = generate_latest(REGISTRY)
             return data.decode("utf-8")
         except ImportError:
             from fastapi.responses import PlainTextResponse
+
             return PlainTextResponse(
                 "# prometheus_client not installed. Run: pip install prometheus-client\n",
                 status_code=404,
@@ -623,6 +654,7 @@ def create_app() -> Any:
 # ---------------------------------------------------------------------------
 # CLI entry point
 # ---------------------------------------------------------------------------
+
 
 def run_webui(host: str = "127.0.0.1", port: int = 8000) -> None:
     """Launch the web UI via uvicorn (required at runtime).
@@ -639,6 +671,7 @@ def run_webui(host: str = "127.0.0.1", port: int = 8000) -> None:
 
     # Ensure layout exists before starting
     from hpc_pilot.paths import ensure_layout
+
     ensure_layout()
 
     app = create_app()

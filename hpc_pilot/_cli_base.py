@@ -22,6 +22,7 @@ def config_file() -> str:
 
 def ensure_home() -> str:
     from hpc_pilot.paths import ensure_layout
+
     return ensure_layout()
 
 
@@ -40,11 +41,11 @@ def _confirm(prompt: str) -> bool:
 
 def _make_agent(args: argparse.Namespace) -> Any:
     from hpc_pilot.agent import HpcAgent
+
     model: str = getattr(args, "model", None) or os.environ.get(
         "HPC_PILOT_MODEL", "claude-opus-4-7"
     )
-    summarize: bool = getattr(args, "no_summarize", False) is False
-    return HpcAgent(model=model, summarize=summarize)
+    return HpcAgent(model=model)
 
 
 def _resolve_cluster_flag(cluster_arg: str | None) -> str:
@@ -54,6 +55,7 @@ def _resolve_cluster_flag(cluster_arg: str | None) -> str:
     if env_val:
         return env_val
     from hpc_pilot.clusters import _load_clusters
+
     _clusters, default_name = _load_clusters()
     return default_name
 

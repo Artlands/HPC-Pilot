@@ -40,13 +40,14 @@ from hpc_pilot._cli_admin import (
     setup_hermes_command,
     version_command,
 )
-from hpc_pilot._cli_base import (
+from hpc_pilot._cli_base import (  # noqa: F401 — re-exported for tests
     config_file,
     ensure_home,
     home_dir,
     init_config,
-)  # noqa: F401 — re-exported for tests
+)
 from hpc_pilot._cli_chat import chat_command, cron_command, shell_command, tui_command
+from hpc_pilot._cli_daemon import daemon_command
 from hpc_pilot._cli_gateway import gateway_command, webui_command
 from hpc_pilot._cli_slurm import (
     account_command,
@@ -58,6 +59,15 @@ from hpc_pilot._cli_slurm import (
     sdiag_command,
 )
 from hpc_pilot._cli_system import ansible_command, health_command, spack_command, warewulf_command
+
+
+def _add_cluster_arg(p: argparse.ArgumentParser) -> None:
+    """Add a --cluster argument to *p* so it shows up in the subcommand's --help."""
+    p.add_argument(
+        "--cluster",
+        default=None,
+        help="Target cluster (default from config, or $HPC_PILOT_CLUSTER)",
+    )
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -74,6 +84,7 @@ def main(argv: list[str] | None = None) -> int:
 
     # chat
     chat_p = subs.add_parser("chat", help="Start interactive AI chat")
+    _add_cluster_arg(chat_p)
     chat_p.add_argument("-q", "--query", help="Single query")
     chat_p.add_argument("-m", "--model", help="Model name")
     chat_p.add_argument("--resume", metavar="SESSION-ID", help="Resume a previous session")
@@ -87,16 +98,23 @@ def main(argv: list[str] | None = None) -> int:
 
     # shell
     shell_p = subs.add_parser("shell", help="Start shell session (alias for chat with --role)")
+    _add_cluster_arg(shell_p)
     shell_p.add_argument("--actor", default="cli-user", help="Operator identity")
     shell_p.add_argument("--role", default="operator", help="RBAC role")
     shell_p.set_defaults(func=shell_command)
 
-    # tui (not yet implemented)
-    tui_p = subs.add_parser("tui", help="[planned] Start text-based UI")
+    # tui
+    tui_p = subs.add_parser("tui", help="Start text-based UI dashboard")
+    tui_p.add_argument(
+        "--cluster",
+        default=None,
+        help="Target cluster (default from config, or $HPC_PILOT_CLUSTER)",
+    )
     tui_p.set_defaults(func=tui_command)
 
     # gateway
     gw_p = subs.add_parser("gateway", help="Gateway service control (Telegram + Discord)")
+    _add_cluster_arg(gw_p)
     gw_p.add_argument("--start", action="store_true")
     gw_p.add_argument("--stop", action="store_true")
     gw_p.add_argument("--status", action="store_true")
@@ -105,8 +123,27 @@ def main(argv: list[str] | None = None) -> int:
     gw_p.add_argument("--host", default="127.0.0.1")
     gw_p.set_defaults(func=gateway_command)
 
+    # daemon
+    daemon_p = subs.add_parser(
+        "daemon",
+        help="Start/stop all services (gateway + webui + health monitor) as a daemon",
+    )
+    _add_cluster_arg(daemon_p)
+    daemon_p.add_argument("--start", action="store_true", help="Start the daemon")
+    daemon_p.add_argument("--stop", action="store_true", help="Stop the daemon")
+    daemon_p.add_argument("--status", action="store_true", help="Check daemon status")
+    daemon_p.add_argument(
+        "--port", type=int, default=0, help="Web UI port (default: 8000, or $HPC_PILOT_PORT)"
+    )
+    daemon_p.add_argument("--host", default="127.0.0.1", help="Web UI host (default: 127.0.0.1)")
+    daemon_p.add_argument(
+        "--interval", type=int, default=300, help="Health check interval in seconds (default: 300)"
+    )
+    daemon_p.set_defaults(func=daemon_command)
+
     # webui
     webui_p = subs.add_parser("webui", help="Launch web UI (FastAPI)")
+    _add_cluster_arg(webui_p)
     webui_p.add_argument("--start", action="store_true", help="Start the web UI")
     webui_p.add_argument(
         "--port", type=int, default=0, help="Port (default: 8000, or $HPC_PILOT_PORT)"
@@ -116,20 +153,24 @@ def main(argv: list[str] | None = None) -> int:
 
     # setup
     setup_p = subs.add_parser("setup", help="Initialize configuration directory")
+    _add_cluster_arg(setup_p)
     setup_p.set_defaults(func=setup_command)
 
     # health
     health_p = subs.add_parser("health", help="Check cluster health")
+    _add_cluster_arg(health_p)
     health_p.set_defaults(func=health_command)
 
     # nodes
     nodes_p = subs.add_parser("nodes", help="Show Slurm node status")
+    _add_cluster_arg(nodes_p)
     nodes_p.add_argument("node", nargs="?", default="", help="Node name (omit for all)")
     nodes_p.add_argument("--json", action="store_true", help="Emit machine-readable JSON")
     nodes_p.set_defaults(func=nodes_command)
 
     # queue
     queue_p = subs.add_parser("queue", help="Show job queue")
+    _add_cluster_arg(queue_p)
     queue_p.add_argument("--user", help="Filter by user")
     queue_p.add_argument("--partition", help="Filter by partition")
     queue_p.add_argument("--json", action="store_true", help="Emit machine-readable JSON")
@@ -137,6 +178,7 @@ def main(argv: list[str] | None = None) -> int:
 
     # qos
     qos_p = subs.add_parser("qos", help="Inspect or modify a Slurm QOS")
+    _add_cluster_arg(qos_p)
     qos_p.add_argument("name", help="QOS name")
     qos_p.add_argument("--max-wall-min", type=int, dest="max_wall_min", help="Max wall time (min)")
     qos_p.add_argument("--apply", action="store_true", help="Apply changes (default: dry-run)")
@@ -145,11 +187,13 @@ def main(argv: list[str] | None = None) -> int:
 
     # warewulf
     ww_p = subs.add_parser("warewulf", help="Show Warewulf node status")
+    _add_cluster_arg(ww_p)
     ww_p.add_argument("--json", action="store_true", help="Emit machine-readable JSON")
     ww_p.set_defaults(func=warewulf_command)
 
     # spack
     spack_p = subs.add_parser("spack", help="Spack queries")
+    _add_cluster_arg(spack_p)
     spack_p.add_argument(
         "--json", action="store_true", help="Emit machine-readable JSON (env list only)"
     )
@@ -162,6 +206,7 @@ def main(argv: list[str] | None = None) -> int:
 
     # ansible
     ansible_p = subs.add_parser("ansible", help="Run an Ansible playbook")
+    _add_cluster_arg(ansible_p)
     ansible_p.add_argument("playbook", help="Path to playbook YAML")
     ansible_p.add_argument("--limit", help="Host limit")
     ansible_p.add_argument("--apply", action="store_true", help="Apply changes (default: dry-run)")
@@ -171,6 +216,7 @@ def main(argv: list[str] | None = None) -> int:
 
     # reservation
     res_p = subs.add_parser("reservation", help="Manage Slurm reservations")
+    _add_cluster_arg(res_p)
     res_subs = res_p.add_subparsers(dest="action")
 
     res_list_p = res_subs.add_parser("list", help="List reservations")
@@ -207,6 +253,7 @@ def main(argv: list[str] | None = None) -> int:
 
     # account
     acc_p = subs.add_parser("account", help="Manage Slurm accounting accounts")
+    _add_cluster_arg(acc_p)
     acc_subs = acc_p.add_subparsers(dest="action")
 
     acc_list_p = acc_subs.add_parser("list", help="List accounts")
@@ -224,6 +271,7 @@ def main(argv: list[str] | None = None) -> int:
 
     # accounting
     acctg_p = subs.add_parser("accounting", help="Query Slurm job accounting history")
+    _add_cluster_arg(acctg_p)
     acctg_p.add_argument("--user", help="Filter by user")
     acctg_p.add_argument("--account", help="Filter by account")
     acctg_p.add_argument("--start", help="Start date (e.g. 2026-06-01)")
@@ -234,14 +282,24 @@ def main(argv: list[str] | None = None) -> int:
 
     # sdiag
     sdiag_p = subs.add_parser("sdiag", help="Show Slurm scheduler diagnostics")
+    _add_cluster_arg(sdiag_p)
     sdiag_p.set_defaults(func=sdiag_command)
 
-    # cron (NYI)
-    cron_p = subs.add_parser("cron", help="[planned] Scheduled cluster monitoring")
+    # cron (scheduled monitoring)
+    cron_p = subs.add_parser("cron", help="Scheduled cluster health monitoring")
+    cron_p.add_argument(
+        "--interval", type=int, default=300, help="Polling interval in seconds (default: 300)"
+    )
+    cron_p.add_argument(
+        "--cluster",
+        default=None,
+        help="Target cluster (default from config, or $HPC_PILOT_CLUSTER)",
+    )
     cron_p.set_defaults(func=cron_command)
 
     # approve
     approve_p = subs.add_parser("approve", help="Approve or reject out-of-band approval requests")
+    _add_cluster_arg(approve_p)
     approve_p.add_argument("request_id", nargs="?", help="Approval request ID")
     approve_p.add_argument("--reject", action="store_true", help="Reject instead of approve")
     approve_p.add_argument(
@@ -251,6 +309,7 @@ def main(argv: list[str] | None = None) -> int:
 
     # version
     version_p = subs.add_parser("version", help="Show version")
+    _add_cluster_arg(version_p)
     version_p.set_defaults(func=version_command)
 
     # self-evolve
@@ -269,6 +328,7 @@ def main(argv: list[str] | None = None) -> int:
     evolve_p.add_argument(
         "--dry-run", action="store_true", dest="dry_run", help="Preview without writing"
     )
+    _add_cluster_arg(evolve_p)
     evolve_p.set_defaults(func=self_evolve_command)
     evolve_pr_p = subs.add_parser(
         "self-evolve-create-pr",
@@ -281,6 +341,7 @@ def main(argv: list[str] | None = None) -> int:
     evolve_pr_p.add_argument(
         "--dry-run", action="store_true", dest="dry_run", help="Preview without pushing"
     )
+    _add_cluster_arg(evolve_pr_p)
     evolve_pr_p.set_defaults(func=self_evolve_create_pr_command)
 
     # config
@@ -305,6 +366,7 @@ def main(argv: list[str] | None = None) -> int:
         help="Reload configuration from config.yaml (cluster cache, audit sinks, rate limiter)",
     )
     config_reload_p.set_defaults(func=config_command)
+    _add_cluster_arg(config_p)
     config_p.set_defaults(func=config_command)
 
     # audit-prune
@@ -318,6 +380,7 @@ def main(argv: list[str] | None = None) -> int:
         default=90,
         help="Remove entries older than this many days (default: 90)",
     )
+    _add_cluster_arg(audit_prune_p)
     audit_prune_p.set_defaults(func=audit_prune_command)
 
     # setup-hermes
@@ -325,6 +388,7 @@ def main(argv: list[str] | None = None) -> int:
         "setup-hermes",
         help="Install the HPC-Pilot Hermes Agent plugin",
     )
+    _add_cluster_arg(setup_hermes_p)
     setup_hermes_p.set_defaults(func=setup_hermes_command)
 
     args = parser.parse_args(argv)

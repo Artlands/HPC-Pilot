@@ -1,5 +1,5 @@
 [Unit]
-Description=HPC Pilot Gateway
+Description=HPC Pilot Gateway (legacy — use hpc-pilot.service for full daemon)
 After=network.target
 
 [Service]

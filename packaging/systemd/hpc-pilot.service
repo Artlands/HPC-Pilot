@@ -1,0 +1,17 @@
+[Unit]
+Description=HPC Pilot Daemon — gateway + webui + health monitor
+After=network.target
+
+[Service]
+Type=forking
+User=hpc-pilot
+EnvironmentFile=/etc/hpc-pilot/gateway.env
+ExecStart=/usr/bin/hpc-pilot daemon --start
+ExecStop=/usr/bin/hpc-pilot daemon --stop
+ExecReload=/usr/bin/hpc-pilot daemon --stop && /usr/bin/hpc-pilot daemon --start
+PIDFile=/var/lib/hpc-pilot/run/daemon.pid
+Restart=on-failure
+RestartSec=10s
+
+[Install]
+WantedBy=multi-user.target

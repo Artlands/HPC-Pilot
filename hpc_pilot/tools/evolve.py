@@ -61,6 +61,8 @@ import subprocess
 import sys
 import tempfile
 import time
+import urllib.error
+import urllib.request
 from typing import Any
 
 from hpc_pilot.paths import get_home
@@ -604,34 +606,35 @@ def _create_github_pr(tool_name: str, description: str, branch: str) -> str:
         }
     ).encode()
 
-    result = subprocess.run(
-        [
-            "curl",
-            "-s",
-            "-X",
-            "POST",
+    try:
+        req = urllib.request.Request(
             f"https://api.github.com/repos/{repo}/pulls",
-            "-H",
-            f"Authorization: Bearer {token}",
-            "-H",
-            "Content-Type: application/json",
-            "-d",
-            payload,
-        ],
-        capture_output=True,
-        text=True,
-        timeout=30,
-    )
+            data=payload,
+            headers={
+                "Authorization": f"Bearer {token}",
+                "Content-Type": "application/json",
+                "User-Agent": "hpc-pilot-self-evolve",
+            },
+            method="POST",
+        )
+        with urllib.request.urlopen(req, timeout=30) as resp:
+            body = resp.read().decode()
+    except urllib.error.HTTPError as exc:
+        body = exc.read().decode()
+        try:
+            msg = json.loads(body).get("message", body[:500])
+        except json.JSONDecodeError:
+            msg = body[:500]
+        return f"GitHub API error: {msg}"
+    except (urllib.error.URLError, OSError) as exc:
+        return f"Failed to call GitHub API: {exc}"
 
-    if result.returncode != 0:
-        return f"Failed to call GitHub API: {result.stderr}"
-
-    resp = json.loads(result.stdout)
+    resp = json.loads(body)
     if "html_url" in resp:
         return f"PR created: {resp['html_url']}"
     elif "message" in resp:
         return f"GitHub API error: {resp['message']}"
-    return f"Unknown GitHub API response: {result.stdout[:500]}"
+    return f"Unknown GitHub API response: {body[:500]}"
 
 
 # ---------------------------------------------------------------------------

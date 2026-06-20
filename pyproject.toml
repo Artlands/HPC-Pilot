@@ -33,6 +33,9 @@ webui = [
     "fastapi>=0.100",
     "uvicorn>=0.20",
 ]
+tui = [
+    "rich>=13.0",
+]
 
 [project.scripts]
 hpc-pilot = "hpc_pilot.cli:main"
